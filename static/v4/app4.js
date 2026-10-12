@@ -24,10 +24,11 @@
   var PERMANENT = /plan or role|Log in/;
   function checkOnce(c) {
     var snap = V.claimSnap(c);
-    return fetch('/api/validate-claim', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    var ac = window.AbortController ? new AbortController() : null, tm = ac && setTimeout(function () { ac.abort(); }, 30000);   // a hung request is retried, never waited on forever
+    return fetch('/api/validate-claim', { method: 'POST', credentials: 'same-origin', signal: ac ? ac.signal : undefined, headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ codes: snap.cpts.concat(snap.icds).map(function (x) { return { code: x.code, description: x.description, type: x.type }; }),
         note: 'CLAIM: patient ' + (snap.patient || 'not on file') + ', DOB ' + (snap.dob || 'not on file') + ', sex ' + (snap.sex || 'not on file') + ', payer ' + (snap.payer || 'not on file') + ', member ID ' + (snap.insuredId || 'not on file') + ', rendering provider ' + (snap.provider || 'not on file') + ', date of service ' + (snap.svcDate || 'not on file') + ', place of service 11.\n\n' + snap.note }) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
+      .then(function (r) { clearTimeout(tm); return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); }, function () { clearTimeout(tm); throw new Error('retry'); })
       .then(function (x) {
         if (x.s === 403) throw new Error('Your plan or role doesn’t include the claim check.');
         if (x.s === 401) throw new Error('Log in again to run the claim check.');
@@ -331,7 +332,8 @@
 /* ---------- Althea builds the claim: iterates until the claim check is 90% or better; the provider approves once ---------- */
 (function () {
   var E = U.esc, M = U.money, S = D.S, TARGET = 90;
-  var post = function (url, body) { return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json().then(function (j) { if (!r.ok || j.error) throw new Error(r.status === 403 ? 'Your plan or role doesn’t include this.' : r.status === 401 ? 'Log in again.' : (j.error || 'Unavailable right now.')); return j; }); }); };
+  var post = function (url, body) { var ac = window.AbortController ? new AbortController() : null, tm = ac && setTimeout(function () { ac.abort(); }, 45000);
+    return fetch(url, { method: 'POST', credentials: 'same-origin', signal: ac ? ac.signal : undefined, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { clearTimeout(tm); return r.json().then(function (j) { if (!r.ok || j.error) throw new Error(r.status === 403 ? 'Your plan or role doesn’t include this.' : r.status === 401 ? 'Log in again.' : (j.error || 'Unavailable right now.')); return j; }); }); };
   var SEC = { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' };
   // the working copy: codes, note additions (each with its quoted source), and a note that includes them
   function workEnc(base, adds) {

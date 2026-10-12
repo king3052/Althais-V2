@@ -1,7 +1,7 @@
 import os, re
 from dotenv import load_dotenv
 load_dotenv()  # local dev: read GROQ_API_KEY from a git-ignored .env; real env vars still win
-from fastapi import FastAPI, Request, Depends, UploadFile, File
+from fastapi import FastAPI, Body, Request, Depends, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, FileResponse
@@ -11,7 +11,7 @@ import json
 from urllib.parse import urlencode
 from ncci_checker import check_claim_ncci_flags
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"), timeout=25, max_retries=1)   # a slow or stuck AI call can't hold a request open
 
 # llama-3.3-70b-versatile was deprecated by Groq (announced June 17, 2026):
 # this is Groq's own recommended replacement. Kept as a single constant
@@ -1164,11 +1164,11 @@ def _rate_limited_response():
 @app.post("/api/code-note")
 # Providers too: they code their own visits as they write them (encounter workspace, Virtual SOAP). Code suggestions
 # only; sending a claim still goes through the claim gate and its own permissions.
-async def code_note(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
+def code_note(payload: dict = Body(...), user=Depends(require_role("provider")), db: Session = Depends(get_db)):
     ensure_product(user, db, "coding")
     ensure_area(user, "code_a_note")
     try:
-        data = await request.json()
+        data = payload
         _ckey, _hit = _ai_cache_get('code', data)
         if _hit is not None:
             return JSONResponse(_hit)
@@ -1366,14 +1366,14 @@ async def validate_claim(request: Request, user=Depends(require_role("provider")
 
 
 @app.post("/api/claim-build")
-async def claim_build(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
+def claim_build(payload: dict = Body(...), user=Depends(require_role("provider")), db: Session = Depends(get_db)):
     """Althea builds the claim: picks the codes the documentation supports and summarizes the note's own facts into
     what the payer needs to see. Nothing is invented: every note addition must quote the note or the visit
     transcript, and additions whose quote isn't really there are dropped here. The provider approves the result."""
     ensure_product(user, db, "coding")
     ensure_area(user, "code_a_note")
     try:
-        data = await request.json()
+        data = payload
         _ckey, _hit = _ai_cache_get('build', data)
         if _hit is not None:
             return JSONResponse(_hit)
@@ -1726,11 +1726,11 @@ def _claim_auto_work(note, transcript, header, visit, pinned, t0):
 
 
 @app.post("/api/appeal-letter")
-async def appeal_letter(request: Request, user=Depends(require_biller), db: Session = Depends(get_db)):
+def appeal_letter(payload: dict = Body(...), user=Depends(require_biller), db: Session = Depends(get_db)):
     ensure_product(user, db, "insurance")
     ensure_area(user, "appeals")
     try:
-        data = await request.json()
+        data = payload
         prompt = f"""You are an expert medical billing specialist drafting a formal insurance claim appeal letter.
         Write a professional, persuasive appeal letter for the denied claim described below.
         Structure it as a real business letter with today's date, payer's appeals department as recipient,
