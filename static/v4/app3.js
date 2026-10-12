@@ -277,7 +277,7 @@
       ever.forEach(function (c) { (byR[c.carc] = byR[c.carc] || []).push(c); });
       var due = all.filter(function (c) { return c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 30; });
       app.innerHTML = U.header('denials') +
-        U.toolbar('Denials', [['Send appeal', 'send', { pri: 1, id: 'send2' }], ['Edit appeal', 'pencil', { id: 'editl' }], ['Correct and resubmit', 'refresh', { id: 'resub2' }], '|', ['Print', 'print', { id: 'printl' }], ['Export', 'download', { id: 'export' }]], all.length + ' open') +
+        U.toolbar('Denials', [['Send appeal', 'send', { pri: 1, id: 'send2' }], ['Edit appeal', 'pencil', { id: 'editl' }], ['Correct and resubmit', 'refresh', { id: 'resub2' }], '|', ['Print', 'print', { id: 'printl' }], ['Export', 'download', { id: 'export' }]]) +
         U.strip([['Open denials', all.length, M(D.sum(all, D.charge)), all.length ? 'red' : ''], ['Appeals drafted', all.filter(function (c) { return c.dstatus === 'Appeal drafted'; }).length, 'ready to send'], ['Due in 7 days', due.filter(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }).length, M(D.sum(due.filter(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }), D.charge)), due.some(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }) ? 'amb' : ''],
           ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90], ['Overturn rate', t.decided ? U.pct(t.overturned / t.decided, 0) : '-', 'last 90 days']]) +
         '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
@@ -329,7 +329,7 @@
       var r = R.filter(function (x) { return x.id === sel; })[0], st = stats(r), today = S.claims.filter(function (c) { return c.dos === D.today(); });
       var allStats = R.map(stats), stopped = D.sum(allStats, function (s) { return s.hit; }), prevented = D.sum(allStats, function (s) { return D.sum(s.fixed, D.charge); });
       app.innerHTML = U.header('rules') +
-        U.toolbar('Payer rules', [['Check for updates', 'refresh', { pri: 1, id: 'upd' }], ['Add local rule', 'plus', { id: 'addrule' }], '|', ['Export', 'download', { id: 'export' }]], 'Rule library v2026.10, ' + D.RULES.length + ' rules') +
+        U.toolbar('Payer rules', [['Check for updates', 'refresh', { pri: 1, id: 'upd' }], ['Add local rule', 'plus', { id: 'addrule' }], '|', ['Export', 'download', { id: 'export' }]]) +
         U.strip([['Active rules', R.length, payers.length + ' payers'], ['Claims stopped before submission', stopped, 'since 08/01'], ['Est. denials prevented', M(prevented), 'since 08/01', prevented ? 'grn' : ''], ['Local rules', S.localRules.length]]) +
         '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
           U.pane('Payers', '', '', U.queue([{ items: [{ key: 'all', label: 'All payers', n: R.length, color: 'blue' }].concat(payers.map(function (p) { return { key: p, label: p, n: R.filter(function (x) { return x.payer === p; }).length, color: null }; })) },
@@ -409,7 +409,7 @@
       var exp = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (c) { var d = c.exp ? D.daysBetween(D.today(), c.exp) : 999; if (d <= 120) exp.push([s, c, d]); }); }); exp.sort(function (a, b) { return a[2] - b[2]; });
       var inv = S.staff.filter(function (s) { return s.status === 'Invited'; });
       app.innerHTML = U.header('team') +
-        U.toolbar('Team', [['Invite member', 'user', { pri: 1, id: 'invite' }], ['Add existing staff', 'plus', { id: 'addstaff' }], ['Send reminders', 'mail', { id: 'remindall' }], '|', ['Export CSV', 'download', { id: 'export' }]], S.staff.length + ' members') +
+        U.toolbar('Team', [['Invite member', 'user', { pri: 1, id: 'invite' }], ['Add existing staff', 'plus', { id: 'addstaff' }], ['Send reminders', 'mail', { id: 'remindall' }], '|', ['Export CSV', 'download', { id: 'export' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 400px">' +
           U.pane('Staff', '', '', U.queue([{ items: [{ key: 'todo', label: 'To-do', n: S.staff.filter(todo).length, color: 'amb' }, { key: 'team', label: 'Team', n: S.staff.filter(function (x) { return x.status !== 'Inactive'; }).length, color: 'blue' }, { key: 'onb', label: 'Onboarding', n: inv.length, color: 'gray' },
               { key: 'cred', label: 'Credentials', n: D.sum(S.staff, function (x) { return (x.creds || []).length; }), color: null }, { key: 'comp', label: 'Compliance', color: null }, { key: 'train', label: 'Training', color: null }, { key: 'roles', label: 'Roles and access', color: null }] },

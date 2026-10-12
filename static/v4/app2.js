@@ -53,6 +53,39 @@
       }
   };
 
+  // Pasted or dictated text -> SOAP fields, without the AI: section headings when there are any, otherwise each
+  // sentence goes where its content belongs (exam findings and results -> Objective, diagnoses -> Assessment,
+  // orders and follow-up -> Plan, the rest -> Subjective). Vitals are read out too. Used whenever the AI can't answer.
+  V.splitSoap = function (text) {
+    var t = String(text || '').replace(/\r/g, ''), f = { hpi: [], exam: [], assessment: [], plan: [] }, m;
+    var num = function (re) { var x = t.match(re); return x ? x : null; };
+    if ((m = num(/\b(?:BP|blood pressure)\b[:\s]*(?:is|of|was)?\s*(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})/i))) f.bp = m[1] + '/' + m[2];
+    if ((m = num(/\b(?:HR|heart rate|pulse)\b[:\s]*(?:is|of|was)?\s*(\d{2,3})\b/i))) f.hr = m[1];
+    if ((m = num(/\b(?:temp(?:erature)?|T)\b[:\s]*(?:is|of|was)?\s*(\d{2,3}(?:\.\d)?)\s*(?:°?\s*F)?/i)) && +m[1] > 90 && +m[1] < 110) f.temp = m[1];
+    if ((m = num(/\b(?:SpO2|O2 sat(?:uration)?|oxygen saturation|sats?)\b[:\s]*(?:is|of|was)?\s*(\d{2,3})\s*%?/i)) && +m[1] <= 100) f.spo2 = m[1];
+    var HEAD = /(^|\n|[.;]\s+)\s*(subjective|history of present illness|hpi|chief complaint|cc|objective|physical exam(?:ination)?|exam(?:ination)?|vitals|labs|results|assessment and plan|assessment\/plan|a\/p|assessment|impression|diagnos[ie]s|dx|plan)\b\s*[:\-]?\s*/gi;
+    var KEY = function (h) { h = h.toLowerCase(); return /subj|history|hpi|chief|^cc$/.test(h) ? 'hpi' : /obj|exam|vital|lab|result/.test(h) ? 'exam' : /assessment and plan|assessment\/plan|^a\/p$/.test(h) ? 'ap' : /assess|impress|diagnos|^dx$/.test(h) ? 'assessment' : 'plan'; };
+    var PLAN = /\b(start|add|begin|increase|decrease|titrate|stop|discontinue|prescrib|refer|order|recheck|re-check|return|schedule|counsel|educat|advis|repeat|supportive care)\w*|\bfollow[- ]?up (in|with)\b|\b(in|within) \d+ (days?|weeks?|months?)\b/i;
+    var CONDITION = /\b(hypertension|htn|diabetes|dm|ckd|kidney disease|copd|asthma|pharyngitis|strep throat|infection|uri|bronchitis|sinusitis|otitis|depression|anxiety|hyperlipidemia|obesity|gerd|arthritis|pneumonia|uti|migraine|hypothyroidism|atrial fibrillation|heart failure)\b/i;
+    var STATUS = /\b(uncontrolled|controlled|stable|worsening|improving|stage \w+|acute|chronic|with hyperglycemia|exacerbation|not at goal|at goal|resolved|likely|viral|bacterial)\b/i;
+    var DX = function (x) { return /\b(diagnos|impression|consistent with|suspect|rule out|r\/o)\w*|^\s*\d+[.)]\s/i.test(x) || (CONDITION.test(x) && STATUS.test(x) && !/\bfollow[- ]?up\b|\bhere for\b|\bpresents?\b/i.test(x)); };
+    var HX = /\b(taking|takes|currently on|reports?|denies|complains?|here for|presents?|history of|follow[- ]?up)\b/i;
+    var OBJ = /\b(bp|blood pressure|hr|heart rate|pulse|temp(erature)?|spo2|o2 sat)\b[^.]{0,20}\d|\b(exam|lungs?|abdomen|a1c|egfr|acr|labs?|x-?ray|tender|clear to|pulses|rash|edema|murmur|rapid strep|exudate|lymph ?nodes|nodes|sensation|bmi|weight \d|feet normal|no sores)\b/i;
+    var put = function (k, txt) { txt = String(txt || '').trim().replace(/^[,.;:\s-]+/, ''); if (txt) f[k].push(txt); };
+    var sentences = function (txt) { return String(txt).split(/(?<=[.!?])\s+|\n+/).map(function (x) { return x.trim(); }).filter(Boolean); };
+    var classify = function (txt) { sentences(txt).forEach(function (x) { put(DX(x) ? 'assessment' : HX.test(x) && !OBJ.test(x) ? 'hpi' : PLAN.test(x) ? 'plan' : OBJ.test(x) ? 'exam' : 'hpi', x); }); };
+    var parts = [], last = 0, key = null; HEAD.lastIndex = 0;
+    while ((m = HEAD.exec(t))) { parts.push([key, t.slice(last, m.index + m[1].length)]); key = KEY(m[2]); last = HEAD.lastIndex; }
+    parts.push([key, t.slice(last)]);
+    parts.forEach(function (pt) {
+      if (!pt[1].trim()) return;
+      if (!pt[0]) return classify(pt[1]);
+      if (pt[0] === 'ap') return sentences(pt[1]).forEach(function (x) { put(PLAN.test(x) && !/^\s*\d+[.)]/.test(x) ? 'plan' : 'assessment', x); });
+      put(pt[0], pt[1]);
+    });
+    return { hpi: f.hpi.join(' '), exam: f.exam.join(' '), assessment: f.assessment.join('\n'), plan: f.plan.join(' '), bp: f.bp, hr: f.hr, temp: f.temp, spo2: f.spo2 };
+  };
+
   V.pages.encounter = function () {
     var e = D.enc(V.q.get('enc'));
     if (!e) return chooser();
@@ -198,9 +231,10 @@
       fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_scribe', text: e.transcript.filter(function (l) { return l.src !== 'command'; }).map(function (l) { return l.text; }).join(' ') }) })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
         .then(function (x) {
-          if (!x.ok || x.j.error) throw new Error(x.s === 401 || x.s === 403 ? 'Log in to Althais on this server (/login) to use note writing.' : (x.j.error || x.j.detail || 'Note writing is unavailable.'));
-          var f = x.j.fields || {}, filled = [];
-          var put = function (k, val) { if (val && !String(e[k] || '').trim()) { e[k] = val; filled.push(k.toUpperCase()); } };
+          if (x.s === 401 || x.s === 403) throw new Error('Log in to Althais on this server (/login) to use note writing.');
+          var f = x.ok && !x.j.error && x.j.fields ? x.j.fields : V.splitSoap(e.transcript.filter(function (l) { return l.src !== 'command'; }).map(function (l) { return l.text; }).join('\n')), filled = [];
+          var blank = function (k) { return !String(e[k] || '').replace(/Chief complaint:[^.\n]*\.?/i, '').trim(); };
+          var put = function (k, val) { if (val && blank(k)) { e[k] = (k === 's' && String(e.s || '').trim() ? e.s.replace(/\s+$/, '') + '\n' : '') + val; filled.push(k.toUpperCase()); } };
           put('s', [f.chief_complaint && 'Chief complaint: ' + f.chief_complaint, f.hpi, f.ros && 'ROS: ' + f.ros, f.pmh && 'PMH: ' + f.pmh, f.medications && 'Medications: ' + f.medications, f.allergies && 'Allergies: ' + f.allergies].filter(Boolean).join('\n'));
           put('o', [f.exam, f.labs && 'Results: ' + f.labs].filter(Boolean).join('\n')); put('a', f.assessment); put('p', f.plan);
           ['bp', 'hr', 'temp', 'spo2'].forEach(function (k) { if (f[k] && !e.vitals[k]) e.vitals[k] = f[k]; });
@@ -335,13 +369,13 @@
         var text = String(raw).replace(CHART, '').trim();
         return fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_note', text: text.slice(0, 4000) }) })
           .then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (j) {
-            var f = j.fields || {}, put = [], add = function (k, label, val) { val = String(val || '').trim(); if (!val || String(e[k] || '').toLowerCase().indexOf(val.toLowerCase()) >= 0) return; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + val; if (put.indexOf(label) < 0) put.push(label); };
+            var f = j.fields || V.splitSoap(text), put = [], add = function (k, label, val) { val = String(val || '').trim(); if (!val || String(e[k] || '').toLowerCase().indexOf(val.toLowerCase()) >= 0) return; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + val; if (put.indexOf(label) < 0) put.push(label); };
             add('s', 'Subjective', [f.chief_complaint && 'Chief complaint: ' + f.chief_complaint, f.hpi, f.ros && 'ROS: ' + f.ros, f.medications && 'Medications: ' + f.medications, f.allergies && 'Allergies: ' + f.allergies].filter(Boolean).join('\n'));
             add('o', 'Objective', [f.exam, f.labs && 'Results: ' + f.labs].filter(Boolean).join('\n')); add('a', 'Assessment', f.assessment); add('p', 'Plan', f.plan);
             ['bp', 'hr', 'temp', 'spo2'].forEach(function (k) { if (f[k]) { e.vitals[k] = f[k]; if (put.indexOf('Vitals') < 0) put.push('Vitals'); } });
             if (!put.length) { e.s = (e.s ? e.s.replace(/\s+$/, '') + '\n' : '') + text; put.push('Subjective'); }   // couldn't sort it: keep it, in Subjective
             save(); tab = 'note'; draw(); scheduleCodes(300);
-            return { text: 'Added to ' + put.join(', ') + '.' + (j.fields ? '' : ' (Log in to have me sort it into sections.)'), spoken: 'Added to ' + put.slice(0, 3).join(', ') + '.' };
+            return { text: 'Added to ' + put.join(', ') + '.', spoken: 'Added to ' + put.slice(0, 3).join(', ') + '.' };
           });
       },
     };

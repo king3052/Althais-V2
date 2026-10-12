@@ -245,7 +245,7 @@
         }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing booked.') + '</tbody>')) +
         '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + rows.length + ' of ' + all.length + '</span></div></section>';
       app.innerHTML = U.header('schedule') +
-        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }]], S.appts.length + ' appointments on file') +
+        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Providers', '', '', U.queue([
             { h: 'Day, ' + D.us(V.day).slice(0, 5), items: [{ key: 'all', label: 'All providers', n: all.length, color: 'blue' }].concat(provs.map(function (id) { return { key: 'p:' + id, label: D.provName(id), n: cnt(function (a) { return a.prov === id; }), color: 'lblue' }; })) },
@@ -301,7 +301,7 @@
       var rows = S.patients.filter(f).sort(function (a, b) { return a.name.localeCompare(b.name); }), n = function (k) { return S.patients.filter(L[k]).length; };
       var nsel = Object.keys(sel).filter(function (k) { return sel[k]; }).length;
       app.innerHTML = U.header('patients') +
-        U.toolbar('Patients', [['New Patient', 'user', { pri: 1, id: 'newpt' }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]], n('all') + ' active patients') +
+        U.toolbar('Patients', [['New Patient', 'user', { pri: 1, id: 'newpt' }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr)">' +
           U.pane('Patient lists', '', '', U.queue([
             { items: [{ key: 'all', label: 'All active', n: n('all'), color: 'blue' }, { key: 'week', label: 'Seen this week', n: n('week') }, { key: 'today', label: 'Scheduled today', n: n('today') }, { key: 'new', label: 'New this month', n: n('new') }] },
@@ -380,7 +380,7 @@
       var docs = S.docs.filter(function (d) { return d.mrn === mrn; }), up = S.appts.filter(function (a) { return a.mrn === mrn && a.date >= D.today() && ['Scheduled', 'Checked in'].indexOf(a.visit) >= 0; }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
       var sec = function (id, title, sub, cols, rows, empty, end) { return '<div id="' + id + '">' + U.sect(title, sub, U.grid(cols, rows, { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(cols.length, empty) + '</tbody>'), end) + '</div>'; };
       app.innerHTML = U.header('chart') + V.banner(mrn, '<button class="btn" id="msg">Message</button><button class="btn" id="switch">Switch patient</button><button class="btn pri" id="visit" style="display:inline-flex;align-items:center;gap:5px">' + I.mic + 'Start Visit</button>') +
-        U.toolbar('Patient chart', [['New note', 'pencil', { id: 'note' }], ['Orders', 'clip', { id: 'orders' }], ['Upload document', 'upload', { id: 'upload' }], '|', ['Print', 'print', { id: 'print' }], ['Export record', 'download', { id: 'export' }]], 'Record ' + p.mrn) +
+        U.toolbar('Patient chart', [['New note', 'pencil', { id: 'note' }], ['Orders', 'clip', { id: 'orders' }], ['Upload document', 'upload', { id: 'upload' }], '|', ['Print', 'print', { id: 'print' }], ['Export record', 'download', { id: 'export' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Chart', '', '', U.queue([
             { h: 'Patient record', items: [{ key: 'notes', label: 'Clinical notes', n: encs.length, color: 'blue' }, { key: 'demo', label: 'Demographics', color: null }, { key: 'ins', label: 'Insurance', n: p.payer ? 1 : 0, color: null }] },
@@ -455,7 +455,7 @@
         : /pdf/.test(d.mime) ? '<iframe title="Preview" src="' + d.data + '" style="width:100%;height:100%;border:0;background:#fff"></iframe>'
         : /^text\//.test(d.mime) ? '<div class="fax"><pre style="white-space:pre-wrap;margin:0;font:12px var(--mono)">' + E(atob(d.data.split(',')[1] || '')) + '</pre></div>' : '<div class="fax"><p>' + E(d.file || d.name) + '</p><p class="mut">This file type can’t be previewed. Use Download.</p></div>';
       app.innerHTML = U.header('documents') + (mrn ? V.banner(mrn, '<button class="btn" id="switch">Switch patient</button><a class="btn" style="display:inline-flex;align-items:center" href="/v4/emr/documents">All patients</a>') : '') +
-        U.toolbar('Documents', [['Upload', 'upload', { pri: 1, id: 'upload' }], ['Request from patient', 'mail', { id: 'request' }], ['Send fax', 'fax', { id: 'fax' }], '|', ['Print', 'print', { id: 'printdoc' }], ['Download', 'download', { id: 'dl' }]], all.filter(function (x) { return x.status === 'Awaiting signature'; }).length + ' awaiting signature') +
+        U.toolbar('Documents', [['Upload', 'upload', { pri: 1, id: 'upload' }], ['Request from patient', 'mail', { id: 'request' }], ['Send fax', 'fax', { id: 'fax' }], '|', ['Print', 'print', { id: 'printdoc' }], ['Download', 'download', { id: 'dl' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 420px">' +
           U.pane('Document types', '', '', U.queue([{ items: [{ key: 'All', label: 'All', n: all.length, color: 'blue' }].concat(types.map(function (t) { return { key: t, label: t, n: all.filter(function (x) { return x.type === t; }).length, color: null }; })) },
             { h: 'Status', items: [{ key: 'await', label: 'Awaiting signature', n: all.filter(function (x) { return x.status === 'Awaiting signature'; }).length, color: 'amb' }, { key: 'unfiled', label: 'Unfiled', n: all.filter(function (x) { return x.status === 'Unfiled'; }).length, color: 'gray' }] }], Q)) +

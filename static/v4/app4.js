@@ -255,7 +255,7 @@
     var app = V.app, st = V.cn || (V.cn = { note: '', codes: [], busy: false, err: '', check: null, mrn: '' });
     function draw() {
       var acc = st.codes.filter(function (c) { return c.on; });
-      app.innerHTML = U.header('codenote') + U.toolbar('Code a Note', [['Get codes', 'check', { pri: 1, id: 'go' }], ['Check claim', 'refresh', { id: 'chk' }], ['Create claim', 'plus', { id: 'mk' }], '|', ['Clear', 'x', { id: 'clr' }]], 'Paste any visit note') +
+      app.innerHTML = U.header('codenote') + U.toolbar('Code a Note', [['Get codes', 'check', { pri: 1, id: 'go' }], ['Check claim', 'refresh', { id: 'chk' }], ['Create claim', 'plus', { id: 'mk' }], '|', ['Clear', 'x', { id: 'clr' }]]) +
         '<div class="main" style="grid-template-columns:minmax(0,1fr) 470px">' +
           '<section class="pane"><div class="ph">Visit note <span class="sub">paste or type, then Get codes</span></div><div class="pbody" style="padding:10px"><textarea class="ed" id="cn" style="height:100%;min-height:400px" placeholder="Chief complaint, HPI, exam, assessment and plan">' + E(st.note) + '</textarea></div></section>' +
           '<section class="pane"><div class="ph">Codes <span class="sub">' + (st.busy ? 'reading the note…' : st.codes.length + ' suggested') + '</span></div><div class="pbody">' +

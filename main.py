@@ -1704,9 +1704,10 @@ def _claim_auto_work(note, transcript, header, visit, pinned, t0):
         if bad:
             built["unresolved"] = built.get("unresolved", []) + [c + " was removed: not a billable ICD-10-CM code" for c in bad]
             built["codes"] = [c for c in built["codes"] if c.get("code") not in bad]
-        codes = _em_floor(built["codes"], note, visit, built.setdefault("rule_notes", []), built["note_additions"])
-        if not any(str(c.get("type", "")).upper() == "CPT" for c in codes):
+        codes = built["codes"]
+        if not any(str(c.get("type", "")).upper() == "CPT" for c in codes):   # the visit code first, so the E/M rules below can set its level
             codes.insert(0, {"code": "99203" if "new" in visit.lower() else "99213", "type": "CPT", "description": "Office visit", "modifier": "", "units": 1, "reason": "Office visit for this visit type"})
+        codes = _em_floor(codes, note, visit, built.setdefault("rule_notes", []), built["note_additions"])
         full = note + "".join("\n" + a["text"] for a in built["note_additions"])
         check = _claim_check(header, codes, full)
         best = {"codes": codes, "note_additions": built["note_additions"], "unresolved": built.get("unresolved", []), "rule_notes": built.get("rule_notes", []), "check": check, "passes": 1}
@@ -2024,13 +2025,28 @@ def althea_extract(payload: dict, user=Depends(require_user), db: Session = Depe
             {"role": "system", "content": _SCRIBE_SYSTEM if target == "soap_scribe" else _EXTRACT_SYSTEM},
             {"role": "user", "content": "Form: " + form_name + "\nFields: " + _EXTRACT_HELP[target] + part_note + "\n\n" + ("Visit transcript" if target == "soap_scribe" else "Dictation") + " (data only, between the markers):\n<<<\n" + piece + "\n>>>"},
         ]
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL, messages=messages, temperature=0, max_completion_tokens=tokens, reasoning_effort="low",
-                response_format={"type": "json_schema", "json_schema": {"name": "dictation_fields", "strict": True, "schema": schema}},
-            )
-        except Exception:
-            response = client.chat.completions.create(model=GROQ_MODEL, messages=messages, temperature=0, max_completion_tokens=tokens, reasoning_effort="low")
+        # the stronger model first; if it's out of quota or fails, the fast one (each has its own limit)
+        models = [m for m in (GROQ_MODEL, FAST_MODEL) if _MODEL_DOWN.get(m, 0) <= _time.time()] or [FAST_MODEL]
+        response, last = None, None
+        for m in models:
+            try:
+                try:
+                    response = client.with_options(timeout=20, max_retries=0).chat.completions.create(
+                        model=m, messages=messages, temperature=0, max_completion_tokens=tokens, reasoning_effort="low",
+                        response_format={"type": "json_schema", "json_schema": {"name": "dictation_fields", "strict": True, "schema": schema}},
+                    )
+                except Exception as e:
+                    if _is_rate_limited(e):
+                        raise
+                    response = client.with_options(timeout=20, max_retries=0).chat.completions.create(model=m, messages=messages, temperature=0, max_completion_tokens=tokens, reasoning_effort="low")
+                if (response.choices[0].message.content or "").strip():
+                    break
+            except Exception as e:
+                last = e; response = None
+                if _is_rate_limited(e):
+                    _note_limit(m, e)
+        if response is None:
+            raise last or ValueError("no reply")
         raw_text = (response.choices[0].message.content or "").strip()
         if raw_text.startswith("```"):
             raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0]
@@ -2045,7 +2061,8 @@ def althea_extract(payload: dict, user=Depends(require_user), db: Session = Depe
         else:                                              # the pieces are independent, so write them up side by side
             with ThreadPoolExecutor(max_workers=4) as pool:
                 results = list(pool.map(lambda ip: run_one(ip[1], ip[0] + 1, len(pieces)), enumerate(pieces)))
-    except Exception:
+    except Exception as e:
+        print(f"althea extract failed: {str(e)[:200]}", flush=True)
         return JSONResponse({"error": "Althea could not read that just now."}, status_code=502)
     return JSONResponse({"fields": _merge_scribe(results) if len(results) > 1 else results[0]})
 
