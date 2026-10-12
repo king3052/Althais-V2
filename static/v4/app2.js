@@ -316,7 +316,7 @@
       var body = '<div class="so">' +
         '<div class="so-who">Signing as <b>' + E(S.clinic.user) + '</b> · ' + E(p.name) + ' · ' + E(D.us ? D.us(e.date) : e.date) + '</div>' +
         (cpt.length ? '<div class="so-sec"><div class="so-h">Claim</div>' +
-          (k ? '<div class="so-score"><b class="s-' + col + '">' + k.score + '%</b><div class="so-bar"><i style="width:' + k.score + '%;background:var(--' + col + ')"></i></div><span>' + (k.score >= 85 ? 'Ready to submit' : k.score >= 65 ? 'Some risk' : 'Not ready') + '</span></div>' : '') +
+          (k ? '<div class="so-score"><b class="s-' + col + '">' + k.score + '%</b><div class="so-bar"><i style="width:' + k.score + '%;background:var(--' + col + ')"></i></div><span>' + (k.score >= 85 ? 'Ready To Submit' : k.score >= 65 ? 'Usable, Some Risk' : 'Not Ready') + ' · Checked' + (k.at ? ' ' + new Date(k.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '') + '</span></div>' : '') +
           '<div class="so-codes">' + cpt.map(row).join('') + dx.map(row).join('') + '</div>' +
           '<div class="so-tot"><span>Estimated charge</span><b>' + U.money(D.charge(pc)) + '</b></div>' +
           (ed.length ? '<div class="so-warn">' + U.warn + 'Held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve.</div>' : '') + '</div>'

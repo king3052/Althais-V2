@@ -54,14 +54,14 @@
   };
   V.checkHtml = function (c, busy, err) {
     var k = c.check;
-    var head = '<div class="dp-h">Claim check <span class="sub">likelihood of acceptance</span><span class="end"><button class="mini" data-runcheck="' + c.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Checking…' : k ? 'Re-check' : 'Run claim check') + '</button></span></div>';
+    var head = '<div class="dp-h">Claim check <span class="end"><button class="mini" data-runcheck="' + c.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Checking…' : k ? 'Re-check' : 'Run claim check') + '</button></span></div>';
     if (err && PERMANENT.test(err)) return '<div class="dp-sec">' + head + '<div class="s-red">' + E(err) + '</div></div>';
     if (err) busy = true;
     if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Checking the claim… it updates here by itself.' : 'Runs on its own. Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
     var col = V.scoreColor(k.score);
     return '<div class="dp-sec">' + head +
       '<div style="display:flex;align-items:center;gap:12px"><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b><div style="flex:1"><div style="height:6px;background:var(--b2)"><div style="height:6px;width:' + k.score + '%;background:var(--' + col + ')"></div></div>' +
-      '<div class="mut" style="font-size:12px;margin-top:3px">' + (k.score >= 85 ? 'Ready to submit' : k.score >= 65 ? 'Usable, with some risk' : 'Not ready, significant issues') + ' · checked ' + new Date(k.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</div></div></div>' +
+      '<div class="mut" style="font-size:12px;margin-top:3px">' + (k.score >= 85 ? 'Ready To Submit' : k.score >= 65 ? 'Usable, Some Risk' : 'Not Ready') + ' · Checked ' + new Date(k.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</div></div></div>' +
       (k.missing.length ? '<div class="ok-list" style="margin-top:6px">' + k.missing.map(function (m) { return '<div class="e">' + U.err + 'Missing: ' + E(m) + '</div>'; }).join('') + '</div>' : '') +
       (k.flags.length ? '<div class="ok-list">' + k.flags.map(function (f) { return '<div class="w">' + U.warn + E(f) + '</div>'; }).join('') + '</div>' : '') + '</div>';
   };
@@ -261,7 +261,7 @@
           '<section class="pane"><div class="ph">Codes <span class="sub">' + (st.busy ? 'reading the note…' : st.codes.length + ' suggested') + '</span></div><div class="pbody">' +
             (st.err ? '<div class="banner-note s-red">' + E(st.err) + '</div>' : '') +
             U.grid(['', 'Code', 'Description', ['Conf.', 'num']], st.codes.map(function (c, i) { return { cells: ['<input type="checkbox" data-cc="' + i + '"' + (c.on ? ' checked' : '') + '>', '<b>' + E(c.code) + '</b><div class="mut" style="font-size:11px">' + c.type + '</div>', '<div class="wrap">' + E(c.desc) + '</div><div class="mut wrap" style="font-size:11.5px">' + E(c.why || '') + '</div>' + (c.gap ? '<div class="s-amb wrap" style="font-size:11.5px">' + U.warn + E(c.gap) + '</div>' : ''), '<b class="s-' + (c.conf < 80 ? 'amb' : 'grn') + '">' + c.conf + '%</b>'] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'Codes appear here.') + '</tbody>') +
-            (st.check ? (function () { var k = st.check, col = V.scoreColor(k.score); return '<div class="dp-sec"><div class="dp-h">Claim check <span class="sub">likelihood of acceptance</span></div><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b>' + k.missing.map(function (m) { return '<div class="s-red">' + U.err + 'Missing: ' + E(m) + '</div>'; }).join('') + k.flags.map(function (f) { return '<div class="s-amb">' + U.warn + E(f) + '</div>'; }).join('') + '</div>'; })() : '') +
+            (st.check ? (function () { var k = st.check, col = V.scoreColor(k.score); return '<div class="dp-sec"><div class="dp-h">Claim check</div><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b>' + k.missing.map(function (m) { return '<div class="s-red">' + U.err + 'Missing: ' + E(m) + '</div>'; }).join('') + k.flags.map(function (f) { return '<div class="s-amb">' + U.warn + E(f) + '</div>'; }).join('') + '</div>'; })() : '') +
             '<div class="dp-sec"><div class="dp-h">Make it a claim</div>' + U.fields([{ k: 'mrn', label: 'Patient', type: 'select', options: V.ptOptions(), blank: 'Choose a patient', span: 4 }], { mrn: st.mrn }) + '<div class="mut" style="margin-top:4px">' + acc.length + ' code' + (acc.length === 1 ? '' : 's') + ' checked will go on the claim.</div></div>' +
           '</div></section></div>';
       U.fit(); U.search();
@@ -440,7 +440,7 @@
       var who = (D.staff(ctx.prov) || {}).name || S.clinic.user;
       w.querySelector('.mdl-h').firstChild.textContent = ok ? 'Althea built the claim' : 'Althea’s best version of the claim';
       w.querySelector('#ab-res').innerHTML =
-        '<div class="dp-sec" style="padding-left:0;padding-right:0"><b class="s-' + col + '" style="font-size:26px;font-weight:600">' + k.score + '%</b> <span class="mut">likely to be accepted' + (ok ? '' : ' · ' + TARGET + '% needs what’s listed under Still needs you') + '</span>' +
+        '<div class="dp-sec" style="padding-left:0;padding-right:0"><b class="s-' + col + '" style="font-size:26px;font-weight:600">' + k.score + '%</b> <span class="mut">' + (ok ? 'Ready To Submit · Checked' : 'Not Ready · ' + TARGET + '% needs what’s listed under Still needs you') + '</span>' +
           '<div class="mut" style="font-size:12px">Started as ' + E(original || 'no codes') + '</div></div>' +
         '<div class="dp-h">Codes on the claim</div>' + U.grid(['Code', 'Type', 'Mod', 'Why'], codes.map(function (c) { return { cells: ['<b>' + E(c.code) + '</b>', c.type, E(c.mod || ''), '<span class="wrap">' + E(c.reason || c.desc || '') + '</span>'] }; }), { tight: 1 }) +
         '<div class="dp-h" style="margin-top:10px">Note additions <span class="sub">each quotes the visit record; added when you approve</span></div>' +
@@ -513,7 +513,7 @@
     var who = (D.staff(c.prov) || {}).name || S.clinic.user;
     var sc = V.scoreColor(pr.score);
     U.modal('Approve Claim', '<div class="so"><div class="so-who">Approving as <b>' + E(who) + '</b> · ' + E(c.id) + ' · ' + E(D.payer(c) || '') + '</div>' +
-      '<div class="so-sec"><div class="so-h">Claim</div><div class="so-score"><b class="s-' + sc + '">' + pr.score + '%</b><div class="so-bar"><i style="width:' + pr.score + '%;background:var(--' + sc + ')"></i></div><span>likelihood of acceptance</span></div>' +
+      '<div class="so-sec"><div class="so-h">Claim</div><div class="so-score"><b class="s-' + sc + '">' + pr.score + '%</b><div class="so-bar"><i style="width:' + pr.score + '%;background:var(--' + sc + ')"></i></div><span>' + (pr.score >= 85 ? 'Ready To Submit' : pr.score >= 65 ? 'Usable, Some Risk' : 'Not Ready') + ' · Checked</span></div>' +
       '<div class="so-codes">' + pr.codes.map(function (x) { return '<div class="so-code"><b>' + E(x.code) + (x.mod ? '-' + E(x.mod) : '') + '</b><span>' + E(x.desc || '') + '</span></div>'; }).join('') + '</div></div>' +
       (pr.adds.length ? '<div class="so-sec"><div class="so-h">Added to the record<span>' + pr.adds.length + '</span></div><div class="so-adds">' + pr.adds.map(function (a) { return '<div class="so-add"><em>' + E(a.section || '') + '</em><div>' + E(a.text) + (a.source_quote ? '<small title="' + E(a.source_quote) + '">“' + E(a.source_quote) + '”</small>' : '') + '</div></div>'; }).join('') + '</div></div>' : '') +
       '<div class="so-foot">The claim is sent once approved.</div></div>', [['Cancel', '', function () {}], ['Approve Claim', 'pri', function () {

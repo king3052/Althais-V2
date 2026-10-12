@@ -18,7 +18,7 @@
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
-      if (c.check && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-' + V.scoreColor(c.check.score) + '" title="Claim check: likelihood of acceptance">' + c.check.score + '%</span>';
+      if (c.check && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-' + V.scoreColor(c.check.score) + '" title="Claim check">' + c.check.score + '%</span>';
       if (c.proposal && c.proposal.changed && c.proposal.score > (c.check ? c.check.score : 0) && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-grn" title="Althea built a version that checks at ' + c.proposal.score + '%. Open the claim to approve it.">→ ' + c.proposal.score + '% ready to approve</span>';
       else if (V.proposalBusy(c.id)) st += ' <span class="mut">Althea building…</span>';
       return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c)), Math.max(0, D.daysBetween(c.dos || D.today(), D.today()))] };

@@ -4,7 +4,7 @@
   var V = window.V = { pages: {} };
   var q = V.q = new URLSearchParams(location.search);
   V.app = app;
-  V.link = function (text, href, attrs) { return '<a href="' + href + '"' + (attrs || '') + '>' + E(text) + '</a>'; };
+  V.link = function (text, href, attrs) { return '<a class="tc" href="' + href + '"' + (attrs || '') + '>' + E(text) + '</a>'; };
   V.fmtT = function (t) { if (!t) return ''; var p = t.split(':'), h = +p[0]; return (h % 12 || 12) + ':' + p[1] + ' ' + (h < 12 ? 'AM' : 'PM'); };
   V.chartHref = function (mrn) { return '/v4/emr/chart?mrn=' + encodeURIComponent(mrn); };
   V.claimHref = function (id) { return '/v4/revenue/claims?claim=' + encodeURIComponent(id); };
@@ -152,7 +152,7 @@
             }), { click: 1 }), { footer: '<span>First-pass rate <b>' + (t.r90 ? U.pct(t.firstPass) : '-') + '</b></span><span>Avg days to pay <b>' + (t.avgPay == null ? '-' : t.avgPay.toFixed(1)) + '</b></span>' }) +
         '</div><div class="col">' +
           U.pane('My tasks', tasks.length + ' open', '', U.grid(['Type', 'Patient', 'Detail', ['Amount', 'num'], ''], tasks.map(function (k) {
-            return { cells: [k[1] === 'red' || k[1] === 'amb' ? U.st(k[0], k[1]) : '<span class="s-' + (k[1] || 'none') + '">' + k[0] + '</span>', k[2] ? E(k[2]) : '<span class="s-mut">-</span>', '<span class="wrap">' + E(k[3]) + '</span>', k[4] == null ? '' : M(k[4]), V.link(k[5], k[6])] };
+            return { cells: [k[1] === 'red' || k[1] === 'amb' ? U.st(k[0], k[1]) : '<span class="tc s-' + (k[1] || 'none') + '">' + k[0] + '</span>', k[2] ? '<span class="tc">' + E(k[2]) + '</span>' : '<span class="s-mut">-</span>', '<span class="wrap">' + E(k[3]).replace(/^([^(]+) \(([A-Z0-9-]+)\)$/, '<span class="tc">$1</span> ($2)') + '</span>', k[4] == null ? '' : M(k[4]), V.link(k[5], k[6])] };
           })).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing open.') + '</tbody>'), {}) +
           U.pane('Collections, last 14 days', M(D.sum(era)), V.link('Paid claims', '/v4/revenue/claims?q=paid'),
             '<div class="bars">' + era.map(function (v, i) { return '<i title="' + D.us(days14[i]) + ': ' + M(v) + '" class="' + (i === 13 ? 'last' : '') + '" style="height:' + Math.max(1, v / max * 100) + '%"></i>'; }).join('') + '</div>' +
@@ -171,6 +171,9 @@
       U.fit(); U.search();
     }
     V.redraw = draw; draw();
+    // live: redraw every 20 seconds and when you come back to the tab (not while a dialog is open or you're typing)
+    var live = function () { if (V.redraw !== draw || document.hidden || document.querySelector('.mdl-wrap') || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName)) return; draw(); };
+    setInterval(live, 20000); document.addEventListener('visibilitychange', live); window.addEventListener('focus', live);
     if (q.get('sample')) { history.replaceState(null, '', '/v4/overview'); V.loadSample(); }
     U.on(app, 'tr[data-href]', 'click', function (tr, e) { if (!e.target.closest('a')) location.href = tr.dataset.href; });
     U.on(app, '#start', 'click', function () { V.pickPatient('Start visit for', function (mrn) { V.startVisit(mrn); }); });

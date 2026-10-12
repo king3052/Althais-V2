@@ -97,19 +97,24 @@
   // claims saved without a rendering provider get the clinic's signing provider (the payer requires one)
   var defProv = function () { var me = D.staff(S.clinic.userStaff); return me && me.provider ? me.id : (D.providers()[0] || {}).id || ''; };
   S.claims.forEach(function (c) { if (!c.prov && defProv()) { c.prov = defProv(); D.history(c, 'Rendering provider set to ' + D.provName(c.prov) + ' (none was saved on the claim)'); } });
+  S.claims.forEach(function (c) { if (c.stage === 'edits' || c.stage === 'ready') D.scrub(c); });   // open claims are re-checked against today's rules
   D.save();
 
   // ---- 3. the server, every load ----
   var api = function (url) { return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }); };
-  Promise.all([has('suite') ? api('/api/patients') : [], has('insurance') ? api('/api/claims') : []]).then(function (res) {
+  // also every 30 seconds while the page is open, so other logins' patients and claims show up live
+  var pullServer = function () { return Promise.all([has('suite') ? api('/api/patients') : [], has('insurance') ? api('/api/claims') : []]).then(function (res) {
     var n = 0;
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && !D.pt(o.mrn)) { S.patients.push(patientFromOld(o)); n++; } });
     (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { var c = claimFrom(o); if (!c.prov) c.prov = defProv(); S.claims.push(c); n++; } });
     // remember what the server already has so unchanged records aren't sent back
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && D.pt(o.mrn)) sent['p:' + o.mrn] = sent['p:' + o.mrn] || 'server'; });
-    if (n) { D.log('Brought over ' + n + ' records from the server'); D.save(); if (window.V && V.refresh) V.refresh(); }
+    if (n) { S.claims.forEach(function (c) { if (c.stage === 'edits' || c.stage === 'ready') D.scrub(c); }); D.log('Brought over ' + n + ' records from the server'); D.save(); if (window.V && V.refresh) V.refresh(); }
     ready = true; push();
-  });
+  }); };
+  pullServer();
+  D.pullServer = pullServer;
+  setInterval(function () { if (!document.hidden) pullServer(); }, 30000);
 
   // ---- 4. write patients and claims back to the server after changes ----
   var sent = {}, ready = false, timer = null;

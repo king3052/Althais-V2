@@ -107,7 +107,7 @@
     if (!dx.length) out.push({ id: 'BASIC-DX', lvl: 'red', label: 'No diagnosis', text: 'Every service line needs a diagnosis to point to.' });
     if (!p || !payer || payer === 'Self-pay') { if (payer !== 'Self-pay') out.push({ id: 'BASIC-INS', lvl: 'red', label: 'No insurance', text: 'Add the patient’s insurance before sending.' }); }
     else if (!p.member) out.push({ id: 'BASIC-MEM', lvl: 'amb', label: 'No member ID', text: 'No member ID on file for ' + payer + '. The payer may reject the claim without it.' });
-    if (cpts.some(function (x) { return !D.fee(x); })) out.push({ id: 'BASIC-FEE', lvl: 'amb', label: 'No fee', text: 'No fee on file for ' + cpts.filter(function (x) { return !D.fee(x); }).join(', ') + ' (Settings › Fee schedules).' });
+    if (!(Number(c.amount) > 0) && cpts.some(function (x) { return !D.fee(x); })) out.push({ id: 'BASIC-FEE', lvl: 'amb', label: 'No fee', text: 'No fee on file for ' + cpts.filter(function (x) { return !D.fee(x); }).join(', ') + ' (Settings › Fee schedules).' });
     var em = cpts.filter(function (x) { return /^992(1[2-5]|0[2-5])$/.test(x); });
     var dos = c.dos || D.today();
     // AET-DM-014
