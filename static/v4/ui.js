@@ -29,6 +29,7 @@
     gear: svg('<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>'),
     undo: svg('<path d="M4 6h6.5a3.5 3.5 0 0 1 0 7H6M4 6l3-3M4 6l3 3"/>'),
     pause: svg('<path d="M6 3.5v9M10 3.5v9"/>'),
+    out: svg('<path d="M6 2.5H3.5v11H6M10.5 5l3 3-3 3M13.5 8H6.5"/>'),
     x: svg('<path d="M4 4l8 8M12 4l-8 8"/>'),
   };
   // status marks: filled red circle with "!", amber triangle
@@ -42,7 +43,8 @@
     ['overview', 'Overview', '/v4/overview', []],
     ['emr', 'EMR', '/v4/emr/schedule', [['schedule', 'Schedule', '/v4/emr/schedule'], ['patients', 'Patients', '/v4/emr/patients'], ['chart', 'Patient chart', '/v4/emr/chart'], ['encounter', 'Encounter', '/v4/emr/encounter'], ['documents', 'Documents', '/v4/emr/documents']]],
     ['revenue', 'Revenue', '/v4/revenue/claims', [['claims', 'Claims', '/v4/revenue/claims'], ['denials', 'Denials', '/v4/revenue/denials'], ['rules', 'Payer rules', '/v4/revenue/payer-rules'], ['codenote', 'Code a Note', '/v4/revenue/code-a-note'], ['billing', 'Billing activation', '/revenue/billing-activation']]],
-    ['staff', 'Staff', '/v4/staff/team', [['team', 'Team', '/v4/staff/team'], ['settings', 'Settings', '/v4/settings']]],
+    ['staff', 'Staff', '/v4/staff/team', []],
+    ['settings', 'Settings', '/v4/settings', []],
   ];
   U.header = function (page) {
     return '<header class="hd"><a class="wm" href="/v4/overview">ALTHAIS</a>' + NAV.map(function (n) {
@@ -51,7 +53,8 @@
         (n[3].length ? '<div class="hd-menu">' + n[3].map(function (s) { return '<a href="' + s[2] + '" class="' + (s[0] === page ? 'on' : '') + '">' + s[1] + '</a>'; }).join('') + '</div>' : '') + '</div>';
     }).join('') +
       '<div class="hd-end"><label class="hd-search">' + U.I.search + '<input id="hd-q" placeholder="Search patient, MRN, claim #" aria-label="Search" autocomplete="off"><div class="hd-res" id="hd-res"></div></label>' +
-      '<a class="hd-user" href="/v4/settings" title="Settings">' + U.esc(D.S.clinic.name) + ' <span class="hd-av">' + U.esc(U.initials2(D.S.clinic.user)) + '</span> ' + U.esc(D.S.clinic.user) + '</a></div></header>' +
+      '<span class="hd-user">' + U.esc(D.S.clinic.name) + ' <span class="hd-av">' + U.esc(U.initials2(D.S.clinic.user)) + '</span> ' + U.esc(D.S.clinic.user) + '</span>' +
+      '<a class="hd-out" href="/logout" id="signout">' + U.I.out + 'Sign Out</a></div></header>' +
       // the active section's pages as tabs, always visible (Patients, Schedule… one click away)
       (function () { var sec = NAV.filter(function (n) { return n[0] === page || n[3].some(function (s) { return s[0] === page; }); })[0];
         return sec && sec[3].length ? '<nav class="snav">' + sec[3].map(function (s) { return '<a href="' + s[2] + '" class="' + (s[0] === page ? 'on' : '') + '">' + s[1] + '</a>'; }).join('') + '</nav>' : ''; })();
