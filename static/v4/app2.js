@@ -77,7 +77,7 @@
         }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, busy ? 'Reading the note…' : noteHasText() ? 'Codes will appear here in a moment.' : 'Start writing the note. Codes appear here as you go, or add one below.') + '</tbody>') +
         (signed() ? '' : '<div class="dp-sec" style="display:flex;gap:5px"><input class="inl" id="mcode" placeholder="Code (99213, E11.9)" style="width:120px"><input class="inl" id="mdesc" placeholder="Description"><button class="mini" id="addcode">Add</button></div>') +
         callouts +
-        '<div class="dp-sec"><div class="dp-h">Claim preview <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : suggested ? 'from suggested codes, accept them to bill' : 'drafts on signature') + '</span></div>' +
+        '<div class="dp-sec cp-open" id="openclaim" title="Open the claim"><div class="dp-h">Claim preview <span class="end"><a href="#" id="openclaim2">Open Claim</a></span> <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : suggested ? 'from suggested codes, accept them to bill' : 'drafts on signature') + '</span></div>' +
           U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, c.code, signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(', '), M(D.fee(c.code))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Accept a CPT code.') + '</tbody>') +
           '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + c.code; }).join('  ') || 'No diagnosis accepted') + '</div></div>' +
         V.checkHtml({ id: '__enc', check: e.check }, chk.busy, chk.err).replace('data-runcheck="__enc"', 'id="enccheck"') +
@@ -190,6 +190,14 @@
         }).then(function () { busy = false; redrawRight(); });
     }
     U.on(app, '#getcodes', 'click', function () { runCodes(true); });
+    // Claim Preview opens the claim: the real one once the note is signed, otherwise the claim as it stands now (CMS-1500)
+    U.on(app, '#openclaim', 'click', function (el, ev) {
+      if (ev.target.closest('input,button,a:not(#openclaim2)')) return; ev.preventDefault();
+      var made = S.claims.filter(function (c) { return c.encId === e.id; })[0];
+      if (made) { location.href = V.claimHref(made.id); return; }
+      var c = preview(); if (!c.lines.length) return U.toast('Get or accept a CPT code first.');
+      c.id = 'Draft, ' + D.us(e.date); c.payer = p.payer; V.cms1500(c);
+    });
     U.on(app, '#enccheck', 'click', function () {
       var c = preview(); c.id = 'Visit ' + D.us(e.date); if (!c.lines.length) return U.toast('Get or add a CPT code first.');
       chk.busy = true; chk.err = ''; redrawRight();

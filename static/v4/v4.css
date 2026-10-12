@@ -284,3 +284,11 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 .snav a { display: flex; align-items: center; padding: 0 12px; color: var(--t2); font-size: 12.5px; border-bottom: 2px solid transparent; }
 .snav a:hover { color: var(--t); text-decoration: none; background: var(--hover); }
 .snav a.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
+
+.cp-open { cursor: pointer; }
+.cp-open:hover { background: var(--hover); }
+
+/* Title Case on every button, tab, heading and label (data inside them keeps its own case) */
+.act, .btn, .mini, .st button, .snav a, .hd-tab > a, .hd-menu a, .tb-title, .ph, .sect-h, .dp-h, .ql-h, .ql-i, .g th, .kv > div > span, .kv3 span, .ms span, .form label, .f-l, .opt > span, .edit-h, .box-h, .mdl-h, .chipf, .sum span, .chk, .switch, label.chk { text-transform: capitalize; }
+.ph .sub, .ph .end, .sect-h .sub, .dp-h .sub, .dp-h .end > :not(a):not(button), .opt small, .edit-h .end, .box-h a, .ql-i .c, .chipf select, .ms small, .mdl-h .mdl-x { text-transform: none; }
+.ph .end a, .dp-h .end a, .sect-h a, .fl a, .ph .end button, .sect-h button { text-transform: capitalize; }
