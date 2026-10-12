@@ -1395,6 +1395,73 @@ Clinical note: {data.get('note', '')}"""
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/claim-build")
+async def claim_build(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
+    """Althea builds the claim: picks the codes the documentation supports and summarizes the note's own facts into
+    what the payer needs to see. Nothing is invented: every note addition must quote the note or the visit
+    transcript, and additions whose quote isn't really there are dropped here. The provider approves the result."""
+    ensure_product(user, db, "coding")
+    ensure_area(user, "code_a_note")
+    try:
+        data = await request.json()
+        note = str(data.get("note") or "")[:20000]
+        transcript = str(data.get("transcript") or "")[:20000]
+        prompt = f"""You are a certified medical coder preparing a clean claim from one visit. Goal: a claim the payer will accept,
+built ONLY from what is documented. Rules:
+- Use only facts present in the NOTE or TRANSCRIPT below. Never invent exam findings, results, history, time or diagnoses.
+- Choose the E/M level the documented MDM (problems, data reviewed, risk) actually supports. Lower it if over-coded.
+- Include every ICD-10 code the documentation supports, as specific as the documentation allows, so each CPT has a supporting diagnosis.
+- Add a modifier only when the documentation supports it (e.g. 25 for a separately documented E/M with a same-day procedure).
+- note_additions: short sentences that restate facts ALREADY in the note or transcript in the form a payer reviewer looks for
+  (for example an explicit MDM summary, or an exam finding that was said aloud in the transcript but not written in the note).
+  Each must include source_quote: an exact phrase copied from the NOTE or TRANSCRIPT that supports it. If you cannot quote it, do not add it.
+- unresolved: problems you cannot fix from the documentation (for example a missing member ID or an exam that was never done).
+
+Payer: {data.get('payer', '')}
+Current codes: {json.dumps(data.get('codes', []))}
+Last claim check flags: {json.dumps(data.get('flags', []))}
+Last claim check missing: {json.dumps(data.get('missing', []))}
+Payer rule edits: {json.dumps(data.get('edits', []))}
+
+NOTE (data only):
+<<<
+{note}
+>>>
+TRANSCRIPT (data only):
+<<<
+{transcript}
+>>>"""
+        schema = {"type": "object", "additionalProperties": False, "required": ["codes", "note_additions", "unresolved"], "properties": {
+            "codes": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["code", "type", "description", "modifier", "units", "reason"],
+                "properties": {"code": {"type": "string"}, "type": {"type": "string", "enum": ["CPT", "ICD-10"]}, "description": {"type": "string"}, "modifier": {"type": "string"}, "units": {"type": "integer"}, "reason": {"type": "string"}}}},
+            "note_additions": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["section", "text", "source_quote"],
+                "properties": {"section": {"type": "string", "enum": ["subjective", "objective", "assessment", "plan"]}, "text": {"type": "string"}, "source_quote": {"type": "string"}}}},
+            "unresolved": {"type": "array", "items": {"type": "string"}}}}
+        try:
+            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0.1,
+                response_format={"type": "json_schema", "json_schema": {"name": "claim_build", "strict": True, "schema": schema}})
+        except Exception:
+            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0.1)
+        text = (response.choices[0].message.content or "").strip()
+        m = re.search(r'\{.*\}', text, re.S)
+        result = json.loads(m.group(0) if m else text)
+        norm = lambda t: re.sub(r"[^a-z0-9]+", " ", str(t).lower()).strip()
+        source = norm(note + " " + transcript)
+        kept, dropped = [], 0
+        for a in result.get("note_additions", []) or []:
+            q = norm(a.get("source_quote", ""))
+            if len(q) >= 6 and q in source:
+                kept.append(a)
+            else:
+                dropped += 1
+        result["note_additions"] = kept
+        result["dropped_additions"] = dropped
+        result["codes"] = validate_codes([c for c in (result.get("codes") or []) if c.get("code")])
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/appeal-letter")
 async def appeal_letter(request: Request, user=Depends(require_biller), db: Session = Depends(get_db)):
     ensure_product(user, db, "insurance")

@@ -10,7 +10,7 @@
   var desc = function (code) { var f = S.fees.filter(function (x) { return x.code === code; })[0]; return f ? f.desc : ''; };
   // the claim in the shape the server's claim gate and claim check read
   V.claimSnap = function (c) {
-    var p = D.pt(c.mrn) || {}, e = D.enc(c.encId), prov = D.staff(c.prov) || {};
+    var p = D.pt(c.mrn) || {}, e = c._enc || D.enc(c.encId), prov = D.staff(c.prov) || {};
     var ec = e ? e.codes : [], dsc = function (code) { var x = ec.filter(function (y) { return y.code === code; })[0]; return (x && x.desc) || desc(code); };
     return { claimId: c.id, patient: p.name || '', mrn: c.mrn, dob: p.dob || '', sex: p.sex || '', provider: prov.name || '', npi: prov.npi || '', payer: D.payer(c), svcDate: c.dos, pos: '11',
       addrStreet: p.addr || '', addrPhone: p.phone || '', insuredId: p.member || '',
@@ -152,11 +152,18 @@
         '<div class="c f33">' + L('33', 'BILLING PROVIDER INFO &amp; PH #') + ' ' + v(S.clinic.phone || '') + v(String(S.clinic.name || '').toUpperCase()) + v(String((S.clinic.addr || '') + (S.clinic.city ? ', ' + S.clinic.city : '')).toUpperCase()) + '<div class="row">a. ' + v(S.clinic.npi) + ' b. ' + v(S.clinic.taxonomy || '') + '</div></div>' +
       '</div>' +
       '<div class="c15-bot"><span>NUCC Instruction Manual available at: www.nucc.org</span><b>PLEASE PRINT OR TYPE</b><span>APPROVED OMB-0938-1197 FORM 1500 (02-12)</span></div></div>';
-    U.modal('CMS-1500, ' + c.id, html, [['Close', '', function () {}], ['Print', 'pri', function () {
+    var mw = Math.min(1004, window.innerWidth - 32);
+    var w0 = U.modal('CMS-1500, ' + c.id, html, [['Close', '', function () {}], ['Print', 'pri', function () {
       var w = window.open(''); w.document.write('<html><head><title>CMS-1500 ' + E(c.id) + '</title><style>' + CMS_CSS + '@page{size:letter;margin:.3in}body{margin:0}</style></head><body>' + html + '</body></html>'); w.document.close(); setTimeout(function () { w.print(); }, 300); return false;
-    }]], { width: 1000 });
+    }]], { width: mw });
+    // fit the whole form on screen: measure it at full size, then scale it down
+    var f = w0.querySelector('#cms1500form'), box = w0.querySelector('.mdl');
+    w0.style.paddingTop = '2vh'; box.style.maxHeight = '96vh';
+    var avail = window.innerHeight * 0.96 - 34 - 48 - 26;
+    var z = Math.min(1, (window.innerWidth - 60) / 980, avail / f.offsetHeight); f.style.zoom = z.toFixed(3);
+    box.style.width = Math.ceil(980 * z + 28) + 'px';
   };
-  var CMS_CSS = '.c15{font:9px Arial,Helvetica,sans-serif;color:#000;background:#fff;border:0}' +
+  var CMS_CSS = '.c15{font:9px Arial,Helvetica,sans-serif;color:#000;background:#fff;border:0;width:980px}' +
     '.c15-title{display:flex;flex-direction:column}.c15-title b{font-size:17px}.c15-title span{font-size:8.5px;color:#333}.c15-pica{display:flex;justify-content:space-between;font-size:8.5px;padding:3px 0 2px;border-bottom:2px solid #000}' +
     '.c15-grid{display:grid;grid-template-columns:37% 25.3% 37.7%;border-left:1px solid #000}.c15-phys{border-top:2px solid #000}' +
     '.c15 .c{border-right:1px solid #000;border-bottom:1px solid #000;padding:2px 5px 3px;min-height:40px;box-sizing:border-box}.c15 .span2{grid-column:span 2}.c15 .tall{grid-row:span 2}' +
@@ -298,5 +305,114 @@
   V.clearSample = function () {
     ['patients', 'appts', 'encs', 'claims'].forEach(function (k) { S[k] = S[k].filter(function (x) { return !x.sample; }); });
     S.staff = S.staff.filter(function (x) { return !x.sample; }); D.log('Sample clinic removed'); D.save(); V.refresh(); U.toast('Sample clinic removed.');
+  };
+})();
+
+/* ---------- Althea builds the claim: iterates until the claim check is 90% or better; the provider approves once ---------- */
+(function () {
+  var E = U.esc, M = U.money, S = D.S, TARGET = 90;
+  var post = function (url, body) { return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json().then(function (j) { if (!r.ok || j.error) throw new Error(r.status === 403 ? 'Your plan or role doesn’t include this.' : r.status === 401 ? 'Log in again.' : (j.error || 'Unavailable right now.')); return j; }); }); };
+  var SEC = { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' };
+  // the working copy: codes, note additions (each with its quoted source), and a note that includes them
+  function workEnc(base, adds) {
+    var w = Object.assign({}, base, { transcript: base.transcript || [] });
+    adds.forEach(function (a) { var k = SEC[a.section] || 'a'; w[k] = (w[k] ? String(w[k]).replace(/\s+$/, '') + '\n' : '') + a.text; });
+    return w;
+  }
+  function workClaim(ctx, codes, adds) {
+    var cpt = codes.filter(function (c) { return c.type === 'CPT'; }), dx = codes.filter(function (c) { return c.type !== 'CPT'; });
+    return { id: ctx.claim ? ctx.claim.id : 'Draft', encId: ctx.enc ? ctx.enc.id : '', _enc: ctx.enc ? workEnc(ctx.enc, adds) : null, mrn: ctx.mrn, dos: ctx.dos, prov: ctx.prov, payer: ctx.payer,
+      lines: cpt.map(function (c) { return { code: c.code, mod: c.mod || '', units: c.units || 1 }; }), dx: dx.map(function (c) { return c.code; }), note: ctx.enc ? '' : (ctx.note || '') + adds.map(function (a) { return '\n' + a.text; }).join(''), resolved: {}, stage: 'edits', hist: [] };
+  }
+  function contextFor(target) {
+    if (target.enc) { var e = target.enc, p = D.pt(e.mrn) || {}, made = S.claims.filter(function (c) { return c.encId === e.id; })[0];
+      var cur = e.codes.some(function (c) { return c.state === 'acc'; }) ? e.codes.filter(function (c) { return c.state === 'acc'; }) : e.codes.filter(function (c) { return c.state !== 'rej'; });
+      return { enc: e, claim: made, mrn: e.mrn, dos: e.date, prov: e.prov, payer: p.payer, codes: cur.map(function (c) { return { code: c.code, type: c.type, desc: c.desc, mod: c.mod || '', units: 1, reason: 'From the visit coding' }; }) }; }
+    var c = target.claim, e2 = D.enc(c.encId);
+    return { enc: e2, claim: c, mrn: c.mrn, dos: c.dos, prov: c.prov, payer: D.payer(c), note: c.note || '',
+      codes: c.lines.map(function (l) { return { code: l.code, type: 'CPT', desc: '', mod: l.mod || '', units: l.units || 1, reason: 'On the claim' }; }).concat(c.dx.map(function (d) { return { code: d, type: 'ICD-10', desc: '', reason: 'On the claim' }; })) };
+  }
+
+  V.buildClaim = function (target, onDone) {
+    var ctx = contextFor(target), log = [];
+    var w = U.modal('Althea is building the claim', '<div id="ab-log" class="ok-list"></div><div id="ab-res"></div>', [['Close', '', function () { if (onDone) onDone(); }]], { wide: 1 });
+    var say = function (t, cls) { log.push([t, cls || '']); w.querySelector('#ab-log').innerHTML = log.map(function (l) { return '<div class="' + l[1] + '">' + (l[1] === 'w' ? U.warn : l[1] === 'mut' ? '' : U.I.check) + E(l[0]) + '</div>'; }).join(''); };
+    var codes = ctx.codes.slice(), adds = [], best = null, original = ctx.codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', ');
+    var transcript = ctx.enc ? (ctx.enc.transcript || []).filter(function (l) { return l.src !== 'command'; }).map(function (l) { return l.text; }).join('\n') : '';
+    // payer rules with evidence in the note or transcript become proposed additions, quoting that evidence
+    function ruleAdds() {
+      D.checkClaim(workClaim(ctx, codes, adds)).forEach(function (x) {
+        if (x.addendum && x.evidence && !adds.some(function (a) { return a.rule === x.id; })) adds.push({ section: x.id === 'MCR-CKD-003' ? 'assessment' : 'objective', text: x.addendum, source_quote: x.evidence.quote, rule: x.id, why: x.label + ' (' + x.id + ')' });
+      });
+    }
+    function check() { var c = workClaim(ctx, codes, adds); var save = D.save; D.save = function () {}; return V.claimCheck(c).then(function (k) { D.save = save; return k; }, function (e) { D.save = save; throw e; }); }
+    function snapshot(k) { return { score: k.score, check: k, codes: JSON.parse(JSON.stringify(codes)), adds: JSON.parse(JSON.stringify(adds)) }; }
+    var p0 = codes.length ? Promise.resolve() : (ctx.enc ? (say('Reading the note for codes', 'mut'), post('/api/code-note', { note: D.noteText(ctx.enc), encounter_type: 'office', payer: ctx.payer || '' }).then(function (j) {
+      codes = (j.codes || []).map(function (c) { return { code: c.code, type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.justification || '' }; }); say('Coded the visit: ' + codes.map(function (c) { return c.code; }).join(', '));
+    })) : Promise.reject(new Error('This claim has no codes.')));
+    p0.then(function () { ruleAdds(); if (adds.length) say('Payer rules: ' + adds.length + ' fix' + (adds.length === 1 ? '' : 'es') + ' found in the visit record'); say('Running the claim check', 'mut'); return check(); })
+      .then(function round(k, n) {
+        n = n || 1; if (!best || k.score > best.score) best = snapshot(k);
+        say('Claim check, pass ' + n + ': ' + k.score + '%', k.score >= TARGET ? '' : 'w');
+        if (k.score >= TARGET || n >= 4) return best;
+        say('Improving from the documentation', 'mut');
+        return post('/api/claim-build', { note: D.noteText(workClaim(ctx, codes, adds)._enc || { s: ctx.note, o: '', a: '', p: '' }), transcript: transcript, payer: ctx.payer || '',
+          codes: codes.map(function (c) { return { code: c.code, type: c.type, modifier: c.mod }; }), flags: k.flags, missing: k.missing, edits: D.checkClaim(workClaim(ctx, codes, adds)).map(function (x) { return x.id + ': ' + x.text; }) })
+          .then(function (r) {
+            var nc = (r.codes || []).filter(function (c) { return c.code && c.format_valid !== false; });
+            if (nc.some(function (c) { return c.type === 'CPT'; })) {
+              var before = codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', ');
+              codes = nc.map(function (c) { return { code: String(c.code).toUpperCase(), type: c.type, desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.reason || '' }; });
+              var after = codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', ');
+              if (before !== after) say('Codes: ' + before + ' → ' + after);
+            }
+            (r.note_additions || []).forEach(function (a) { if (!adds.some(function (x) { return x.text === a.text; })) { adds.push(a); say('Note addition (' + a.section + '), from: “' + a.source_quote + '”'); } });
+            if (r.dropped_additions) say(r.dropped_additions + ' addition' + (r.dropped_additions === 1 ? '' : 's') + ' dropped: no matching quote in the record', 'w');
+            ctx.unresolved = r.unresolved || [];
+            ruleAdds();
+            return check().then(function (k2) { return round(k2, n + 1); });
+          });
+      })
+      .then(function (b) { show(b); })
+      .catch(function (e) { say(e.message, 'w'); if (best) show(best); });
+
+    function show(b) {
+      codes = b.codes; adds = b.adds; var k = b.check, ok = k.score >= TARGET, col = V.scoreColor(k.score);
+      var edits = D.checkClaim(workClaim(ctx, codes, adds)).filter(function (x) { return !/^BASIC-FEE/.test(x.id); });
+      var who = (D.staff(ctx.prov) || {}).name || S.clinic.user;
+      w.querySelector('.mdl-h').firstChild.textContent = ok ? 'Althea built the claim' : 'Althea’s best version of the claim';
+      w.querySelector('#ab-res').innerHTML =
+        '<div class="dp-sec" style="padding-left:0;padding-right:0"><b class="s-' + col + '" style="font-size:26px;font-weight:600">' + k.score + '%</b> <span class="mut">likely to be accepted' + (ok ? '' : ' · ' + TARGET + '% needs what’s listed under Still needs you') + '</span>' +
+          '<div class="mut" style="font-size:12px">Started as ' + E(original || 'no codes') + '</div></div>' +
+        '<div class="dp-h">Codes on the claim</div>' + U.grid(['Code', 'Type', 'Mod', 'Why'], codes.map(function (c) { return { cells: ['<b>' + E(c.code) + '</b>', c.type, E(c.mod || ''), '<span class="wrap">' + E(c.reason || c.desc || '') + '</span>'] }; }), { tight: 1 }) +
+        '<div class="dp-h" style="margin-top:10px">Note additions <span class="sub">each quotes the visit record; added when you approve</span></div>' +
+          (adds.length ? adds.map(function (a) { return '<div class="box"><div class="box-h"><span>' + E(a.section) + (a.why ? ' · ' + E(a.why) : '') + '</span></div><div class="box-b prop">' + E(a.text) + '<div class="mut" style="font-size:11.5px;margin-top:3px">Source: “' + E(a.source_quote) + '”</div></div></div>'; }).join('') : '<div class="mut">None needed.</div>') +
+        (k.missing.length || k.flags.length || edits.length || (ctx.unresolved || []).length ? '<div class="dp-h" style="margin-top:10px">Still needs you</div><div class="ok-list">' +
+          edits.map(function (x) { return '<div class="e">' + U.err + E(x.label + ': ' + x.text) + '</div>'; }).join('') + (ctx.unresolved || []).concat(k.missing).map(function (m) { return '<div class="e">' + U.err + E(m) + '</div>'; }).join('') + k.flags.map(function (f) { return '<div class="w">' + U.warn + E(f) + '</div>'; }).join('') + '</div>' : '') +
+        '<div class="mut" style="margin-top:10px;font-size:12px">Approving ' + (ctx.enc && ctx.enc.status !== 'Signed' ? 'signs the note with these additions as ' + E(who) + ', ' : 'adds these to the record as an addendum by ' + E(who) + ', ') + 'puts these codes on the claim and sends it.</div>';
+      var f = w.querySelector('.dp-f');
+      f.innerHTML = '<button type="button" class="btn" data-ab="close">Not now</button><button type="button" class="btn pri" data-ab="ok">' + (ok ? 'Approve Claim' : 'Approve Anyway') + '</button>';
+      f.querySelector('[data-ab=close]').onclick = function () { w.remove(); if (onDone) onDone(); };
+      f.querySelector('[data-ab=ok]').onclick = function () { approve(k, who); w.remove(); };
+    }
+    function approve(k, who) {
+      var e = ctx.enc, now = new Date().toISOString();
+      if (e) {
+        if (e.status !== 'Signed') { adds.forEach(function (a) { var key = SEC[a.section] || 'a'; e[key] = (e[key] ? String(e[key]).replace(/\s+$/, '') + '\n' : '') + a.text; }); e.status = 'Signed'; e.signedAt = now; e.signedBy = who; (e.orders || []).forEach(function (o) { o.status = 'Signed'; }); S.appts.forEach(function (a) { if (a.encId === e.id) a.visit = 'Checked out'; }); }
+        else adds.forEach(function (a) { (e.addenda = e.addenda || []).push({ text: a.text, from: 'Althea (source: “' + a.source_quote + '”)', signed: true, signedOn: D.today(), signedBy: who }); });
+        e.codes = codes.map(function (c) { return { code: c.code, desc: c.desc || c.code, type: c.type, conf: 90, why: c.reason || '', mod: c.mod || '', state: 'acc' }; });
+        e.check = k; e.checkKey = '';
+      }
+      var c = ctx.claim;
+      if (!c) { c = { id: D.nextClaimId(), encId: e ? e.id : '', mrn: ctx.mrn, dos: ctx.dos, prov: ctx.prov, payer: ctx.payer, created: now, resolved: {}, stage: 'edits' }; S.claims.push(c); }
+      c.lines = codes.filter(function (x) { return x.type === 'CPT'; }).map(function (x) { return { code: x.code, mod: x.mod || '', units: x.units || 1 }; });
+      c.dx = codes.filter(function (x) { return x.type !== 'CPT'; }).map(function (x) { return x.code; });
+      if (!e && adds.length) c.note = (c.note || '') + adds.map(function (a) { return '\n' + a.text; }).join('');
+      if (['edits', 'ready'].indexOf(c.stage) < 0) c.stage = 'edits';
+      c.resolved = {}; delete c.waitingOn; D.scrub(c); c.check = k; c.checkKey = V.checkKey(c);
+      D.history(c, 'Built by Althea (' + k.score + '% claim check), approved by ' + who); D.log('Claim approved by ' + who + ': ' + c.id); D.save();
+      if (c.stage === 'ready') V.transmit([c], function () { V.refresh(); });   // the send result stays on screen
+      else { U.toast('Approved. ' + c.edits.length + ' payer edit(s) still need attention before it can be sent.'); location.href = V.claimHref(c.id); }
+    }
   };
 })();

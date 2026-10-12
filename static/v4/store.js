@@ -100,7 +100,7 @@
   /* ---- claim checks: basic edits plus every payer rule; each edit says what to fix and cites its evidence ---- */
   var sentenceWith = function (lines, re) { for (var i = 0; i < (lines || []).length; i++) if (re.test(lines[i].text)) return lines[i]; return null; };
   D.checkClaim = function (c) {
-    var e = D.enc(c.encId) || { s: '', o: '', a: '', p: '', transcript: [] }, p = D.pt(c.mrn), payer = D.payer(c) || '', note = D.noteText(e), out = [];
+    var e = c._enc || D.enc(c.encId) || { s: '', o: '', a: '', p: '', transcript: [] }, p = D.pt(c.mrn), payer = D.payer(c) || '', note = D.noteText(e), out = [];
     var cpts = (c.lines || []).map(function (l) { return l.code; }), dx = c.dx || [];
     var has = function (re) { return re.test(note); };
     if (!cpts.length) out.push({ id: 'BASIC-CPT', lvl: 'red', label: 'No CPT code', text: 'A claim needs at least one service line.' });

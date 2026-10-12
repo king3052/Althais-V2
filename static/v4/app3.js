@@ -68,7 +68,8 @@
       else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
       else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
       if (tab === 'edits') { setTimeout(function () { V.autoCheck(c, draw); }, 0); var cs = V.checkState(c.id); body = V.checkHtml(c, cs.busy, cs.err) + body; }
-      foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>';
+      foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>' + (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<button class="btn" id="altfix">Althea: Fix To 90%</button>' : '');
+      V.ctx = { claim: c.id };
       if (c.stage === 'ready') foot += '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
       else if (c.stage === 'submitted') foot += '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
       else if (c.stage === 'edits') foot += '<button class="btn" id="rescrub1">Re-check</button>' + (c.encId ? '' : '<button class="btn" id="delclaim">Delete</button>');
@@ -150,6 +151,7 @@
     U.on(app, '#subsel', 'click', function () { var l = S.claims.filter(function (c) { return CHK[c.id]; }); if (!l.length) l = Q === 'ready' ? D.stage('ready') : []; if (!l.length) return U.toast('Check claims in Ready to submit first.'); submit(l); });
     U.on(app, '#submit1', 'click', function () { submit([C()]); });
     U.on(app, '#cms', 'click', function () { V.cms1500(C()); });
+    U.on(app, '#altfix', 'click', function () { V.buildClaim({ claim: C() }, draw); });
     U.on(app, '#back-edits, #rescrub1', 'click', function () { var c = C(); D.scrub(c); after(c, 'Re-checked: ' + (c.stage === 'ready' ? 'ready' : c.edits.length + ' edit(s)')); });
     U.on(app, '#rescrub', 'click', function () {
       var l = S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }); l.forEach(D.scrub); D.log('Re-scrubbed ' + l.length + ' claims'); D.save(); draw();

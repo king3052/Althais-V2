@@ -72,5 +72,13 @@
     }
     return null;
   }
-  window.AltheaHost = { data: data, sections: sections, handoff: handoff };
+  // "build the claim", "get this claim to 90%", "fix the claim": Althea builds it on the page; the provider approves
+  function local(t) {
+    if (!/\b(build|prepare|make|fix|finish|optimi[sz]e|clean ?up|get)\b[^.?!]*\bclaim\b|\bclaim\b[^.?!]*\b(90|ninety|ready|accepted|acceptance)\b/i.test(t)) return null;
+    var c = V.ctx || {}, e = c.enc && D.enc(c.enc), cl = c.claim && D.claim(c.claim);
+    if (e) { setTimeout(function () { V.buildClaim({ enc: e }, V.refresh); }, 200); return { text: 'Building the claim from this visit. I’ll get it to 90% or better from what’s documented, then you approve it.', spoken: 'Building the claim. You’ll approve it when it’s ready.' }; }
+    if (cl) { setTimeout(function () { V.buildClaim({ claim: cl }, V.refresh); }, 200); return { text: 'Working on ' + cl.id + '. I’ll get it to 90% or better, then you approve it.', spoken: 'Working on the claim.' }; }
+    return { text: 'Open a visit or a claim first, then ask me to build the claim.', spoken: 'Open a visit or a claim first.' };
+  }
+  window.AltheaHost = { data: data, sections: sections, handoff: handoff, local: local };
 })();

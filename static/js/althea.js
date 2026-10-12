@@ -214,6 +214,10 @@
   function run(transcript) {
     openPanel();
     /* on the encounter workspace, anything that isn't a question or a command is charted into the open note */
+    if (HOST && HOST.local) {   /* the page handles this one itself (the v4 preview: "build the claim") */
+      var lr = HOST.local(transcript);
+      if (lr) { if (window.AlthaisEncounter && window.AlthaisEncounter.log) window.AlthaisEncounter.log(transcript, "command"); responseEl.textContent = lr.text || ""; statusEl.textContent = IDLE; speak(lr.spoken || ""); maybeResume(); return; }
+    }
     var ENC = window.AlthaisEncounter, chart = ENC && ENC.wantsChart && ENC.wantsChart(transcript);
     if (ENC && ENC.log) ENC.log(transcript, chart ? (voiceTurn ? "althea_spoken" : "althea_typed") : "command");   /* everything said to Althea goes in the visit's transcript */
     if (chart) {

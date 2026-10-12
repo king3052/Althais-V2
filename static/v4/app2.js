@@ -69,7 +69,7 @@
           (x.addendum && !signed() ? '<div class="box"><div class="box-h"><span>Proposed change, ' + (x.id === 'MCR-CKD-003' ? 'assessment' : 'objective') + '</span></div><div class="box-b prop">' + E(x.addendum) + '</div></div><div class="mut" style="font-size:12px">Nothing changes until you apply it.</div>' : '') +
           (signed() ? '' : '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="mini" data-ignore="' + E(x.id) + '">Ignore</button>' + (x.addendum ? '<button class="mini pri" data-apply="' + E(x.id) + '">Apply to note</button>' : '') + '</div>') + '</div></div></div>';
       }).join('');
-      return '<section class="pane"><div class="ph">Coding <span class="sub">' + (busy ? 'updating from the note…' : e.codedAt ? 'updates as you write · ' + new Date(e.codedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'updates as you write') + '</span>' + (signed() ? '' : '<span class="end"><button class="mini" id="getcodes"' + (busy ? ' disabled' : '') + ' title="Codes update on their own; this re-runs them now">Refresh codes</button></span>') + '</div><div class="pbody">' +
+      return '<section class="pane"><div class="ph">Coding <span class="sub">' + (busy ? 'updating from the note…' : e.codedAt ? 'updates as you write · ' + new Date(e.codedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'updates as you write') + '</span>' + (signed() ? '' : '<span class="end"><button class="mini pri" id="buildclaim" title="Althea codes and documents the claim from this visit until it checks at 90% or better. You approve it.">Althea: Build Claim</button> <button class="mini" id="getcodes"' + (busy ? ' disabled' : '') + ' title="Codes update on their own; this re-runs them now">Refresh codes</button></span>') + '</div><div class="pbody">' +
         '<div class="ms" style="border-bottom:1px solid var(--b2)"><div><span>Est. charge</span><b>' + M(D.sum(cpt, function (c) { return D.fee(c.code); })) + '</b></div><div><span>Edits</span><b class="' + (ed.length ? (ed.some(function (x) { return x.lvl === 'red'; }) ? 's-red' : 's-amb') : 's-grn') + '">' + ed.length + '</b></div><div><span>Payer</span><b>' + E(p.payer || 'None') + '</b></div></div>' +
         (codeMsg ? '<div class="banner-note">' + E(codeMsg) + '</div>' : '') +
         U.grid(['Code', 'Description', ['Conf.', 'num'], ''], e.codes.map(function (c, i) {
@@ -191,6 +191,8 @@
         }).then(function () { busy = false; redrawRight(); });
     }
     U.on(app, '#getcodes', 'click', function () { runCodes(true); });
+    U.on(app, '#buildclaim', 'click', function () { if (REC.on) app.querySelector('#rec').click(); if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('Write or record the note first.'); save(); V.buildClaim({ enc: e }, draw); });
+    V.ctx = { enc: e.id };
     // Claim Preview opens the claim: the real one once the note is signed, otherwise the claim as it stands now (CMS-1500)
     U.on(app, '#openclaim', 'click', function (el, ev) {
       if (ev.target.closest('input,button,a:not(#openclaim2)')) return; ev.preventDefault();
