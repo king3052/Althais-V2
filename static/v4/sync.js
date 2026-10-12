@@ -124,8 +124,8 @@
   function push() {
     if (!ready) return;
     var jobs = [];
-    if (has('suite')) S.patients.forEach(function (p) { var body = JSON.stringify(patientOut(p)); if (sent['p:' + p.mrn] !== body && !(sent['p:' + p.mrn] === 'server' && p.imported && !p.edited)) jobs.push(['/api/patients', body, 'p:' + p.mrn]); });
-    if (has('insurance')) S.claims.forEach(function (c) { var body = JSON.stringify(claimOut(c)); if (sent['c:' + c.id] !== body) jobs.push(['/api/claims', body, 'c:' + c.id]); });
+    if (has('suite')) S.patients.filter(function (p) { return !p.sample; }).forEach(function (p) { var body = JSON.stringify(patientOut(p)); if (sent['p:' + p.mrn] !== body && !(sent['p:' + p.mrn] === 'server' && p.imported && !p.edited)) jobs.push(['/api/patients', body, 'p:' + p.mrn]); });
+    if (has('insurance')) S.claims.filter(function (c) { return !c.sample; }).forEach(function (c) { var body = JSON.stringify(claimOut(c)); if (sent['c:' + c.id] !== body) jobs.push(['/api/claims', body, 'c:' + c.id]); });
     (function next(i) {
       if (i >= jobs.length) { try { localStorage.setItem(D.KEY + '::sent', JSON.stringify(sent)); } catch (e) {} return; }
       var j = jobs[i];

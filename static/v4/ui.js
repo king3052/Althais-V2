@@ -41,7 +41,7 @@
   var NAV = [
     ['overview', 'Overview', '/v4/overview', []],
     ['emr', 'EMR', '/v4/emr/schedule', [['schedule', 'Schedule', '/v4/emr/schedule'], ['patients', 'Patients', '/v4/emr/patients'], ['chart', 'Patient chart', '/v4/emr/chart'], ['encounter', 'Encounter', '/v4/emr/encounter'], ['documents', 'Documents', '/v4/emr/documents']]],
-    ['revenue', 'Revenue', '/v4/revenue/claims', [['claims', 'Claims', '/v4/revenue/claims'], ['denials', 'Denials', '/v4/revenue/denials'], ['rules', 'Payer rules', '/v4/revenue/payer-rules']]],
+    ['revenue', 'Revenue', '/v4/revenue/claims', [['claims', 'Claims', '/v4/revenue/claims'], ['denials', 'Denials', '/v4/revenue/denials'], ['rules', 'Payer rules', '/v4/revenue/payer-rules'], ['codenote', 'Code a Note', '/v4/revenue/code-a-note'], ['billing', 'Billing activation', '/revenue/billing-activation']]],
     ['staff', 'Staff', '/v4/staff/team', [['team', 'Team', '/v4/staff/team'], ['settings', 'Settings', '/v4/settings']]],
   ];
   U.header = function (page) {
@@ -51,7 +51,10 @@
         (n[3].length ? '<div class="hd-menu">' + n[3].map(function (s) { return '<a href="' + s[2] + '" class="' + (s[0] === page ? 'on' : '') + '">' + s[1] + '</a>'; }).join('') + '</div>' : '') + '</div>';
     }).join('') +
       '<div class="hd-end"><label class="hd-search">' + U.I.search + '<input id="hd-q" placeholder="Search patient, MRN, claim #" aria-label="Search" autocomplete="off"><div class="hd-res" id="hd-res"></div></label>' +
-      '<a class="hd-user" href="/v4/settings" title="Settings">' + U.esc(D.S.clinic.name) + ' <span class="hd-av">' + U.esc(U.initials2(D.S.clinic.user)) + '</span> ' + U.esc(D.S.clinic.user) + '</a></div></header>';
+      '<a class="hd-user" href="/v4/settings" title="Settings">' + U.esc(D.S.clinic.name) + ' <span class="hd-av">' + U.esc(U.initials2(D.S.clinic.user)) + '</span> ' + U.esc(D.S.clinic.user) + '</a></div></header>' +
+      // the active section's pages as tabs, always visible (Patients, Schedule… one click away)
+      (function () { var sec = NAV.filter(function (n) { return n[0] === page || n[3].some(function (s) { return s[0] === page; }); })[0];
+        return sec && sec[3].length ? '<nav class="snav">' + sec[3].map(function (s) { return '<a href="' + s[2] + '" class="' + (s[0] === page ? 'on' : '') + '">' + s[1] + '</a>'; }).join('') + '</nav>' : ''; })();
   };
   // actions: [label, icon, {pri, id, href}]
   U.toolbar = function (title, actions, end) {

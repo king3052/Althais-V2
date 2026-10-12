@@ -18,6 +18,7 @@
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
+      if (c.check && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-' + V.scoreColor(c.check.score) + '" title="Claim check: likelihood of acceptance">' + c.check.score + '%</span>';
       return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c)), Math.max(0, D.daysBetween(c.dos || D.today(), D.today()))] };
     }
     var COLS = function (k) { return ['Claim #', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], [k, 'wrap'], ['Charges', 'num'], ['Age', 'num']]; };
@@ -66,10 +67,12 @@
         (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div style="display:flex;gap:5px;margin-top:6px"><input class="inl" id="dxadd" placeholder="ICD-10, e.g. E11.9"><button class="mini" id="dxaddb">Add</button></div>' : '') + '</div>';
       else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
       else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
-      if (c.stage === 'ready') foot = '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
-      else if (c.stage === 'submitted') foot = '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
-      else if (c.stage === 'edits') foot = '<button class="btn" id="rescrub1">Re-check</button>' + (c.encId ? '' : '<button class="btn" id="delclaim">Delete</button>');
-      else if (c.stage === 'denied') foot = '<a class="btn pri" style="display:inline-flex;align-items:center" href="/v4/revenue/denials?claim=' + c.id + '">Work denial</a>';
+      if (tab === 'edits') { var cs = V.checkState(c.id); body = V.checkHtml(c, cs.busy, cs.err) + body; }
+      foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>';
+      if (c.stage === 'ready') foot += '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
+      else if (c.stage === 'submitted') foot += '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
+      else if (c.stage === 'edits') foot += '<button class="btn" id="rescrub1">Re-check</button>' + (c.encId ? '' : '<button class="btn" id="delclaim">Delete</button>');
+      else if (c.stage === 'denied') foot += '<a class="btn pri" style="display:inline-flex;align-items:center" href="/v4/revenue/denials?claim=' + c.id + '">Work denial</a>';
       return '<section class="pane"><div class="ph">Claim detail<span class="end">' + (c.encId ? V.link('Open encounter', V.encHref(c.encId)) : '') + '</span></div>' +
         '<div class="dp-sec"><div class="dp-title">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12.5px">' + E(p.sex || '') + ', ' + D.age(p.dob) + ', DOB ' + D.us(p.dob) + '</span></div>' +
         U.kv3([['Claim #', c.id], ['DOS', D.us(c.dos)], ['Charges', M(D.charge(c))], ['Payer', E(D.payer(c))], ['Rendering', E(D.provName(c.prov))], ['POS', E(c.pos || '11 Office')]]) + '</div>' +
@@ -138,15 +141,20 @@
       if (v === 'ask') { e.addenda = e.addenda || []; e.addenda.push({ text: 'Please document: ' + x.text, from: 'Billing (' + x.id + ')', signed: false }); c.waitingOn = x.id; c.resolved = c.resolved || {}; c.resolved[x.id] = 'Asked provider'; c.edits = c.edits.filter(function (y) { return y.id !== x.id; }); return after(c, 'Asked ' + D.provName(c.prov) + ' to document ' + x.id); }
       var r = prompt('Override reason (kept on the claim):'); if (!r) return; c.resolved = c.resolved || {}; c.resolved[x.id] = r; D.scrub(c); after(c, 'Override ' + x.id + ': ' + r);
     });
-    var submit = function (list) {
-      list.forEach(function (c) { D.scrub(c); if (c.stage !== 'ready') return; c.stage = 'submitted'; c.status = 'Submitted ' + D.us(D.today(), 1).slice(0, 5); c.submittedOn = D.today(); D.history(c, 'Submitted'); CHK[c.id] = false; });
-      var n = list.filter(function (c) { return c.stage === 'submitted' && c.submittedOn === D.today(); }).length; D.log('Submitted ' + n + ' claim' + (n === 1 ? '' : 's')); D.save(); draw();
-      U.toast(n + ' submitted. (Recorded in this preview only; nothing was sent to a clearinghouse.)' + (list.length > n ? ' ' + (list.length - n) + ' skipped: not ready.' : ''));
+    var submit = function (list) {   // the 837P steps, then the server's claim gate decides sent or held
+      V.transmit(list, function () { list.forEach(function (c) { CHK[c.id] = false; }); draw(); });
     };
     U.on(app, '#subsel', 'click', function () { var l = S.claims.filter(function (c) { return CHK[c.id]; }); if (!l.length) l = Q === 'ready' ? D.stage('ready') : []; if (!l.length) return U.toast('Check claims in Ready to submit first.'); submit(l); });
     U.on(app, '#submit1', 'click', function () { submit([C()]); });
+    U.on(app, '#cms', 'click', function () { V.cms1500(C()); });
     U.on(app, '#back-edits, #rescrub1', 'click', function () { var c = C(); D.scrub(c); after(c, 'Re-checked: ' + (c.stage === 'ready' ? 'ready' : c.edits.length + ' edit(s)')); });
-    U.on(app, '#rescrub', 'click', function () { var l = S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }); l.forEach(D.scrub); D.log('Re-scrubbed ' + l.length + ' claims'); D.save(); draw(); U.toast('Re-checked ' + l.length + ' claims against ' + (D.allRules().length + 5) + ' checks.'); });
+    U.on(app, '#rescrub', 'click', function () {
+      var l = S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }); l.forEach(D.scrub); D.log('Re-scrubbed ' + l.length + ' claims'); D.save(); draw();
+      U.toast('Re-checked ' + l.length + ' claims against the payer rules. Running the claim check on ' + Math.min(5, l.length) + '…');
+      var todo = l.slice(0, 5);
+      (function next(i) { if (i >= todo.length) { draw(); var low = todo.filter(function (c) { return c.check && c.check.score < 65; }); if (todo.length) U.toast('Claim check done. ' + (low.length ? low.length + ' below 65%: ' + low.map(function (c) { return c.id; }).join(', ') : 'All look acceptable.')); return; }
+        V.claimCheck(todo[i]).catch(function () {}).then(function () { draw(); next(i + 1); }); })(0);
+    });
     U.on(app, '#delclaim', 'click', function () { if (!confirm('Delete this claim?')) return; S.claims.splice(S.claims.indexOf(C()), 1); D.save(); sel = ''; draw(); });
     U.on(app, '#ack', 'click', function () { var c = C(); c.status = 'Accepted 277CA'; after(c, 'Accepted by clearinghouse (277CA)'); });
     U.on(app, '#pay', 'click', function () {
@@ -205,7 +213,7 @@
         '<div class="dp-sec"><div class="dp-title">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12.5px">' + E(p.sex || '') + ', ' + D.age(p.dob) + ', MRN ' + c.mrn + '</span></div>' +
           U.kv3([['Payer', E(D.payer(c))], ['CPT', lineCodes(c)], ['Billed', M(D.charge(c))], ['Denied', c.carc], ['Appeal by', D.us(c.appealBy), D.daysBetween(D.today(), c.appealBy) <= 14 ? 'amb' : ''], ['Status', E(c.appealOutcome || c.dstatus)]]) + (c.remark ? '<div class="mut" style="margin-top:6px">Payer remark: ' + E(c.remark) + '</div>' : '') + '</div>' +
         '<div class="dp-sec"><div class="dp-h">Basis for appeal</div><textarea class="ed" id="basis" rows="3" placeholder="Why this should be paid, one point per line"' + (ro ? ' readonly' : '') + '>' + E(c.basis || '') + '</textarea></div>' +
-        '<div class="dp-sec"><div class="dp-h">Letter draft <span class="sub">edit before sending</span></div><textarea class="ed" id="letter" rows="11"' + (ro ? ' readonly' : '') + '>' + E(c.letter || letterFor(c)) + '</textarea></div>' +
+        '<div class="dp-sec"><div class="dp-h">Letter draft <span class="sub">edit before sending</span>' + (ro ? '' : '<span class="end"><button class="mini" id="ailetter">Draft with AI</button></span>') + '</div><textarea class="ed" id="letter" rows="11"' + (ro ? ' readonly' : '') + '>' + E(c.letter || letterFor(c)) + '</textarea></div>' +
         '<div class="dp-sec"><div class="dp-h">Attachments <span class="end">' + (ro ? '' : '<a href="#" id="attach">Upload</a>') + '</span></div>' + (c.encId ? '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-att="note"' + ((c.attach || ['note']).indexOf('note') >= 0 ? ' checked' : '') + (ro ? ' disabled' : '') + '> Visit note, ' + D.us(c.dos) + '</label><br>' : '') +
           docs.map(function (d) { return '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-att="' + d.id + '"' + ((c.attach || []).indexOf(d.id) >= 0 ? ' checked' : '') + (ro ? ' disabled' : '') + '> ' + E(d.name) + '</label><br>'; }).join('') + (!docs.length && !c.encId ? '<span class="mut">No documents for this patient.</span>' : '') + '</div>' +
         '</div><div class="dp-f">' + (c.appealOutcome ? '' : c.dstatus === 'Appealed' ? '<button class="btn" id="upheld">Upheld, write off</button><button class="btn pri" id="overturn">Overturned, post payment</button>' : '<button class="btn" id="resub">Correct and resubmit</button><button class="btn" id="savedraft">Save draft</button><button class="btn pri" id="send">Send appeal</button>') + '</div></section>';
@@ -241,6 +249,11 @@
     var keep = function () { var c = C(); if (!c) return; var l = document.getElementById('letter'), b = document.getElementById('basis'); if (l && !l.readOnly) { c.letter = l.value; c.basis = b.value; c.attach = [].slice.call(app.querySelectorAll('[data-att]:checked')).map(function (x) { return x.dataset.att; }); } };
     U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'x' || el.dataset.q === 'y') return; Q = el.dataset.q; sel = ''; draw(); });
     U.on(app, 'tr[data-claim]', 'click', function (tr, e) { e.preventDefault(); keep(); D.save(); sel = tr.dataset.claim; draw(); });
+    U.on(app, '#ailetter', 'click', function (b) {
+      var c = C(); b.disabled = true; b.textContent = 'Drafting…';
+      V.aiLetter(c).then(function (t) { keep(); c.letter = t; c.dstatus = c.dstatus === 'Needs review' ? 'Appeal drafted' : c.dstatus; D.history(c, 'Appeal letter drafted with AI'); D.save(); draw(); U.toast('Letter drafted. Read it over before sending.'); })
+        .catch(function (e) { b.disabled = false; b.textContent = 'Draft with AI'; U.toast(e.message); });
+    });
     U.on(app, '#savedraft', 'click', function () { keep(); var c = C(); c.dstatus = 'Appeal drafted'; D.history(c, 'Appeal drafted'); D.save(); draw(); U.toast('Draft saved.'); });
     var send = function () { var c = C(); if (!c || c.stage !== 'denied') return U.toast('Select a denial.'); if (c.dstatus === 'Appealed') return U.toast('Already sent.'); keep(); if (/\[State why/.test(c.letter || '')) return U.toast('Finish the letter first: replace the bracketed line.'); c.dstatus = 'Appealed'; c.appealSent = D.today(); D.history(c, 'Appeal sent with ' + (c.attach || []).length + ' attachment(s)'); D.log('Appeal sent: ' + c.id); D.save(); draw(); U.toast('Appeal recorded as sent. (This preview doesn’t transmit to payers.) Record the outcome when the payer answers.'); };
     U.on(app, '#send', 'click', send); U.on(app, '#send2', 'click', send);
@@ -274,6 +287,14 @@
             U.grid(['Rule ID', 'Payer', 'Published', 'Effective', ['Requirement', 'wrap'], 'Applied as', ['Today', 'num'], ['Since eff.', 'num']], list.map(function (x) {
               var s = stats(x); return { sel: x.id === sel, attrs: ' data-rule="' + x.id + '"', cells: ['<span class="mono">' + x.id + '</span>', E(x.payer), x.pub ? D.us(x.pub, 1) : '', x.eff ? D.us(x.eff, 1) : 'Now', E(x.req), E(x.as), today.filter(function (c) { return (c.ruleHits || {})[x.id]; }).length, s.hit] };
             }), { cb: 1, click: 1 }) +
+          U.sect('Payer performance', 'from this clinic’s claims', (function () {
+            var pl = U.uniq(S.claims.map(D.payer));
+            return U.grid(['Payer', ['Claims', 'num'], ['Paid', 'num'], ['Denied', 'num'], ['Denial rate', 'num'], ['Avg days to pay', 'num'], ['Collected', 'num']], pl.map(function (x) {
+              var cl = S.claims.filter(function (c) { return D.payer(c) === x; }), paid = cl.filter(function (c) { return c.stage === 'paid' && c.submittedOn; }), den = cl.filter(function (c) { return c.everDenied; }), sub = cl.filter(function (c) { return c.submittedOn; });
+              var rate = sub.length ? den.length / sub.length : 0;
+              return { cells: [E(x), cl.length, paid.length, den.length, '<span class="' + (rate > .1 ? 's-red' : rate > .05 ? 's-amb' : '') + '">' + (sub.length ? U.pct(rate) : '-') + '</span>', paid.length ? (D.sum(paid, function (c) { return D.daysBetween(c.submittedOn, c.paidOn); }) / paid.length).toFixed(1) : '-', M(D.sum(cl, function (c) { return c.paid || 0; }))] };
+            })).replace('<tbody></tbody>', '<tbody>' + U.empty(7, 'Appears once claims are sent.') + '</tbody>');
+          })()) +
           U.sect('Bulletins reviewed, no action needed', 'last 30 days', U.grid(['Payer', 'Published', 'Bulletin', 'Why no rule'], (S.bulletins || []).map(function (b) { return { cells: [E(b.payer), D.us(b.pub, 1), E(b.title), E(b.why)] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'None logged. Use Check for updates to record a bulletin you reviewed.') + '</tbody>')) +
           '</div><div class="pf"><span>1 selected</span><span class="end">Showing ' + list.length + ' of ' + R.length + '</span></div></section>' +
           '<section class="pane"><div class="ph">Rule detail <span class="sub mono">' + r.id + '</span></div><div class="pbody">' +
@@ -399,7 +420,8 @@
       if (sec === 'nf') return U.sect('Notifications', '', '<div class="dp-sec">' + [['email', 'Email me a daily summary'], ['sms', 'Text me when a claim is denied'], ['denials', 'Show denial alerts on Overview'], ['creds', 'Remind staff 30 days before a credential expires']].map(function (n) { return '<label class="chk" style="margin:0 0 6px"><input type="checkbox" data-nf="' + n[0] + '"' + (S.notify[n[0]] ? ' checked' : '') + '> ' + n[1] + '</label><br>'; }).join('') + '</div>');
       return U.sect('Security and data', '', '<div class="form" id="secform">' + U.fields([{ k: 'twofa', label: 'Two-factor login', type: 'select', options: ['Required', 'Optional'] }, { k: 'timeout', label: 'Session timeout', type: 'select', options: ['15 minutes', '30 minutes', '60 minutes'] }, { k: 'audit', label: 'Audit log retention', type: 'select', options: ['7 years', '10 years'] }, { k: 'baa', label: 'BAA', type: 'select', options: ['Not signed', 'Signed'] }], S.security).replace('<div class="form" style="padding:0">', '').replace(/<\/div>$/, '') + '</div>' +
         '<div class="dp-sec"><div class="dp-h">Data in this browser</div><p style="margin:0 0 8px">Everything in this preview is stored in this browser only (about ' + Math.round(JSON.stringify(S).length / 1024) + ' KB).</p><button class="btn sm" id="backup">Download backup</button> <button class="btn sm" id="restore">Restore backup</button> <button class="btn sm" id="wipe" style="color:var(--red);border-color:var(--red-line)">Clear all data</button></div>' +
-        '<div class="dp-sec"><div class="dp-h">Previous EMR</div><p style="margin:0 0 8px">Patients and claims from the previous EMR were brought over' + (S.importedLocal ? ' on ' + new Date(S.importedLocal).toLocaleDateString('en-US') : '') + ', and patients and claims you change here are saved to the server.</p><a class="btn sm" style="display:inline-flex;align-items:center" href="/ui/classic">Switch to the classic EMR</a></div>');
+        '<div class="dp-sec"><div class="dp-h">Previous EMR</div><p style="margin:0 0 8px">Patients and claims from the previous EMR were brought over' + (S.importedLocal ? ' on ' + new Date(S.importedLocal).toLocaleDateString('en-US') : '') + ', and patients and claims you change here are saved to the server.</p><a class="btn sm" style="display:inline-flex;align-items:center" href="/ui/classic">Switch to the classic EMR</a></div>' +
+        '<div class="dp-sec"><div class="dp-h">Sample clinic</div><p style="margin:0 0 8px">Example patients, a visit in progress and claims in every stage, so you can try each screen. Names start with "Sample" and nothing is saved to the server.</p><button class="btn sm" id="loadsample">Load sample clinic</button> <button class="btn sm" id="clearsample">Remove sample clinic</button></div>');
     }
     function draw() {
       var setup = [[!!S.clinic.npi && !!S.clinic.addr, 'Practice details', 'pd'], [D.providers().length > 0, 'At least one provider', 'prov'], [S.locations.length > 0, 'A location', 'loc'], [S.patients.length > 0, 'Patients added', ''], [S.integrations[0].on, 'Clearinghouse', 'ch'], [S.security.baa === 'Signed', 'BAA signed', 'sec']];
@@ -436,6 +458,8 @@
     U.on(app, '[data-fdel]', 'click', function (b) { S.fees.splice(+b.dataset.fdel, 1); D.save(); draw(); });
     U.on(app, '#addfee', 'click', function (a, e) { e.preventDefault(); U.form('Add fee', [{ k: 'code', label: 'CPT / HCPCS', req: 1 }, { k: 'rate', label: 'Rate', type: 'number', step: '0.01', req: 1 }, { k: 'desc', label: 'Description', span: 2 }], {}, function (v) { if (S.fees.some(function (f) { return f.code === v.code.toUpperCase(); })) return 'That code is already on the schedule.'; S.fees.push({ code: v.code.toUpperCase(), desc: v.desc, rate: +v.rate }); D.save(); draw(); }); });
     U.on(app, '[data-nf]', 'change', function (c) { S.notify[c.dataset.nf] = c.checked; D.save(); });
+    U.on(app, '#loadsample', 'click', function () { V.loadSample(); });
+    U.on(app, '#clearsample', 'click', function () { if (confirm('Remove the sample patients, visits and claims?')) V.clearSample(); });
     U.on(app, '#backup', 'click', function () { U.download('althais-preview-backup-' + D.today() + '.json', JSON.stringify(S), 'application/json'); });
     U.on(app, '#restore', 'click', function () { U.pickFile('.json,application/json', false, function (f) { U.readFile(f[0], true).then(function (t) { try { var x = JSON.parse(t); if (x.v !== 1 || !x.patients) throw 0; if (!confirm('Replace everything in this browser with this backup?')) return; localStorage.setItem(D.KEY, t); location.reload(); } catch (e) { U.toast('That file isn’t an Althais preview backup.'); } }); }); });
     U.on(app, '#wipe', 'click', function () { if (prompt('This deletes every patient, visit, claim and setting in this browser. Type DELETE to confirm.') !== 'DELETE') return; D.reset(); location.href = '/v4/overview'; });

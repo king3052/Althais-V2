@@ -10,6 +10,7 @@
     var e = D.enc(V.q.get('enc'));
     if (!e) return chooser();
     var p = D.pt(e.mrn) || { name: '(removed patient)', mrn: e.mrn };
+    var chk = { busy: false, err: '' };
     var tab = V.q.get('tab') || 'note', REC = { on: false, rec: null, start: 0, consent: false }, codeMsg = '', busy = false;
     var signed = function () { return e.status === 'Signed'; };
     var save = function () { e.updated = new Date().toISOString(); D.save(); };
@@ -79,6 +80,7 @@
         '<div class="dp-sec"><div class="dp-h">Claim preview <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : suggested ? 'from suggested codes, accept them to bill' : 'drafts on signature') + '</span></div>' +
           U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, c.code, signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(', '), M(D.fee(c.code))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Accept a CPT code.') + '</tbody>') +
           '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + c.code; }).join('  ') || 'No diagnosis accepted') + '</div></div>' +
+        V.checkHtml({ id: '__enc', check: e.check }, chk.busy, chk.err).replace('data-runcheck="__enc"', 'id="enccheck"') +
         '<div class="dp-sec"><div class="dp-h">Checks run <span class="sub">' + E(p.payer || '') + '</span></div><div class="ok-list">' + (ed.map(function (x) { return '<div class="' + (x.lvl === 'red' ? 'e' : 'w') + '">' + U.mark(x.lvl) + E(x.label) + (/^BASIC/.test(x.id) ? ': ' + E(x.text) : '') + '</div>'; }).join('') || '<div>All ' + (6 + D.allRules().length) + ' checks passed</div>') +
           Object.keys(e.ignored || {}).map(function (k) { return '<div class="w">' + E(k) + ' ignored: ' + E(e.ignored[k]) + '</div>'; }).join('') + '</div></div>' +
         '</div></section>';
@@ -178,6 +180,11 @@
         }).then(function () { busy = false; redrawRight(); });
     }
     U.on(app, '#getcodes', 'click', function () { runCodes(true); });
+    U.on(app, '#enccheck', 'click', function () {
+      var c = preview(); c.id = 'Visit ' + D.us(e.date); if (!c.lines.length) return U.toast('Get or add a CPT code first.');
+      chk.busy = true; chk.err = ''; redrawRight();
+      V.claimCheck(c).then(function (k) { e.check = k; save(); }).catch(function (x) { chk.err = x.message; }).then(function () { chk.busy = false; redrawRight(); });
+    });
     if (!signed() && !e.codes.some(function (c) { return c.conf; })) scheduleCodes(400);   // a note with no suggested codes yet
     U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? '' : 'acc'; save(); redrawRight(); });
     U.on(app, '[data-rej]', 'click', function (b) { var c = e.codes[+b.dataset.rej]; if (c.state === 'rej' || !c.conf) { if (!c.conf && c.state !== 'rej') { e.codes.splice(+b.dataset.rej, 1); } else c.state = ''; } else c.state = 'rej'; save(); redrawRight(); });

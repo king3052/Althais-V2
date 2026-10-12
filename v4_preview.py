@@ -28,6 +28,7 @@ PAGES = {
     "/v4/revenue/claims": ("claims", "Claims"),
     "/v4/revenue/denials": ("denials", "Denials"),
     "/v4/revenue/payer-rules": ("rules", "Payer rules"),
+    "/v4/revenue/code-a-note": ("codenote", "Code a Note"),
     "/v4/staff/team": ("team", "Team"),
     "/v4/settings": ("settings", "Settings"),
 }

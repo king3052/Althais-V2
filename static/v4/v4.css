@@ -278,3 +278,9 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 .ql-i > span:not(.sq):not(.c) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .g td.wrap, .g th.wrap { white-space: normal; }
 .g td, .g th { padding-left: 6px; padding-right: 6px; }
+
+/* section tabs under the header */
+.snav { height: 30px; background: #fff; border-bottom: 1px solid var(--b2); display: flex; align-items: stretch; padding: 0 8px; gap: 2px; }
+.snav a { display: flex; align-items: center; padding: 0 12px; color: var(--t2); font-size: 12.5px; border-bottom: 2px solid transparent; }
+.snav a:hover { color: var(--t); text-decoration: none; background: var(--hover); }
+.snav a.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
