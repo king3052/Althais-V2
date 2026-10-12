@@ -564,7 +564,7 @@ async def emr(request: Request, user=Depends(current_user)):
     the EMR workspace's sub-pages for deep patient-record functionality."""
     if not user:
         return RedirectResponse(url="/login", status_code=302)
-    return _gate(request, user) or _render_emr(user)
+    return _gate(request, user) or _v4_redirect(request, user) or _render_emr(user)
 
 
 @app.get("/settings")
@@ -572,7 +572,7 @@ async def settings_page(request: Request, user=Depends(current_user)):
     """Settings live in the same app shell as the EMR, but have their own address: this opens straight to them."""
     if not user:
         return RedirectResponse(url="/login", status_code=302)
-    return _gate(request, user) or _render_emr(user)
+    return _gate(request, user) or _v4_redirect(request, user) or _render_emr(user)
 
 
 # ── Workspace pages (two-level nav: Overview / EMR / Revenue / Staff) ──────────
@@ -615,6 +615,44 @@ _WORKSPACE_PAGES = {
 }
 
 
+# The new EMR (/v4) is the default for clinics on the full suite. Each old EMR page opens its new equivalent; anyone
+# can switch back with /ui/classic (and forward again with /ui/new). Single-tool plans keep their own pages.
+_V4_EQUIV = {
+    "/overview": "/v4/overview", "/emr": "/v4/emr/schedule", "/emr/patients": "/v4/emr/patients", "/emr/schedule": "/v4/emr/schedule",
+    "/emr/encounter": "/v4/emr/encounter", "/emr/sign-off": "/v4/revenue/claims?q=ready", "/revenue/claims": "/v4/revenue/claims",
+    "/revenue/denials": "/v4/revenue/denials", "/revenue/appeals": "/v4/revenue/denials", "/revenue/payer-intelligence": "/v4/revenue/payer-rules",
+    "/staff/team": "/v4/staff/team", "/settings": "/v4/settings",
+}
+
+
+def _v4_redirect(request: Request, user):
+    import v4_preview
+    if not v4_preview.ENABLED or request.cookies.get("althais_ui") == "classic" or "suite" not in _user_products(user):
+        return None
+    path = request.url.path.rstrip("/") or "/"
+    if path not in _V4_EQUIV:
+        return None
+    mrn = request.query_params.get("patient") or request.query_params.get("mrn")
+    if mrn and path in ("/emr", "/emr/encounter", "/emr/patients"):
+        from urllib.parse import quote
+        return RedirectResponse(url="/v4/emr/chart?mrn=" + quote(mrn), status_code=302)
+    return RedirectResponse(url=_V4_EQUIV[path], status_code=302)
+
+
+@app.get("/ui/classic")
+async def use_classic_ui(request: Request):
+    resp = RedirectResponse(url="/overview", status_code=302)
+    resp.set_cookie("althais_ui", "classic", max_age=60 * 60 * 24 * 365, samesite="lax", httponly=True)
+    return resp
+
+
+@app.get("/ui/new")
+async def use_new_ui(request: Request):
+    resp = RedirectResponse(url="/v4/overview", status_code=302)
+    resp.delete_cookie("althais_ui")
+    return resp
+
+
 def _workspace_route(template_name: str):
     async def handler(request: Request, user=Depends(current_user)):
         if not user:
@@ -629,6 +667,9 @@ def _workspace_route(template_name: str):
         blocked = _gate(request, user)
         if blocked:
             return blocked
+        to_v4 = _v4_redirect(request, user)
+        if to_v4:
+            return to_v4
         ctx = {
             "user": user,
             "verified": request.query_params.get("verified"),

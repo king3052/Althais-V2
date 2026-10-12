@@ -1,0 +1,138 @@
+/* Brings the clinic's existing records into the new EMR, and keeps patients and claims on the server.
+   - Every load: the old EMR's patients, claims, appointments and visit notes in this browser (its browser storage).
+   - Every load: the server's patients (/api/patients) and claims (/api/claims), adding any this browser doesn't have.
+   - After every change here: patients and claims are written back to the server (in the shape the old EMR reads too),
+     so other logins see them. Appointments and visit notes stay in this browser, as they did in the old EMR.
+   Nothing already here is overwritten by an import; records are matched by MRN and claim number. */
+(function () {
+  var S = D.S, me = window.__ALTHAIS_USER__ || {};
+  var NS = 'org_' + String(me.organization || me.email || 'unknown').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + '::';
+  var OLD = { patients: NS + 'althais.patients.v1', claims: NS + 'althais.claims.v1', appts: NS + 'althais.appointments.v1', notes: NS + 'althais.notes.v1' };
+  var read = function (k) { try { var v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  var has = function (p) { return (me.products || []).indexOf('suite') >= 0 || (me.products || []).indexOf(p) >= 0; };
+
+  // ---- shape helpers ----
+  function iso(d) {
+    d = String(d || '').trim(); if (!d) return '';
+    var m = d.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (m) { var y = m[3].length === 2 ? (+m[3] > 30 ? '19' : '20') + m[3] : m[3]; return y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2); }
+    var t = new Date(d); return isNaN(t) ? '' : D.iso(t);
+  }
+  function personName(n) {   // "Dr. R. Patel" -> "Patel, R." ; "Test, D" stays
+    n = String(n || '').replace(/^dr\.?\s+/i, '').replace(/,\s*(md|do|pa-c|np|rn)$/i, '').trim(); if (!n) return '';
+    if (/,/.test(n)) return n.replace(/\s*,\s*/, ', ');
+    var p = n.split(/\s+/); return p.length > 1 ? p[p.length - 1] + ', ' + p.slice(0, -1).join(' ') : n;
+  }
+  function staffFor(name) {   // find or create the provider by name; returns the staff id
+    var n = personName(name); if (!n) return '';
+    var key = function (x) { return x.toLowerCase().replace(/[^a-z]/g, ''); }, last = key(n.split(',')[0]), init = key((n.split(',')[1] || '').trim().slice(0, 1));
+    var hit = S.staff.filter(function (s) { var sl = key(s.name.split(',')[0]), si = key((s.name.split(',')[1] || '').trim().slice(0, 1)); return sl === last && (!init || !si || si === init); })[0];
+    if (hit) return hit.id;
+    var s = { id: D.id('S'), name: n, cred: '', spec: '', loc: '', access: 'Provider', provider: true, status: 'Active', hired: '', creds: [], reminders: [], training: [], imported: true };
+    S.staff.push(s); return s.id;
+  }
+  var lines = function (x) { return Array.isArray(x) ? x.map(function (y) { return typeof y === 'string' ? y : [y.code, y.label || y.name, y.dose].filter(Boolean).join(' '); }).join('\n') : String(x || ''); };
+  function patientFromOld(o) {
+    var meta = String(o.insPrimaryMeta || o.member || '');
+    return { mrn: o.mrn, name: personName(o.name) || o.name, dob: iso(o.dob), sex: (o.sex || 'X').slice(0, 1).toUpperCase(), phone: o.addrPhone || o.phone || '', email: o.email || '',
+      addr: [o.addrStreet, o.addrCity, o.addrState, o.addrZip].filter(Boolean).join(', ') || o.addr || '', payer: o.insPrimary || o.payer || '', member: /^[—-]$/.test(meta) || /^eligible$/i.test(meta) ? '' : meta.replace(/^Mbr\s*/i, ''),
+      pcp: o.pcp ? staffFor(o.pcp) : o.provider ? staffFor(o.provider) : '', allergies: lines(o.allergies).replace(/\n/g, '; '), problems: lines(o.problems).replace(/\n/g, '; '),
+      meds: lines((o.meds || []).filter ? (o.meds || []).filter(function (m) { return !m.status || /active/i.test(m.status); }) : o.meds), balance: Number(o.balance) || 0, status: 'Active', created: iso(o.created || o.createdAt) || D.today(), imported: true };
+  }
+  var STAGE = function (st) { st = String(st || '').toLowerCase(); return /paid/.test(st) ? 'paid' : /denied|appeal/.test(st) ? 'denied' : /submitted|accepted|sent/.test(st) ? 'submitted' : /ready/.test(st) ? 'ready' : 'edits'; };
+  function ensurePatient(mrn, name, payer) {
+    if (!mrn) mrn = D.nextMrn(personName(name));
+    if (!D.pt(mrn)) S.patients.push({ mrn: mrn, name: personName(name) || mrn, dob: '', sex: 'X', payer: payer || '', member: '', pcp: '', balance: 0, status: 'Active', created: D.today(), imported: true });
+    return mrn;
+  }
+  function claimFrom(o) {
+    var snap = o.snap || {}, codes = o.codes || [];
+    var cpts = (snap.cpts || codes.filter(function (c) { return /CPT/i.test(c.type || '') || /^\d{5}$/.test(c.code || ''); })).map(function (c) { return { code: String(c.code || '').toUpperCase(), mod: c.modifier || c.mod || '', units: +c.units || 1 }; });
+    if (!cpts.length && o.cpt) cpts = String(o.cpt).split(/[\s,]+/).filter(Boolean).map(function (c) { return { code: c.toUpperCase(), mod: '', units: 1 }; });
+    var dx = (snap.icds || codes.filter(function (c) { return /ICD/i.test(c.type || ''); })).map(function (c) { return String(c.code || '').toUpperCase(); });
+    if (!dx.length && o.icd) dx = String(o.icd).split(/[\s,]+/).filter(Boolean).map(function (c) { return c.toUpperCase(); });
+    var stage = STAGE(o.status), dos = iso(snap.svcDate || o.dos || o.ts || o.createdAt) || D.today();
+    var c = { id: o.claimId || o.id, encId: '', mrn: ensurePatient(o.mrn, o.patient || o.patientName, o.payer), dos: dos, prov: staffFor(o.provider || snap.provider), payer: o.payer || '', lines: cpts, dx: dx,
+      stage: stage, resolved: {}, amount: Number(o.amount) || 0, created: o.ts || o.createdAt || '', imported: true, hist: [{ at: new Date().toISOString(), text: 'Brought over from the previous EMR (status: ' + (o.status || 'Draft') + ')' }] };
+    if (stage === 'submitted' || stage === 'paid' || stage === 'denied') { c.submittedOn = dos; c.status = o.status; }
+    if (stage === 'paid') { c.paid = Number(o.paid || o.amount) || 0; c.paidOn = iso(o.paidOn) || dos; }
+    if (stage === 'denied') { c.carc = o.carc || 'CO-16'; c.reason = o.denialReason || (o.flags || [])[0] || 'Denied (from previous EMR)'; c.dstatus = /appeal/i.test(o.status) ? 'Appealed' : 'Needs review'; c.appealBy = D.addDays(dos, 90); c.everDenied = true; c.letter = o.appealLetter || ''; }
+    if (stage === 'edits' || stage === 'ready') D.scrub(c);
+    return c;
+  }
+  function encFromOld(n) {
+    var s = n.structured || {}, v = s.vitals || {};
+    return { id: 'OLD-' + n.id, mrn: n.mrn, apptId: '', date: iso(n.date) || D.today(), prov: staffFor(n.provider), visitType: n.type || 'Office visit', reason: s.cc || n.desc || '', status: /signed/i.test(n.status || '') ? 'Signed' : 'Draft',
+      s: [s.cc && 'Chief complaint: ' + s.cc, s.hpi, s.ros && 'ROS: ' + s.ros].filter(Boolean).join('\n') || (s.cc ? '' : n.desc || ''), o: [s.exam, s.labs && 'Results: ' + s.labs].filter(Boolean).join('\n'), a: s.assessment || '', p: s.plan || '',
+      vitals: { bp: v.bp || '', hr: v.hr || '', temp: v.temp || '', wt: v.weight || '', spo2: v.spo2 || '' }, transcript: [], orders: [], addenda: [], ignored: {},
+      codes: String(n.cpt || '').split(/[\s,]+/).filter(Boolean).map(function (c) { return { code: c, desc: c, type: 'CPT', conf: 0, state: 'acc' }; }), signedAt: /signed/i.test(n.status || '') ? (n.signedAt || n.date) : '', signedBy: n.signedBy || n.provider || '', imported: true };
+  }
+
+  // ---- 1. you: so you can start visits right away ----
+  if (!S.staff.length && (me.full_name || me.provider_name)) {
+    var you = { id: D.id('S'), name: personName(me.provider_name || me.full_name), cred: '', spec: '', loc: '', email: me.email || '', access: /admin/.test(me.role || '') ? 'Admin' : 'Provider', provider: true, status: 'Active', hired: D.today(), creds: [], reminders: [], training: [] };
+    S.staff.push(you); S.clinic.userStaff = you.id; S.clinic.user = (me.provider_name || me.full_name);
+  }
+
+  // ---- 2. the old EMR in this browser, every load (anything already here is skipped, so nothing doubles) ----
+  var added = { p: 0, c: 0, a: 0, n: 0 };
+  {
+    read(OLD.patients).forEach(function (o) { if (o && o.mrn && !D.pt(o.mrn)) { S.patients.push(patientFromOld(o)); added.p++; } });
+    read(OLD.claims).forEach(function (o) { if (o && !o.isPlaceholder && (o.claimId || o.id) && !D.claim(o.claimId || o.id)) { S.claims.push(claimFrom(o)); added.c++; } });
+    read(OLD.notes).forEach(function (n) { if (n && n.mrn && !D.enc('OLD-' + n.id)) { S.encs.push(encFromOld(n)); added.n++; } });
+    read(OLD.appts).forEach(function (a) {
+      if (!a || S.appts.some(function (x) { return x.id === 'OLD-' + a.id; })) return;
+      var st = String(a.status || '').toLowerCase();
+      S.appts.push({ id: 'OLD-' + a.id, mrn: ensurePatient(a.mrn, a.patient), date: iso(a.date), time: a.time || '09:00', prov: staffFor(a.provider), type: a.type || 'Office visit', reason: a.notes || a.type || '',
+        visit: /cancel/.test(st) ? 'Cancelled' : /no.?show/.test(st) ? 'No show' : /complete|checked out|done/.test(st) ? 'Checked out' : /checked in|arrived/.test(st) ? 'Checked in' : 'Scheduled' });
+      added.a++;
+    });
+    if (!S.importedLocal) S.importedLocal = new Date().toISOString();
+    if (added.p + added.c + added.a + added.n) D.log('Brought over from the previous EMR: ' + added.p + ' patients, ' + added.c + ' claims, ' + added.a + ' appointments, ' + added.n + ' visit notes');
+  }
+  D.save();
+
+  // ---- 3. the server, every load ----
+  var api = function (url) { return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }); };
+  Promise.all([has('suite') ? api('/api/patients') : [], has('insurance') ? api('/api/claims') : []]).then(function (res) {
+    var n = 0;
+    (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && !D.pt(o.mrn)) { S.patients.push(patientFromOld(o)); n++; } });
+    (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { S.claims.push(claimFrom(o)); n++; } });
+    // remember what the server already has so unchanged records aren't sent back
+    (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && D.pt(o.mrn)) sent['p:' + o.mrn] = sent['p:' + o.mrn] || 'server'; });
+    if (n) { D.log('Brought over ' + n + ' records from the server'); D.save(); if (window.V && V.refresh) V.refresh(); }
+    ready = true; push();
+  });
+
+  // ---- 4. write patients and claims back to the server after changes ----
+  var sent = {}, ready = false, timer = null;
+  try { sent = JSON.parse(localStorage.getItem(D.KEY + '::sent')) || {}; } catch (e) { sent = {}; }
+  function patientOut(p) {
+    var pcp = D.staff(p.pcp);
+    return Object.assign({}, p, { insPrimary: p.payer, insPrimaryMeta: p.member ? 'Mbr ' + p.member : '', pcp: pcp ? pcp.name : '', provider: pcp ? pcp.name : '',
+      allergies: String(p.allergies || '').split(/;\s*/).filter(Boolean), dob: p.dob,
+      // the old EMR reads problems and medications as lists
+      problems: String(p.problems || '').split(/;\s*|\n/).filter(Boolean).map(function (x) { var m = x.match(/^([A-Z]\d[0-9A-Z.]*)\s+(.*)$/); return m ? { code: m[1], label: m[2] } : { code: '', label: x }; }),
+      meds: String(p.meds || '').split(/\n|;\s*/).filter(Boolean).map(function (x) { return { name: x, status: 'Active' }; }) });
+  }
+  var STATUS = { edits: 'Pending Review', ready: 'Ready to Submit', submitted: 'Submitted', paid: 'Paid', denied: 'Denied' };
+  function claimOut(c) {
+    return { id: c.id, patientName: D.ptName(c.mrn), mrn: c.mrn, payer: D.payer(c), amount: Math.round(D.charge(c)), status: c.stage === 'denied' && c.dstatus === 'Appealed' ? 'Appealed' : STATUS[c.stage] || 'Draft',
+      codes: c.lines.map(function (l) { return { code: l.code, type: 'CPT', modifier: l.mod || '', units: l.units || 1 }; }).concat(c.dx.map(function (d) { return { code: d, type: 'ICD-10' }; })),
+      flags: (c.edits || []).map(function (x) { return x.id; }), appealLetter: c.letter || '', createdAt: c.created || '' };
+  }
+  function push() {
+    if (!ready) return;
+    var jobs = [];
+    if (has('suite')) S.patients.forEach(function (p) { var body = JSON.stringify(patientOut(p)); if (sent['p:' + p.mrn] !== body && !(sent['p:' + p.mrn] === 'server' && p.imported && !p.edited)) jobs.push(['/api/patients', body, 'p:' + p.mrn]); });
+    if (has('insurance')) S.claims.forEach(function (c) { var body = JSON.stringify(claimOut(c)); if (sent['c:' + c.id] !== body) jobs.push(['/api/claims', body, 'c:' + c.id]); });
+    (function next(i) {
+      if (i >= jobs.length) { try { localStorage.setItem(D.KEY + '::sent', JSON.stringify(sent)); } catch (e) {} return; }
+      var j = jobs[i];
+      fetch(j[0], { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: j[1] })
+        .then(function (r) { if (r.ok) sent[j[2]] = j[1]; }).catch(function () {}).then(function () { next(i + 1); });
+    })(0);
+  }
+  var save = D.save;
+  D.save = function () { save(); clearTimeout(timer); timer = setTimeout(push, 1500); };
+})();

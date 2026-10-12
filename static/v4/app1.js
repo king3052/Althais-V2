@@ -25,14 +25,14 @@
     U.form(isNew ? 'New patient' : 'Edit patient', [
       { k: 'name', label: 'Name (Last, First)', req: 1, span: 2, ph: 'Garcia, Daniel' }, { k: 'dob', label: 'Date of birth', type: 'date', req: 1 }, { k: 'sex', label: 'Sex', type: 'select', options: ['F', 'M', 'X'] },
       { k: 'phone', label: 'Phone', ph: '(512) 555-0100' }, { k: 'email', label: 'Email', type: 'email' }, { k: 'addr', label: 'Address', span: 2, ph: 'Street, City, ST ZIP' },
-      { k: 'payer', label: 'Primary insurance', type: 'select', options: D.PAYERS }, { k: 'member', label: 'Member ID' }, { k: 'pcp', label: 'PCP', type: 'select', options: V.provOptions(), blank: 'None' }, { k: 'balance', label: 'Patient balance', type: 'number', step: '0.01' },
+      { k: 'payer', label: 'Primary insurance', type: 'select', options: p.payer && D.PAYERS.indexOf(p.payer) < 0 ? [p.payer].concat(D.PAYERS) : D.PAYERS }, { k: 'member', label: 'Member ID' }, { k: 'pcp', label: 'PCP', type: 'select', options: V.provOptions(), blank: 'None' }, { k: 'balance', label: 'Patient balance', type: 'number', step: '0.01' },
       { k: 'allergies', label: 'Allergies', span: 2, ph: 'Sulfa (rash); NKDA' }, { k: 'problems', label: 'Problem list', span: 2, ph: 'E11.9 Type 2 diabetes; I10 Hypertension' },
       { k: 'meds', label: 'Current medications', type: 'textarea', rows: 2, span: 4, ph: 'One per line' },
     ], p, function (v) {
       if (v.dob > D.today()) return 'Date of birth is in the future.';
       v.name = V.splitName(v.name); v.balance = Number(v.balance) || 0;
       if (isNew) { v.mrn = D.nextMrn(v.name); v.created = D.today(); v.status = 'New'; S.patients.push(v); D.log('Patient added: ' + v.name); }
-      else { Object.assign(p, v); D.log('Patient updated: ' + p.name); }
+      else { Object.assign(p, v); p.edited = true; D.log('Patient updated: ' + p.name); }
       D.save(); if (after) after(isNew ? v : p); else V.refresh();
       U.toast(isNew ? v.name + ' added, MRN ' + v.mrn + '.' : 'Saved.');
     }, { wide: 1, save: isNew ? 'Add patient' : 'Save' });
