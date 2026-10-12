@@ -298,3 +298,5 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 .edit { border-color: #b9cdee; background: #eef4fc; }
 .edit-h { color: var(--blue); border-bottom-color: #b9cdee; }
 .st .n { background: var(--blue); }
+
+.codes-scroll { max-height: 210px; overflow-y: auto; border: 1px solid var(--b2); }

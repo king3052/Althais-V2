@@ -326,31 +326,29 @@
   }
   function contextFor(target) {
     if (target.enc) { var e = target.enc, p = D.pt(e.mrn) || {}, made = S.claims.filter(function (c) { return c.encId === e.id; })[0];
-      var cur = e.codes.some(function (c) { return c.state === 'acc'; }) ? e.codes.filter(function (c) { return c.state === 'acc'; }) : e.codes.filter(function (c) { return c.state !== 'rej'; });
+      var cur = target.codes || (e.codes.some(function (c) { return c.state === 'acc'; }) ? e.codes.filter(function (c) { return c.state === 'acc'; }) : e.codes.filter(function (c) { return c.state !== 'rej'; }));
       return { enc: e, claim: made, mrn: e.mrn, dos: e.date, prov: e.prov, payer: p.payer, codes: cur.map(function (c) { return { code: c.code, type: c.type, desc: c.desc, mod: c.mod || '', units: 1, reason: 'From the visit coding' }; }) }; }
     var c = target.claim, e2 = D.enc(c.encId);
     return { enc: e2, claim: c, mrn: c.mrn, dos: c.dos, prov: c.prov, payer: D.payer(c), note: c.note || '',
       codes: c.lines.map(function (l) { return { code: l.code, type: 'CPT', desc: '', mod: l.mod || '', units: l.units || 1, reason: 'On the claim' }; }).concat(c.dx.map(function (d) { return { code: d, type: 'ICD-10', desc: '', reason: 'On the claim' }; })) };
   }
 
-  V.buildClaim = function (target, onDone) {
-    var ctx = contextFor(target), log = [];
-    var w = U.modal('Althea is building the claim', '<div id="ab-log" class="ok-list"></div><div id="ab-res"></div>', [['Close', '', function () { if (onDone) onDone(); }]], { wide: 1 });
-    var say = function (t, cls) { log.push([t, cls || '']); w.querySelector('#ab-log').innerHTML = log.map(function (l) { return '<div class="' + l[1] + '">' + (l[1] === 'w' ? U.warn : l[1] === 'mut' ? '' : U.I.check) + E(l[0]) + '</div>'; }).join(''); };
-    var codes = ctx.codes.slice(), adds = [], best = null, original = ctx.codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', ');
+  // the loop: code (if needed), apply payer-rule fixes found in the record, check, improve from the documentation, repeat
+  V.optimize = function (target, say) {
+    say = say || function () {};
+    var ctx = contextFor(target), codes = ctx.codes.slice(), adds = [], best = null;
     var transcript = ctx.enc ? (ctx.enc.transcript || []).filter(function (l) { return l.src !== 'command'; }).map(function (l) { return l.text; }).join('\n') : '';
-    // payer rules with evidence in the note or transcript become proposed additions, quoting that evidence
     function ruleAdds() {
       D.checkClaim(workClaim(ctx, codes, adds)).forEach(function (x) {
         if (x.addendum && x.evidence && !adds.some(function (a) { return a.rule === x.id; })) adds.push({ section: x.id === 'MCR-CKD-003' ? 'assessment' : 'objective', text: x.addendum, source_quote: x.evidence.quote, rule: x.id, why: x.label + ' (' + x.id + ')' });
       });
     }
     function check() { var c = workClaim(ctx, codes, adds); var save = D.save; D.save = function () {}; return V.claimCheck(c).then(function (k) { D.save = save; return k; }, function (e) { D.save = save; throw e; }); }
-    function snapshot(k) { return { score: k.score, check: k, codes: JSON.parse(JSON.stringify(codes)), adds: JSON.parse(JSON.stringify(adds)) }; }
+    function snapshot(k) { return { score: k.score, check: k, codes: JSON.parse(JSON.stringify(codes)), adds: JSON.parse(JSON.stringify(adds)), ctx: ctx }; }
     var p0 = codes.length ? Promise.resolve() : (ctx.enc ? (say('Reading the note for codes', 'mut'), post('/api/code-note', { note: D.noteText(ctx.enc), encounter_type: 'office', payer: ctx.payer || '' }).then(function (j) {
       codes = (j.codes || []).map(function (c) { return { code: c.code, type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.justification || '' }; }); say('Coded the visit: ' + codes.map(function (c) { return c.code; }).join(', '));
     })) : Promise.reject(new Error('This claim has no codes.')));
-    p0.then(function () { ruleAdds(); if (adds.length) say('Payer rules: ' + adds.length + ' fix' + (adds.length === 1 ? '' : 'es') + ' found in the visit record'); say('Running the claim check', 'mut'); return check(); })
+    return p0.then(function () { ruleAdds(); if (adds.length) say('Payer rules: ' + adds.length + ' fix' + (adds.length === 1 ? '' : 'es') + ' found in the visit record'); say('Running the claim check', 'mut'); return check(); })
       .then(function round(k, n) {
         n = n || 1; if (!best || k.score > best.score) best = snapshot(k);
         say('Claim check, pass ' + n + ': ' + k.score + '%', k.score >= TARGET ? '' : 'w');
@@ -373,11 +371,22 @@
             return check().then(function (k2) { return round(k2, n + 1); });
           });
       })
-      .then(function (b) { show(b); })
-      .catch(function (e) { say(e.message, 'w'); if (best) show(best); });
+      .then(function (b) { b.unresolved = ctx.unresolved || []; return b; }, function (e) {
+        if (best) { best.unresolved = ctx.unresolved || []; best.error = e.message; return best; }
+        if (codes.length) return { score: null, check: null, codes: codes, adds: adds, ctx: ctx, unresolved: [], error: e.message };   // checks unavailable: still keep the codes and record-based fixes
+        throw e; });
+  };
+  V.withAdds = workEnc;
+
+  V.buildClaim = function (target, onDone) {
+    var log = [], ctx, codes, adds;
+    var w = U.modal('Althea is building the claim', '<div id="ab-log" class="ok-list"></div><div id="ab-res"></div>', [['Close', '', function () { if (onDone) onDone(); }]], { wide: 1 });
+    var say = function (t, cls) { log.push([t, cls || '']); w.querySelector('#ab-log').innerHTML = log.map(function (l) { return '<div class="' + l[1] + '">' + (l[1] === 'w' ? U.warn : l[1] === 'mut' ? '' : U.I.check) + E(l[0]) + '</div>'; }).join(''); };
+    var original = contextFor(target).codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', ');
+    V.optimize(target, say).then(function (b) { ctx = b.ctx; show(b); }).catch(function (e) { say(e.message, 'w'); });
 
     function show(b) {
-      codes = b.codes; adds = b.adds; var k = b.check, ok = k.score >= TARGET, col = V.scoreColor(k.score);
+      codes = b.codes; adds = b.adds; ctx.unresolved = b.unresolved; var k = b.check, ok = k.score >= TARGET, col = V.scoreColor(k.score);
       var edits = D.checkClaim(workClaim(ctx, codes, adds)).filter(function (x) { return !/^BASIC-FEE/.test(x.id); });
       var who = (D.staff(ctx.prov) || {}).name || S.clinic.user;
       w.querySelector('.mdl-h').firstChild.textContent = ok ? 'Althea built the claim' : 'Althea’s best version of the claim';

@@ -11,6 +11,7 @@
     if (!e) return chooser();
     var p = D.pt(e.mrn) || { name: '(removed patient)', mrn: e.mrn };
     var chk = { busy: false, err: '' };
+    var auto = { busy: false, err: '', timer: null, again: false };
     var tab = V.q.get('tab') || 'note', REC = { on: false, rec: null, start: 0, consent: false }, codeMsg = '', busy = false;
     var signed = function () { return e.status === 'Signed'; };
     var save = function () { e.updated = new Date().toISOString(); D.save(); };
@@ -22,7 +23,7 @@
       var acc = billable();
       return { encId: e.id, mrn: e.mrn, dos: e.date, prov: e.prov, lines: acc.filter(function (c) { return c.type === 'CPT'; }).map(function (c) { return { code: c.code, mod: c.mod || '', units: 1 }; }), dx: acc.filter(function (c) { return c.type !== 'CPT'; }).map(function (c) { return c.code; }), stage: 'edits', resolved: e.ignored || {} };
     }
-    function edits() { var c = preview(); return D.checkClaim(c).filter(function (x) { return !(e.ignored || {})[x.id]; }); }
+    function edits() { var c = preview(); c._enc = V.withAdds(e, e.pendingAdds || []); return D.checkClaim(c).filter(function (x) { return !(e.ignored || {})[x.id]; }); }
 
     function left() {
       var v = e.vitals || {}, prior = S.encs.filter(function (x) { return x.mrn === e.mrn && x.id !== e.id; }).length;
@@ -61,29 +62,34 @@
       return U.grid(['Name', 'Type', 'Received', 'Status'], S.docs.filter(function (d) { return d.mrn === e.mrn; }).map(function (d) { return { attrs: ' data-href="/v4/emr/documents?mrn=' + e.mrn + '"', cells: [E(d.name), E(d.type), D.us(d.rec), E(d.status)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'No documents for this patient.') + '</tbody>');
     }
     function right() {
-      var ed = edits(), acc = billable(), suggested = !e.codes.some(function (c) { return c.state === 'acc'; }) && acc.length, cpt = acc.filter(function (c) { return c.type === 'CPT'; }), dx = acc.filter(function (c) { return c.type !== 'CPT'; });
-      var claim = S.claims.filter(function (c) { return c.encId === e.id; })[0];
+      var ed = edits(), acc = e.codes.filter(function (c) { return c.state === 'acc'; }), cpt = acc.filter(function (c) { return c.type === 'CPT'; }), dx = acc.filter(function (c) { return c.type !== 'CPT'; });
+      var claim = S.claims.filter(function (c) { return c.encId === e.id; })[0], k = e.check, adds = e.pendingAdds || [];
+      var status = auto.busy ? 'Althea is building the claim…' : busy ? 'reading the note…' : e.autoAt ? 'built by Althea · ' + new Date(e.autoAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'builds as you write';
       var callouts = ed.filter(function (x) { return !/^BASIC/.test(x.id); }).map(function (x) {
         return '<div class="dp-sec"><div class="edit' + (x.lvl === 'amb' ? ' amb' : '') + '"><div class="edit-h">' + U.mark(x.lvl) + E(x.id) + ' ' + E(x.label) + '</div><div class="edit-b"><p>' + E(x.text) + '</p>' +
-          (x.evidence ? '<div class="box"><div class="box-h"><span>Source: ' + E(x.evidence.kind) + (x.evidence.when ? ', ' + x.evidence.when : '') + '</span></div><div class="box-b">"' + E(x.evidence.quote) + '"</div></div>' : '<div class="mut" style="font-size:12px;margin-bottom:6px">Nothing in the note or transcript supports this yet. Document it if it was done.</div>') +
-          (x.addendum && !signed() ? '<div class="box"><div class="box-h"><span>Proposed change, ' + (x.id === 'MCR-CKD-003' ? 'assessment' : 'objective') + '</span></div><div class="box-b prop">' + E(x.addendum) + '</div></div><div class="mut" style="font-size:12px">Nothing changes until you apply it.</div>' : '') +
-          (signed() ? '' : '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="mini" data-ignore="' + E(x.id) + '">Ignore</button>' + (x.addendum ? '<button class="mini pri" data-apply="' + E(x.id) + '">Apply to note</button>' : '') + '</div>') + '</div></div></div>';
+          (x.evidence ? '' : '<div class="mut" style="font-size:12px;margin-bottom:6px">Nothing in the note or transcript supports this yet. Document it if it was done.</div>') +
+          (signed() ? '' : '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="mini" data-ignore="' + E(x.id) + '">Ignore</button></div>') + '</div></div></div>';
       }).join('');
-      return '<section class="pane"><div class="ph">Coding <span class="sub">' + (busy ? 'updating from the note…' : e.codedAt ? 'updates as you write · ' + new Date(e.codedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'updates as you write') + '</span>' + (signed() ? '' : '<span class="end"><button class="mini pri" id="buildclaim" title="Althea codes and documents the claim from this visit until it checks at 90% or better. You approve it.">Althea: Build Claim</button> <button class="mini" id="getcodes"' + (busy ? ' disabled' : '') + ' title="Codes update on their own; this re-runs them now">Refresh codes</button></span>') + '</div><div class="pbody">' +
-        '<div class="ms" style="border-bottom:1px solid var(--b2)"><div><span>Est. charge</span><b>' + M(D.sum(cpt, function (c) { return D.fee(c.code); })) + '</b></div><div><span>Edits</span><b class="' + (ed.length ? (ed.some(function (x) { return x.lvl === 'red'; }) ? 's-red' : 's-amb') : 's-grn') + '">' + ed.length + '</b></div><div><span>Payer</span><b>' + E(p.payer || 'None') + '</b></div></div>' +
+      var used = e.codes.filter(function (c) { return c.state === 'acc'; }).length;
+      return '<section class="pane"><div class="ph">Coding <span class="sub">' + status + '</span>' + (signed() ? '' : '<span class="end"><button class="mini" id="getcodes"' + (busy || auto.busy ? ' disabled' : '') + ' title="Althea rebuilds the claim on her own as the note changes; this re-runs it now">Rebuild</button></span>') + '</div><div class="pbody">' +
+        '<div class="ms" style="border-bottom:1px solid var(--b2)"><div><span>Claim check</span><b class="s-' + (k ? V.scoreColor(k.score) : 'mut') + '">' + (auto.busy && !k ? '…' : k ? k.score + '%' : '-') + '</b></div><div><span>Est. charge</span><b>' + M(D.sum(cpt, function (c) { return D.fee(c.code) * (c.units || 1); })) + '</b></div><div><span>Edits</span><b class="' + (ed.length ? 's-amb' : 's-grn') + '">' + ed.length + '</b></div><div><span>Payer</span><b>' + E(p.payer || 'None') + '</b></div></div>' +
         (codeMsg ? '<div class="banner-note">' + E(codeMsg) + '</div>' : '') +
-        U.grid(['Code', 'Description', ['Conf.', 'num'], ''], e.codes.map(function (c, i) {
-          return { cells: ['<b>' + E(c.code) + '</b><div class="mut" style="font-size:11px">' + c.type + '</div>', '<div class="wrap">' + E(c.desc) + '</div>' + (c.why ? '<div class="mut wrap" style="font-size:11.5px">' + E(c.why) + '</div>' : ''), c.conf ? '<b class="' + (c.conf < 80 ? 's-amb' : 's-grn') + '">' + c.conf + '%</b>' : '<span class="mut">manual</span>',
-            signed() ? (c.state === 'acc' ? '<span class="s-grn">Billed</span>' : '') : '<button class="mini' + (c.state === 'acc' ? ' pri' : '') + '" data-acc="' + i + '">' + (c.state === 'acc' ? '✓' : 'Accept') + '</button> <button class="mini" data-rej="' + i + '">' + (c.state === 'rej' ? 'Undo' : 'Reject') + '</button>'] };
-        }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, busy ? 'Reading the note…' : noteHasText() ? 'Codes will appear here in a moment.' : 'Start writing the note. Codes appear here as you go, or add one below.') + '</tbody>') +
-        (signed() ? '' : '<div class="dp-sec" style="display:flex;gap:5px"><input class="inl" id="mcode" placeholder="Code (99213, E11.9)" style="width:120px"><input class="inl" id="mdesc" placeholder="Description"><button class="mini" id="addcode">Add</button></div>') +
+        V.checkHtml({ id: '__enc', check: k }, auto.busy || chk.busy, chk.err || auto.err).replace('data-runcheck="__enc"', 'id="enccheck"') +
+        '<div class="dp-sec cp-open" id="openclaim" title="Open the claim"><div class="dp-h">Claim preview <span class="end"><a href="#" id="openclaim2">Open Claim</a></span> <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : cpt.length ? 'built by Althea, sent when you sign' : 'builds as you write') + '</span></div>' +
+          U.grid(['Ln', 'CPT', 'Mod', 'Dx Ptr', ['Units', 'num'], ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, '<b>' + E(c.code) + '</b>', signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k2) { return String.fromCharCode(65 + k2); }).join(''), c.units || 1, M(D.fee(c.code) * (c.units || 1))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(6, auto.busy || busy ? 'Building…' : 'Write the note; Althea builds the claim from it.') + '</tbody>') +
+          '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k2) { return (k2 < 12 ? String.fromCharCode(65 + k2) + ': ' : '') + c.code + (c.desc && c.desc !== c.code ? ' ' + c.desc : ''); }).join(' · ') || 'No diagnosis yet') + '</div>' +
+          '<div style="display:flex;justify-content:space-between;margin-top:5px"><span class="mut">Total</span><b>' + M(D.sum(cpt, function (c) { return D.fee(c.code) * (c.units || 1); })) + '</b></div></div>' +
+        (adds.length && !signed() ? '<div class="dp-sec"><div class="dp-h">Added to the note when you sign <span class="sub">each quotes the visit record</span></div>' + adds.map(function (a, n) {
+          return '<div class="box"><div class="box-h"><span>' + E(a.section) + (a.why ? ' · ' + E(a.why) : '') + '</span><a href="#" data-dropadd="' + n + '">Remove</a></div><div class="box-b prop">' + E(a.text) + '<div class="mut" style="font-size:11.5px;margin-top:3px">Source: “' + E(a.source_quote) + '”</div></div></div>'; }).join('') + '</div>' : '') +
         callouts +
-        '<div class="dp-sec cp-open" id="openclaim" title="Open the claim"><div class="dp-h">Claim preview <span class="end"><a href="#" id="openclaim2">Open Claim</a></span> <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : suggested ? 'from suggested codes, accept them to bill' : 'drafts on signature') + '</span></div>' +
-          U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, c.code, signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(', '), M(D.fee(c.code))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Accept a CPT code.') + '</tbody>') +
-          '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + c.code; }).join('  ') || 'No diagnosis accepted') + '</div></div>' +
-        V.checkHtml({ id: '__enc', check: e.check }, chk.busy, chk.err).replace('data-runcheck="__enc"', 'id="enccheck"') +
+        '<div class="dp-sec"><div class="dp-h">Codes <span class="sub">Althea picked ' + used + ' of ' + e.codes.length + '</span></div><div class="codes-scroll">' +
+        U.grid(['Code', 'Description', ['Conf.', 'num'], ''], e.codes.map(function (c, n) {
+          return { cells: ['<b>' + E(c.code) + '</b><div class="mut" style="font-size:11px">' + c.type + '</div>', '<div class="wrap">' + E(c.desc) + '</div>' + (c.why ? '<div class="mut wrap" style="font-size:11.5px">' + E(c.why) + '</div>' : ''), c.conf ? '<b class="' + (c.conf < 80 ? 's-amb' : 's-grn') + '">' + c.conf + '%</b>' : '<span class="mut">' + (c.auto ? 'Althea' : 'manual') + '</span>',
+            signed() ? (c.state === 'acc' ? '<span class="s-grn">Billed</span>' : '') : '<button class="mini' + (c.state === 'acc' ? ' pri' : '') + '" data-acc="' + n + '" title="' + (c.state === 'acc' ? 'On the claim. Click to take it off.' : 'Not on the claim. Click to add it.') + '">' + (c.state === 'acc' ? '✓ On Claim' : 'Not Used') + '</button>'] };
+        }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, busy ? 'Reading the note…' : 'Codes appear as you write.') + '</tbody>') + '</div>' +
+        (signed() ? '' : '<div style="display:flex;gap:5px;margin-top:6px"><input class="inl" id="mcode" placeholder="Code (99213, E11.9)" style="width:120px"><input class="inl" id="mdesc" placeholder="Description"><button class="mini" id="addcode">Add</button></div>') + '</div>' +
         '<div class="dp-sec"><div class="dp-h">Checks run <span class="sub">' + E(p.payer || '') + '</span></div><div class="ok-list">' + (ed.map(function (x) { return '<div class="' + (x.lvl === 'red' ? 'e' : 'w') + '">' + U.mark(x.lvl) + E(x.label) + (/^BASIC/.test(x.id) ? ': ' + E(x.text) : '') + '</div>'; }).join('') || '<div>All ' + (6 + D.allRules().length) + ' checks passed</div>') +
-          Object.keys(e.ignored || {}).map(function (k) { return '<div class="w">' + E(k) + ' ignored: ' + E(e.ignored[k]) + '</div>'; }).join('') + '</div></div>' +
+          Object.keys(e.ignored || {}).map(function (k3) { return '<div class="w">' + E(k3) + ' ignored: ' + E(e.ignored[k3]) + '</div>'; }).join('') + '</div></div>' +
         '</div></section>';
     }
     function draw() {
@@ -158,8 +164,29 @@
     // codes
     // codes update by themselves a moment after the note changes (and on opening a note that has none yet)
     var lastCoded = '', codeTimer = null, fails = 0;
+    // Althea builds the claim on her own: picks the codes the note supports, applies payer-rule fixes found in the record,
+    // and improves until the claim check is 90% or better. Note additions wait (each quoting its source) until the provider signs.
+    function autoKey() { return D.noteText(e) + '|' + (p.payer || '') + '|' + e.codes.map(function (c) { return c.code + (c.manual ? c.state : ''); }).join(','); }
+    function scheduleAuto(force) {
+      clearTimeout(auto.timer); if (signed() || !e.codes.length) return;
+      auto.timer = setTimeout(function () {
+        if (auto.busy) { auto.again = true; return; }
+        var key = autoKey(); if (!force && e.autoKey === key && e.check) return;
+        auto.busy = true; auto.err = ''; redrawRight();
+        var start = e.codes.filter(function (c) { return !(c.manual && c.state === 'rej'); }).map(function (c) { return { code: c.code, type: c.type, desc: c.desc, mod: c.mod || '', units: c.units || 1, reason: c.why || '' }; });
+        V.optimize({ enc: e, codes: start }).then(function (b) {
+          var picked = {}; b.codes.forEach(function (x) { picked[x.code] = x; });
+          e.codes.forEach(function (c) { if (c.manual) return; var x = picked[c.code]; c.state = x ? 'acc' : 'rej'; if (x) { c.mod = x.mod || c.mod || ''; c.units = x.units || 1; if (x.reason) c.why = x.reason; } });
+          b.codes.forEach(function (x) { if (!e.codes.some(function (c) { return c.code === x.code; })) e.codes.push({ code: x.code, desc: x.desc || x.code, type: x.type, conf: 0, why: x.reason || '', mod: x.mod || '', units: x.units || 1, state: 'acc', auto: true }); });
+          e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoAt = new Date().toISOString(); e.checkKey = '';
+          if (b.error) auto.err = b.error;
+          save();
+        }).catch(function (x) { auto.err = x.message; }).then(function () { auto.busy = false; redrawRight(); if (auto.again) { auto.again = false; scheduleAuto(); } });
+      }, 600);
+    }
     var checkTimer = null;
-    function scheduleCheck() {
+    function scheduleCheck() { scheduleAuto(true); }
+    function scheduleCheckOld() {
       clearTimeout(checkTimer); if (signed()) return;
       checkTimer = setTimeout(function () {
         var c = preview(); if (!c.lines.length || chk.busy) return; c.id = 'Visit ' + D.us(e.date);
@@ -182,16 +209,16 @@
         .then(function (x) {
           if (!x.ok || x.j.error) throw new Error(x.s === 401 ? 'Log in to Althais on this server (/login) to get code suggestions. You can add codes by hand below.' : x.s === 403 ? 'Your account’s plan or role doesn’t include coding. Add codes by hand below.' : 'Coding is unavailable right now (' + (x.j.error || x.s) + '). Add codes by hand below.');
           var keep = {}; e.codes.forEach(function (c) { keep[c.code] = c; });
-          e.codes = (x.j.codes || []).map(function (c) { var old = keep[c.code]; return { code: c.code, desc: c.description || '', type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', conf: Number(c.confidence) || 0, why: c.justification || '', mod: c.modifier || '', state: old ? old.state : '' }; })
+          e.codes = (x.j.codes || []).map(function (c) { var old = keep[c.code]; return { code: c.code, desc: c.description || '', type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', conf: Number(c.confidence) || 0, why: c.justification || '', mod: old && old.manual ? old.mod : (c.modifier || ''), state: old ? old.state : '', manual: !!(old && old.manual) }; })
             .concat(e.codes.filter(function (c) { return !c.conf && !(x.j.codes || []).some(function (n) { return n.code === c.code; }); }));
-          codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; scheduleCheck(); e.codedAt = new Date().toISOString(); save();
+          codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; scheduleAuto(); e.codedAt = new Date().toISOString(); save();
         }).catch(function (err) {
           codeMsg = err.message; fails++;
           if (!/Log in|plan or role/.test(err.message) && fails < 6) { codeMsg += ' Trying again…'; scheduleCodes(Math.min(30000, 3000 * Math.pow(2, fails - 1))); }
         }).then(function () { busy = false; redrawRight(); });
     }
     U.on(app, '#getcodes', 'click', function () { runCodes(true); });
-    U.on(app, '#buildclaim', 'click', function () { if (REC.on) app.querySelector('#rec').click(); if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('Write or record the note first.'); save(); V.buildClaim({ enc: e }, draw); });
+    var _rc = runCodes;
     V.ctx = { enc: e.id };
     // Claim Preview opens the claim: the real one once the note is signed, otherwise the claim as it stands now (CMS-1500)
     U.on(app, '#openclaim', 'click', function (el, ev) {
@@ -201,14 +228,16 @@
       var c = preview(); if (!c.lines.length) return U.toast('Get or accept a CPT code first.');
       c.id = 'Draft, ' + D.us(e.date); c.payer = p.payer; V.cms1500(c);
     });
-    U.on(app, '#enccheck', 'click', function () {
+    U.on(app, '[data-dropadd]', 'click', function (a, ev) { ev.preventDefault(); e.pendingAdds.splice(+a.dataset.dropadd, 1); save(); redrawRight(); scheduleAuto(true); });
+    U.on(app, '#enccheck', 'click', function () { scheduleAuto(true); });
+    U.on(app, '#enccheck-old', 'click', function () {
       var c = preview(); c.id = 'Visit ' + D.us(e.date); if (!c.lines.length) return U.toast('Get or add a CPT code first.');
       chk.busy = true; chk.err = ''; redrawRight();
       V.claimCheck(c).then(function (k) { e.check = k; save(); }).catch(function (x) { chk.err = x.message; }).then(function () { chk.busy = false; redrawRight(); });
     });
     if (!signed() && !e.codes.some(function (c) { return c.conf; })) scheduleCodes(400);
-    else if (!signed()) scheduleCheck();   // codes already here: check them   // a note with no suggested codes yet
-    U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? '' : 'acc'; save(); redrawRight(); scheduleCheck(); });
+    else if (!signed()) scheduleAuto();   // codes already here: build the claim   // a note with no suggested codes yet
+    U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? 'rej' : 'acc'; c.manual = true; save(); redrawRight(); scheduleCheck(); });
     U.on(app, '[data-rej]', 'click', function (b) { var c = e.codes[+b.dataset.rej]; if (c.state === 'rej' || !c.conf) { if (!c.conf && c.state !== 'rej') { e.codes.splice(+b.dataset.rej, 1); } else c.state = ''; } else c.state = 'rej'; save(); redrawRight(); scheduleCheck(); });
     U.on(app, '#addcode', 'click', function () {
       var code = document.getElementById('mcode').value.trim().toUpperCase(), desc = document.getElementById('mdesc').value.trim();
@@ -217,7 +246,7 @@
       if (!desc && cpt) desc = (S.fees.filter(function (f) { return f.code === code; })[0] || {}).desc || '';
       e.codes.push({ code: code, desc: desc || code, type: cpt ? 'CPT' : 'ICD-10', conf: 0, why: 'Added by ' + S.clinic.user, state: 'acc' }); save(); redrawRight(); scheduleCheck();
     });
-    U.on(app, '[data-mod]', 'change', function (i) { e.codes[+i.dataset.mod].mod = i.value.trim().toUpperCase(); save(); redrawRight(); scheduleCheck(); });
+    U.on(app, '[data-mod]', 'change', function (i) { e.codes[+i.dataset.mod].manual = true; e.codes[+i.dataset.mod].mod = i.value.trim().toUpperCase(); save(); redrawRight(); scheduleCheck(); });
     // rule edits
     U.on(app, '[data-apply]', 'click', function (b) {
       var x = edits().filter(function (y) { return y.id === b.dataset.apply; })[0]; if (!x) return;
@@ -274,19 +303,21 @@
     U.on(app, '#sign', 'click', function () {
       if (REC.on) app.querySelector('#rec').click();
       if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('The note is empty.');
-      if (!e.codes.some(function (c) { return c.state === 'acc'; }) && e.codes.some(function (c) { return c.state !== 'rej' && c.type === 'CPT'; })) {
-        if (confirm('Accept the suggested codes (' + e.codes.filter(function (c) { return c.state !== 'rej'; }).map(function (c) { return c.code; }).join(', ') + ') for this claim?\n\nCancel to sign without a claim, or review them first.')) e.codes.forEach(function (c) { if (c.state !== 'rej') c.state = 'acc'; });
-      }
+      if (auto.busy) return U.toast('Althea is still building the claim. One moment.');
+      var adds = e.pendingAdds || [];
       var ed = edits(), cpt = e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; });
-      var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' +
+      var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' + (adds.length ? '\n\nAlthea’s ' + adds.length + ' note addition' + (adds.length === 1 ? '' : 's') + ' (each quoting the visit record) will be added.' : '') + (e.check ? '\nClaim check: ' + e.check.score + '%.' : '') +
         (cpt.length ? '\n\nA claim will be created' + (ed.length ? ' and held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve' : ' and checked') + '.' : '\n\nNo CPT code is accepted, so no claim will be created.');
       if (!confirm(msg)) return;
+      adds.forEach(function (a) { var k = { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' }[a.section] || 'a'; e[k] = (e[k] ? String(e[k]).replace(/\s+$/, '') + '\n' : '') + a.text; });
+      e.pendingAdds = [];
       e.status = 'Signed'; e.signedAt = new Date().toISOString(); e.signedBy = S.clinic.user; e.orders.forEach(function (o) { o.status = 'Signed'; });
       S.appts.forEach(function (a) { if (a.encId === e.id) a.visit = 'Checked out'; });
       var made = null;
       if (cpt.length) {
         var c = preview(); c.id = D.nextClaimId(); c.payer = p.payer; c.created = new Date().toISOString(); c.resolved = Object.assign({}, e.ignored || {}); D.scrub(c); c.hadEdits = c.stage === 'edits';
-        D.history(c, 'Created from signed note, ' + (c.stage === 'edits' ? c.edits.length + ' edit(s) to resolve' : 'all checks passed')); S.claims.push(c); made = c;
+        if (e.check) { c.check = e.check; c.checkKey = V.checkKey(c); }
+        D.history(c, 'Built by Althea' + (e.check ? ' (' + e.check.score + '% claim check)' : '') + ', approved and signed by ' + S.clinic.user + ', ' + (c.stage === 'edits' ? c.edits.length + ' edit(s) to resolve' : 'all checks passed')); S.claims.push(c); made = c;
       }
       D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save(); draw();
       U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits to resolve.' : ' is ready to submit.') : ''));
