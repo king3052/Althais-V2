@@ -37,7 +37,8 @@
       });
   }
   // the claim check always answers: it retries by itself (1s, 2s, 4s, 8s…) until the server responds
-  V.claimCheck = function (c) {
+  V.claimCheck = function (c, opts) {
+    var maxTries = (opts && opts.tries) || Infinity;
     return new Promise(function (resolve, reject) {
       (function attempt(n) {
         checkOnce(c).then(function (j) {
@@ -45,6 +46,7 @@
           D.history(c, 'Claim check: ' + c.check.score + '% likely to be accepted'); D.save(); resolve(c.check);
         }).catch(function (e) {
           if (PERMANENT.test(e.message)) return reject(e);
+          if (n + 1 >= maxTries) return reject(new Error(e.message === 'rate' ? 'The AI service is at its usage limit right now.' : 'The claim check didn’t answer.'));
           setTimeout(function () { attempt(n + 1); }, e.message === 'rate' ? 60000 : Math.min(15000, 1000 * Math.pow(2, n)));   // at the AI usage limit: wait a minute
         });
       })(0);
@@ -361,7 +363,15 @@
         if (x.addendum && x.evidence && !adds.some(function (a) { return a.rule === x.id; })) adds.push({ section: x.id === 'MCR-CKD-003' ? 'assessment' : 'objective', text: x.addendum, source_quote: x.evidence.quote, rule: x.id, why: x.label + ' (' + x.id + ')' });
       });
     }
-    function check() { var c = workClaim(ctx, codes, adds); var save = D.save; D.save = function () {}; return V.claimCheck(c).then(function (k) { D.save = save; return k; }, function (e) { D.save = save; throw e; }); }
+    // a claim always carries a visit code: if coding returned none, use the office visit level for this kind of visit
+    function ensureEM() {
+      if (codes.some(function (c) { return c.type === 'CPT'; })) return;
+      var newPt = ctx.enc && /new patient/i.test(ctx.enc.visitType || ''), tele = ctx.enc && /telehealth/i.test(ctx.enc.visitType || '');
+      var code = newPt ? '99203' : '99213';
+      codes.unshift({ code: code, type: 'CPT', desc: newPt ? 'Office visit, new patient, low MDM' : 'Office visit, established patient, low MDM', mod: tele ? '95' : '', units: 1, reason: 'Office visit for this ' + (newPt ? 'new' : 'established') + ' patient; the level is confirmed against the note by the claim check' });
+      say('Added the visit code ' + code);
+    }
+    function check() { ensureEM(); var c = workClaim(ctx, codes, adds); var save = D.save; D.save = function () {}; return V.claimCheck(c, { tries: 2 }).then(function (k) { D.save = save; return k; }, function (e) { D.save = save; throw e; }); }
     function snapshot(k) { return { score: k.score, check: k, codes: JSON.parse(JSON.stringify(codes)), adds: JSON.parse(JSON.stringify(adds)), ctx: ctx }; }
     var p0 = codes.length ? Promise.resolve() : (ctx.enc ? (say('Reading the note for codes', 'mut'), post('/api/code-note', { note: D.noteText(ctx.enc), encounter_type: 'office', payer: ctx.payer || '' }).then(function (j) {
       codes = (j.codes || []).map(function (c) { return { code: c.code, type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.justification || '' }; }); say('Coded the visit: ' + codes.map(function (c) { return c.code; }).join(', '));

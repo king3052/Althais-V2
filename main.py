@@ -1402,9 +1402,10 @@ Clinical note: {data.get('note', '')}"""
                 break
             except Exception as e:
                 last_err = e
-                if _is_rate_limited(e):
-                    break
-                time.sleep(0.6 * (attempt + 1))
+                t = str(e).lower()
+                if _is_rate_limited(e) or "401" in t or "invalid api key" in t or "authentication" in t:
+                    break   # retrying won't help
+                time.sleep(0.4 * (attempt + 1))
         if result is None:
             raise last_err
 

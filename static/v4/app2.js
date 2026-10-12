@@ -171,14 +171,14 @@
       clearTimeout(auto.timer); if (signed() || !e.codes.length) return;
       auto.timer = setTimeout(function () {
         if (auto.busy) { auto.again = true; return; }
-        var key = autoKey(); if (!force && e.autoKey === key && e.check) return;
+        var key = autoKey(); if (!force && e.autoKey === key && e.check && e.autoVer === 2) return;   // v2: every claim carries a visit code
         auto.busy = true; auto.err = ''; redrawRight();
         var start = e.codes.filter(function (c) { return !(c.manual && c.state === 'rej'); }).map(function (c) { return { code: c.code, type: c.type, desc: c.desc, mod: c.mod || '', units: c.units || 1, reason: c.why || '' }; });
         V.optimize({ enc: e, codes: start }).then(function (b) {
           var picked = {}; b.codes.forEach(function (x) { picked[x.code] = x; });
           e.codes.forEach(function (c) { if (c.manual) return; var x = picked[c.code]; c.state = x ? 'acc' : 'rej'; if (x) { c.mod = x.mod || c.mod || ''; c.units = x.units || 1; if (x.reason) c.why = x.reason; } });
           b.codes.forEach(function (x) { if (!e.codes.some(function (c) { return c.code === x.code; })) e.codes.push({ code: x.code, desc: x.desc || x.code, type: x.type, conf: 0, why: x.reason || '', mod: x.mod || '', units: x.units || 1, state: 'acc', auto: true }); });
-          e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoAt = new Date().toISOString(); e.checkKey = '';
+          e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoVer = 2; e.autoAt = new Date().toISOString(); e.checkKey = '';
           if (b.error && !b.check) setTimeout(function () { scheduleAuto(true); }, 4000);   // not checked yet: try again on its own
           save();
         }).catch(function (x) { if (/plan or role|Log in/.test(x.message)) auto.err = x.message; else { auto.err = ''; setTimeout(function () { scheduleAuto(true); }, /usage limit/.test(x.message) ? 60000 : 4000); } })
@@ -305,7 +305,7 @@
     U.on(app, '#sign', 'click', function () {
       if (REC.on) app.querySelector('#rec').click();
       if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('The note is empty.');
-      if (auto.busy) return U.toast('Althea is still building the claim. One moment.');
+      if (auto.busy && !e.autoAt) return U.toast('Althea is still building the claim. One moment.');   // once built, a background re-check never blocks signing
       var adds = e.pendingAdds || [];
       var ed = edits(), cpt = e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; });
       var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' + (adds.length ? '\n\nAlthea’s ' + adds.length + ' note addition' + (adds.length === 1 ? '' : 's') + ' (each quoting the visit record) will be added.' : '') + (e.check ? '\nClaim check: ' + e.check.score + '%.' : '') +
