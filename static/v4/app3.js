@@ -19,6 +19,8 @@
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
       if (c.check && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-' + V.scoreColor(c.check.score) + '" title="Claim check: likelihood of acceptance">' + c.check.score + '%</span>';
+      if (c.proposal && c.proposal.changed && c.proposal.score > (c.check ? c.check.score : 0) && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-grn" title="Althea built a version that checks at ' + c.proposal.score + '%. Open the claim to approve it.">→ ' + c.proposal.score + '% ready to approve</span>';
+      else if (V.proposalBusy(c.id)) st += ' <span class="mut">Althea building…</span>';
       return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c)), Math.max(0, D.daysBetween(c.dos || D.today(), D.today()))] };
     }
     var COLS = function (k) { return ['Claim #', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], [k, 'wrap'], ['Charges', 'num'], ['Age', 'num']]; };
@@ -67,7 +69,7 @@
         (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div style="display:flex;gap:5px;margin-top:6px"><input class="inl" id="dxadd" placeholder="ICD-10, e.g. E11.9"><button class="mini" id="dxaddb">Add</button></div>' : '') + '</div>';
       else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
       else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
-      if (tab === 'edits') { setTimeout(function () { V.autoCheck(c, draw); }, 0); var cs = V.checkState(c.id); body = V.checkHtml(c, cs.busy, cs.err) + body; }
+      if (tab === 'edits') { setTimeout(function () { V.autoCheck(c, draw); }, 0); var cs = V.checkState(c.id); body = (!c.encId && !String(c.note || '').trim() && ['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div class="dp-sec"><div class="edit amb"><div class="edit-h">' + U.warn + 'No visit note on this claim</div><div class="edit-b"><p>The claim check and Althea build from the visit documentation, and this claim has none, so it can’t score well. Paste the visit note and Althea builds the claim from it.</p><textarea class="ed" id="pastenote" rows="5" placeholder="Chief complaint, HPI, exam, assessment and plan"></textarea><div style="text-align:right;margin-top:6px"><button class="btn sm pri" id="savenote">Save Note</button></div></div></div></div>' : '') + V.proposalHtml(c) + V.checkHtml(c, cs.busy, cs.err) + body; }
       foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>' + (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<button class="btn" id="altfix">Althea: Fix To 90%</button>' : '');
       V.ctx = { claim: c.id };
       if (c.stage === 'ready') foot += '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
@@ -111,7 +113,12 @@
     V.redraw = draw; draw();
     // background: check every claim before submission that hasn't been checked in its current form, one at a time
     (function bg() { var c = S.claims.filter(function (x) { return ['edits', 'ready'].indexOf(x.stage) >= 0 && x.lines.length && (!x.check || x.checkKey !== V.checkKey(x)) && !V.checkState(x.id).err && !V.checkState(x.id).busy; })[0];
-      if (!c) { setTimeout(bg, 4000); return; } V.autoCheck(c, function () { draw(); setTimeout(bg, 800); }); })();
+      if (!c) {   // everything is checked: build the ones under 90%
+        var low = S.claims.filter(function (x) { return ['edits', 'ready'].indexOf(x.stage) >= 0 && x.lines.length && x.check && x.check.score < 90 && !(x.proposal && x.proposal.key === V.checkKey(x)) && !V.proposalBusy(x.id); })[0];
+        if (!low) { setTimeout(bg, 4000); return; }
+        V.proposeFor(low, function () { draw(); }); setTimeout(bg, 1500); return;
+      }
+      V.autoCheck(c, function () { draw(); setTimeout(bg, 800); }); })();
     var C = function () { return findClaim(sel); };
     var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
     U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'balance') { location.href = '/v4/emr/patients?list=balance'; return; } Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });
@@ -152,6 +159,7 @@
     U.on(app, '#submit1', 'click', function () { submit([C()]); });
     U.on(app, '#cms', 'click', function () { V.cms1500(C()); });
     U.on(app, '#altfix', 'click', function () { V.buildClaim({ claim: C() }, draw); });
+    U.on(app, '#savenote', 'click', function () { var t = document.getElementById('pastenote').value.trim(); if (t.length < 20) return U.toast('Paste the visit note.'); var c = C(); c.note = t; c.proposal = null; D.history(c, 'Visit note added to the claim'); D.save(); draw(); });
     U.on(app, '#back-edits, #rescrub1', 'click', function () { var c = C(); D.scrub(c); after(c, 'Re-checked: ' + (c.stage === 'ready' ? 'ready' : c.edits.length + ' edit(s)')); });
     U.on(app, '#rescrub', 'click', function () {
       var l = S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }); l.forEach(D.scrub); D.log('Re-scrubbed ' + l.length + ' claims'); D.save(); draw();

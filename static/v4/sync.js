@@ -52,7 +52,9 @@
     var dx = (snap.icds || codes.filter(function (c) { return /ICD/i.test(c.type || ''); })).map(function (c) { return String(c.code || '').toUpperCase(); });
     if (!dx.length && o.icd) dx = String(o.icd).split(/[\s,]+/).filter(Boolean).map(function (c) { return c.toUpperCase(); });
     var stage = STAGE(o.status), dos = iso(snap.svcDate || o.dos || o.ts || o.createdAt) || D.today();
-    var c = { id: o.claimId || o.id, encId: '', mrn: ensurePatient(o.mrn, o.patient || o.patientName, o.payer), dos: dos, prov: staffFor(o.provider || snap.provider), payer: o.payer || '', lines: cpts, dx: dx,
+    var st = snap.structured || {}, sv = st.vitals || {};
+    var noteTxt = o.note || snap.note || (snap.structured ? ['CHIEF COMPLAINT: ' + (st.cc || ''), 'HPI: ' + (st.hpi || ''), 'ROS: ' + (st.ros || ''), 'VITALS: ' + [sv.bp && 'BP ' + sv.bp, sv.hr && 'HR ' + sv.hr].filter(Boolean).join(', '), 'EXAM: ' + (st.exam || ''), 'LABS: ' + (st.labs || ''), 'ASSESSMENT: ' + (st.assessment || ''), 'PLAN: ' + (st.plan || '')].join('\n') : '');
+    var c = { id: o.claimId || o.id, encId: '', note: noteTxt, mrn: ensurePatient(o.mrn, o.patient || o.patientName, o.payer), dos: dos, prov: staffFor(o.provider || snap.provider), payer: o.payer || '', lines: cpts, dx: dx,
       stage: stage, resolved: {}, amount: Number(o.amount) || 0, created: o.ts || o.createdAt || '', imported: true, hist: [{ at: new Date().toISOString(), text: 'Brought over from the previous EMR (status: ' + (o.status || 'Draft') + ')' }] };
     if (stage === 'submitted' || stage === 'paid' || stage === 'denied') { c.submittedOn = dos; c.status = o.status; }
     if (stage === 'paid') { c.paid = Number(o.paid || o.amount) || 0; c.paidOn = iso(o.paidOn) || dos; }
@@ -92,12 +94,17 @@
   }
   D.save();
 
+  // claims saved without a rendering provider get the clinic's signing provider (the payer requires one)
+  var defProv = function () { var me = D.staff(S.clinic.userStaff); return me && me.provider ? me.id : (D.providers()[0] || {}).id || ''; };
+  S.claims.forEach(function (c) { if (!c.prov && defProv()) { c.prov = defProv(); D.history(c, 'Rendering provider set to ' + D.provName(c.prov) + ' (none was saved on the claim)'); } });
+  D.save();
+
   // ---- 3. the server, every load ----
   var api = function (url) { return fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }); };
   Promise.all([has('suite') ? api('/api/patients') : [], has('insurance') ? api('/api/claims') : []]).then(function (res) {
     var n = 0;
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && !D.pt(o.mrn)) { S.patients.push(patientFromOld(o)); n++; } });
-    (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { S.claims.push(claimFrom(o)); n++; } });
+    (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { var c = claimFrom(o); if (!c.prov) c.prov = defProv(); S.claims.push(c); n++; } });
     // remember what the server already has so unchanged records aren't sent back
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && D.pt(o.mrn)) sent['p:' + o.mrn] = sent['p:' + o.mrn] || 'server'; });
     if (n) { D.log('Brought over ' + n + ' records from the server'); D.save(); if (window.V && V.refresh) V.refresh(); }

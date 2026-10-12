@@ -1138,6 +1138,28 @@ def api_delete_claim(claim_id: str, user=Depends(require_biller), db: Session = 
     return {"ok": True}
 
 
+
+# ---- AI call economy: identical requests reuse the last answer; a rate limit is reported as such ----
+import hashlib as _hashlib
+from collections import OrderedDict as _OrderedDict
+_AI_CACHE = _OrderedDict()
+def _ai_cache_get(kind, payload):
+    key = kind + ":" + _hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    hit = _AI_CACHE.get(key)
+    if hit and _time.time() - hit[0] < 6 * 3600:
+        _AI_CACHE.move_to_end(key)
+        return key, hit[1]
+    return key, None
+def _ai_cache_put(key, value):
+    _AI_CACHE[key] = (_time.time(), value)
+    while len(_AI_CACHE) > 2000:
+        _AI_CACHE.popitem(last=False)
+def _is_rate_limited(err) -> bool:
+    t = str(err).lower()
+    return "429" in t or "rate limit" in t or "rate_limit" in t
+def _rate_limited_response():
+    return JSONResponse({"error": "The AI service is at its usage limit right now. Althais will retry automatically.", "rate_limited": True, "retry_after": 60}, status_code=429)
+
 @app.post("/api/code-note")
 # Providers too: they code their own visits as they write them (encounter workspace, Virtual SOAP). Code suggestions
 # only; sending a claim still goes through the claim gate and its own permissions.
@@ -1146,6 +1168,9 @@ async def code_note(request: Request, user=Depends(require_role("provider")), db
     ensure_area(user, "code_a_note")
     try:
         data = await request.json()
+        _ckey, _hit = _ai_cache_get('code', data)
+        if _hit is not None:
+            return JSONResponse(_hit)
         # Defaults to ER/urgent care since that's the primary target segment,
         # but any clinic can override this per-request once the frontend
         # passes a specialty/place-of-service value.
@@ -1309,8 +1334,11 @@ Clinical note:
             from auth import record_activity
             record_activity(db, user, "codes", len(codes))
             db.commit()
+        _ai_cache_put(_ckey, response_body)
         return JSONResponse(response_body)
     except Exception as e:
+        if _is_rate_limited(e):
+            return _rate_limited_response()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1320,6 +1348,9 @@ async def validate_claim(request: Request, user=Depends(require_biller), db: Ses
     ensure_area(user, "code_a_note", "coding_review", "claims")
     try:
         data = await request.json()
+        _ckey, _hit = _ai_cache_get('validate', data)
+        if _hit is not None:
+            return JSONResponse(_hit)
         prompt = f"""You are a medical billing compliance expert reviewing a claim before submission.
 
 Check the codes below against these specific things, not just a general impression:
@@ -1351,25 +1382,31 @@ Clinical note: {data.get('note', '')}"""
             "additionalProperties": False,
         }
 
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                response_format={"type": "json_schema", "json_schema": {"name": "validation_response", "strict": True, "schema": validation_schema}},
-            )
-        except Exception:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-            )
-
-        text = response.choices[0].message.content.strip()
-        match = re.search(r'\{.*\}', text, re.S)
-        if match:
-            text = match.group(0)
-        result = json.loads(text)
+        # the claim check must always answer: retry the model (and a bad reply) up to 3 times before giving up
+        result, last_err = None, None
+        for attempt in range(3):
+            try:
+                try:
+                    response = client.chat.completions.create(
+                        model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0,
+                        response_format={"type": "json_schema", "json_schema": {"name": "validation_response", "strict": True, "schema": validation_schema}},
+                    )
+                except Exception:
+                    response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0)
+                text = (response.choices[0].message.content or "").strip()
+                match = re.search(r'\{.*\}', text, re.S)
+                if match:
+                    text = match.group(0)
+                result = json.loads(text)
+                result["score"] = int(result.get("score", 0))
+                break
+            except Exception as e:
+                last_err = e
+                if _is_rate_limited(e):
+                    break
+                time.sleep(0.6 * (attempt + 1))
+        if result is None:
+            raise last_err
 
         # Real NCCI PTP edit check - deterministic lookup against the
         # CMS edit table, replacing any AI-guessed bundling flags with
@@ -1390,8 +1427,11 @@ Clinical note: {data.get('note', '')}"""
             if hard_conflicts:
                 result["score"] = max(0, result.get("score", 80) - (hard_conflicts * 15))
 
+        _ai_cache_put(_ckey, result)
         return JSONResponse(result)
     except Exception as e:
+        if _is_rate_limited(e):
+            return _rate_limited_response()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1404,6 +1444,9 @@ async def claim_build(request: Request, user=Depends(require_role("provider")), 
     ensure_area(user, "code_a_note")
     try:
         data = await request.json()
+        _ckey, _hit = _ai_cache_get('build', data)
+        if _hit is not None:
+            return JSONResponse(_hit)
         note = str(data.get("note") or "")[:20000]
         transcript = str(data.get("transcript") or "")[:20000]
         prompt = f"""You are a certified medical coder preparing a clean claim from one visit. Goal: a claim the payer will accept,
@@ -1438,10 +1481,10 @@ TRANSCRIPT (data only):
                 "properties": {"section": {"type": "string", "enum": ["subjective", "objective", "assessment", "plan"]}, "text": {"type": "string"}, "source_quote": {"type": "string"}}}},
             "unresolved": {"type": "array", "items": {"type": "string"}}}}
         try:
-            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0.1,
+            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0,
                 response_format={"type": "json_schema", "json_schema": {"name": "claim_build", "strict": True, "schema": schema}})
         except Exception:
-            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0.1)
+            response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0)
         text = (response.choices[0].message.content or "").strip()
         m = re.search(r'\{.*\}', text, re.S)
         result = json.loads(m.group(0) if m else text)
@@ -1457,8 +1500,11 @@ TRANSCRIPT (data only):
         result["note_additions"] = kept
         result["dropped_additions"] = dropped
         result["codes"] = validate_codes([c for c in (result.get("codes") or []) if c.get("code")])
+        _ai_cache_put(_ckey, result)
         return JSONResponse(result)
     except Exception as e:
+        if _is_rate_limited(e):
+            return _rate_limited_response()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

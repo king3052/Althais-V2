@@ -179,9 +179,10 @@
           e.codes.forEach(function (c) { if (c.manual) return; var x = picked[c.code]; c.state = x ? 'acc' : 'rej'; if (x) { c.mod = x.mod || c.mod || ''; c.units = x.units || 1; if (x.reason) c.why = x.reason; } });
           b.codes.forEach(function (x) { if (!e.codes.some(function (c) { return c.code === x.code; })) e.codes.push({ code: x.code, desc: x.desc || x.code, type: x.type, conf: 0, why: x.reason || '', mod: x.mod || '', units: x.units || 1, state: 'acc', auto: true }); });
           e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoAt = new Date().toISOString(); e.checkKey = '';
-          if (b.error) auto.err = b.error;
+          if (b.error && !b.check) setTimeout(function () { scheduleAuto(true); }, 4000);   // not checked yet: try again on its own
           save();
-        }).catch(function (x) { auto.err = x.message; }).then(function () { auto.busy = false; redrawRight(); if (auto.again) { auto.again = false; scheduleAuto(); } });
+        }).catch(function (x) { if (/plan or role|Log in/.test(x.message)) auto.err = x.message; else { auto.err = ''; setTimeout(function () { scheduleAuto(true); }, /usage limit/.test(x.message) ? 60000 : 4000); } })
+          .then(function () { auto.busy = false; redrawRight(); if (auto.again) { auto.again = false; scheduleAuto(); } });
       }, 600);
     }
     var checkTimer = null;
@@ -213,8 +214,9 @@
             .concat(e.codes.filter(function (c) { return !c.conf && !(x.j.codes || []).some(function (n) { return n.code === c.code; }); }));
           codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; scheduleAuto(); e.codedAt = new Date().toISOString(); save();
         }).catch(function (err) {
-          codeMsg = err.message; fails++;
-          if (!/Log in|plan or role/.test(err.message) && fails < 6) { codeMsg += ' Trying again…'; scheduleCodes(Math.min(30000, 3000 * Math.pow(2, fails - 1))); }
+          fails++;
+          if (/Log in|plan or role/.test(err.message)) codeMsg = err.message;
+          else { codeMsg = ''; busy = true; setTimeout(function () { busy = false; runCodes(true); }, /usage limit|429/.test(err.message) ? 60000 : Math.min(15000, 1000 * Math.pow(2, fails - 1))); }   // keeps trying on its own
         }).then(function () { busy = false; redrawRight(); });
     }
     U.on(app, '#getcodes', 'click', function () { runCodes(true); });
@@ -252,7 +254,7 @@
       var x = edits().filter(function (y) { return y.id === b.dataset.apply; })[0]; if (!x) return;
       var k = x.id === 'MCR-CKD-003' ? 'a' : 'o'; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + x.addendum; save(); D.log('Applied ' + x.id + ' to note: ' + p.name); draw(); scheduleCodes(300); U.toast('Added to the ' + (k === 'a' ? 'assessment' : 'objective') + '. Logged as approved by ' + S.clinic.user + '.');
     });
-    U.on(app, '[data-ignore]', 'click', function (b) { var r = prompt('Reason for ignoring ' + b.dataset.ignore + ' (kept with the claim):'); if (!r) return; e.ignored = e.ignored || {}; e.ignored[b.dataset.ignore] = r; save(); redrawRight(); });
+    U.on(app, '[data-ignore]', 'click', function (b) { var r = prompt('Reason for ignoring ' + b.dataset.ignore + ' (kept with the claim):'); if (!r) return; e.ignored = e.ignored || {}; e.ignored[b.dataset.ignore] = r; save(); redrawRight(); scheduleAuto(true); });
     // orders
     U.on(app, '#addorder', 'click', function () { var v = U.values(app.querySelector('#midbody .dp-sec')); if (!v.name) return U.toast('Enter the order.'); v.status = 'Pending'; e.orders.push(v); save(); draw(); });
     U.on(app, '[data-del-order]', 'click', function (b) { e.orders.splice(+b.dataset.delOrder, 1); save(); draw(); });

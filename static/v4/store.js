@@ -87,7 +87,7 @@
   D.payer = function (c) { var p = D.pt(c.mrn); return c.payer || (p ? p.payer : ''); };
   D.stage = function (st) { return S.claims.filter(function (c) { return c.stage === st; }); };
   D.nextMrn = function (name) { S.seq.mrn++; var ini = String(name || 'XX').split(/,\s*/); return ((ini[1] || 'X')[0] + (ini[0] || 'X')[0]).toUpperCase() + S.seq.mrn; };
-  D.nextClaimId = function () { S.seq.claim++; return 'CHC-' + new Date().getFullYear() + '-' + S.seq.claim; };
+  D.nextClaimId = function () { var id; do { S.seq.claim++; id = 'CHC-' + new Date().getFullYear() + '-' + S.seq.claim; } while (D.claim(id)); return id; };   // never reuse a number already on file
   D.allRules = function () { return D.RULES.concat(S.localRules); };
 
   // ---- the note as text (for coding, rule checks and the claim) ----

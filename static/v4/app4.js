@@ -10,7 +10,7 @@
   var desc = function (code) { var f = S.fees.filter(function (x) { return x.code === code; })[0]; return f ? f.desc : ''; };
   // the claim in the shape the server's claim gate and claim check read
   V.claimSnap = function (c) {
-    var p = D.pt(c.mrn) || {}, e = c._enc || D.enc(c.encId), prov = D.staff(c.prov) || {};
+    var p = D.pt(c.mrn) || {}, e = c._enc || D.enc(c.encId), prov = D.staff(c.prov) || D.staff(S.clinic.userStaff) || D.providers()[0] || {};
     var ec = e ? e.codes : [], dsc = function (code) { var x = ec.filter(function (y) { return y.code === code; })[0]; return (x && x.desc) || desc(code); };
     return { claimId: c.id, patient: p.name || '', mrn: c.mrn, dob: p.dob || '', sex: p.sex || '', provider: prov.name || '', npi: prov.npi || '', payer: D.payer(c), svcDate: c.dos, pos: '11',
       addrStreet: p.addr || '', addrPhone: p.phone || '', insuredId: p.member || '',
@@ -21,22 +21,40 @@
 
   /* ---------- claim check: likelihood of acceptance ---------- */
   V.scoreColor = function (s) { return s >= 85 ? 'grn' : s >= 65 ? 'amb' : 'blue'; };
-  V.claimCheck = function (c) {
+  var PERMANENT = /plan or role|Log in/;
+  function checkOnce(c) {
     var snap = V.claimSnap(c);
     return fetch('/api/validate-claim', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ codes: snap.cpts.concat(snap.icds).map(function (x) { return { code: x.code, description: x.description, type: x.type }; }),
         note: 'CLAIM: patient ' + (snap.patient || 'not on file') + ', DOB ' + (snap.dob || 'not on file') + ', sex ' + (snap.sex || 'not on file') + ', payer ' + (snap.payer || 'not on file') + ', member ID ' + (snap.insuredId || 'not on file') + ', rendering provider ' + (snap.provider || 'not on file') + ', date of service ' + (snap.svcDate || 'not on file') + ', place of service 11.\n\n' + snap.note }) })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
       .then(function (x) {
-        if (!x.ok || x.j.error) throw new Error(x.s === 403 ? 'Your plan or role doesn’t include the claim check.' : x.s === 401 ? 'Log in again to run the claim check.' : 'The claim check is unavailable right now.');
-        c.check = { score: Math.max(0, Math.min(100, Number(x.j.score) || 0)), flags: x.j.flags || [], missing: x.j.missing || [], at: new Date().toISOString() };
-        D.history(c, 'Claim check: ' + c.check.score + '% likely to be accepted'); D.save(); return c.check;
+        if (x.s === 403) throw new Error('Your plan or role doesn’t include the claim check.');
+        if (x.s === 401) throw new Error('Log in again to run the claim check.');
+        if (x.s === 429) throw new Error('rate');
+        if (!x.ok || x.j.error || x.j.score == null) throw new Error('retry');
+        return x.j;
       });
+  }
+  // the claim check always answers: it retries by itself (1s, 2s, 4s, 8s…) until the server responds
+  V.claimCheck = function (c) {
+    return new Promise(function (resolve, reject) {
+      (function attempt(n) {
+        checkOnce(c).then(function (j) {
+          c.check = { score: Math.max(0, Math.min(100, Number(j.score) || 0)), flags: j.flags || [], missing: j.missing || [], at: new Date().toISOString() };
+          D.history(c, 'Claim check: ' + c.check.score + '% likely to be accepted'); D.save(); resolve(c.check);
+        }).catch(function (e) {
+          if (PERMANENT.test(e.message)) return reject(e);
+          setTimeout(function () { attempt(n + 1); }, e.message === 'rate' ? 60000 : Math.min(15000, 1000 * Math.pow(2, n)));   // at the AI usage limit: wait a minute
+        });
+      })(0);
+    });
   };
   V.checkHtml = function (c, busy, err) {
     var k = c.check;
     var head = '<div class="dp-h">Claim check <span class="sub">likelihood of acceptance</span><span class="end"><button class="mini" data-runcheck="' + c.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Checking…' : k ? 'Re-check' : 'Run claim check') + '</button></span></div>';
-    if (err) return '<div class="dp-sec">' + head + '<div class="s-red">' + E(err) + '</div></div>';
+    if (err && PERMANENT.test(err)) return '<div class="dp-sec">' + head + '<div class="s-red">' + E(err) + '</div></div>';
+    if (err) busy = true;
     if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Checking the claim…' : 'Runs on its own. Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
     var col = V.scoreColor(k.score);
     return '<div class="dp-sec">' + head +
@@ -48,7 +66,7 @@
   // the claim check runs by itself: once per version of a claim's codes and note (a re-run only when they change)
   V.checkKey = function (c) { var e = D.enc(c.encId); return c.lines.map(function (l) { return l.code + (l.mod || '') + 'x' + (l.units || 1); }).join(',') + '|' + c.dx.join(',') + '|' + D.payer(c) + '|' + (e ? D.noteText(e) : c.note || '').length; };
   V.autoCheck = function (c, after) {
-    if (!c || !c.lines.length || checking[c.id] || checkErr[c.id]) return;
+    if (!c || !c.lines.length || checking[c.id] || (checkErr[c.id] && PERMANENT.test(checkErr[c.id]))) return;
     if (['edits', 'ready'].indexOf(c.stage) < 0 && c.check) return;   // sent claims keep their last result
     var key = V.checkKey(c); if (c.check && c.checkKey === key) return;
     checking[c.id] = true;
@@ -404,7 +422,11 @@
       f.querySelector('[data-ab=close]').onclick = function () { w.remove(); if (onDone) onDone(); };
       f.querySelector('[data-ab=ok]').onclick = function () { approve(k, who); w.remove(); };
     }
-    function approve(k, who) {
+    function approve(k, who) { V.approveBuilt({ ctx: ctx, codes: codes, adds: adds, check: k }, who); }
+  };
+  V.approveBuilt = function (b, who, after) {
+    var ctx = b.ctx, codes = b.codes, adds = b.adds, k = b.check;
+    {
       var e = ctx.enc, now = new Date().toISOString();
       if (e) {
         if (e.status !== 'Signed') { adds.forEach(function (a) { var key = SEC[a.section] || 'a'; e[key] = (e[key] ? String(e[key]).replace(/\s+$/, '') + '\n' : '') + a.text; }); e.status = 'Signed'; e.signedAt = now; e.signedBy = who; (e.orders || []).forEach(function (o) { o.status = 'Signed'; }); S.appts.forEach(function (a) { if (a.encId === e.id) a.visit = 'Checked out'; }); }
@@ -420,8 +442,46 @@
       if (['edits', 'ready'].indexOf(c.stage) < 0) c.stage = 'edits';
       c.resolved = {}; delete c.waitingOn; D.scrub(c); c.check = k; c.checkKey = V.checkKey(c);
       D.history(c, 'Built by Althea (' + k.score + '% claim check), approved by ' + who); D.log('Claim approved by ' + who + ': ' + c.id); D.save();
-      if (c.stage === 'ready') V.transmit([c], function () { V.refresh(); });   // the send result stays on screen
-      else { U.toast('Approved. ' + c.edits.length + ' payer edit(s) still need attention before it can be sent.'); location.href = V.claimHref(c.id); }
+      delete c.proposal;
+      if (c.stage === 'ready') V.transmit([c], function () { (after || V.refresh)(); });   // the send result stays on screen
+      else { U.toast('Approved. ' + c.edits.length + ' payer edit(s) still need attention before it can be sent.'); (after || function () { location.href = V.claimHref(c.id); })(); }
     }
   };
+})();
+
+/* ---------- claims already made: Althea builds a better version of any claim under 90%, waiting for one approval ---------- */
+(function () {
+  var E = U.esc, S = D.S, busy = {};
+  V.proposalBusy = function (id) { return !!busy[id]; };
+  V.proposeFor = function (c, after) {
+    if (busy[c.id] || !c.lines.length) return;
+    var key = V.checkKey(c); if (c.proposal && c.proposal.key === key) return;
+    busy[c.id] = true; (after || V.refresh)();
+    V.optimize({ claim: c }).then(function (b) {
+      if (b.check) {
+        var before = c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).concat(c.dx).join(','), afterCodes = b.codes.map(function (x) { return x.code + (x.mod ? '-' + x.mod : ''); }).join(',');
+        c.proposal = { key: key, score: b.check.score, check: b.check, codes: b.codes, adds: b.adds, unresolved: b.unresolved, changed: before !== afterCodes || b.adds.length > 0, from: c.check ? c.check.score : null, at: new Date().toISOString() };
+      } else c.proposal = null;
+      D.save();
+    }).catch(function () { c.proposal = null; }).then(function () { delete busy[c.id]; (after || V.refresh)(); });
+  };
+  V.proposalHtml = function (c) {
+    var pr = c.proposal;
+    if (busy[c.id]) return '<div class="dp-sec"><div class="edit" style="border-color:#b9cdee;background:#eef4fc"><div class="edit-h" style="border:0">Althea is building this claim to 90% or better…</div></div></div>';
+    if (!pr || pr.error || !pr.changed || pr.score <= (c.check ? c.check.score : 0)) return '';
+    var col = V.scoreColor(pr.score);
+    return '<div class="dp-sec"><div class="edit" style="border-color:#b9cdee;background:#eef4fc"><div class="edit-h">Althea built this claim: <span class="s-' + col + '" style="margin-left:4px">' + pr.score + '%</span>' + (pr.from != null ? '<span class="end">was ' + pr.from + '%</span>' : '') + '</div><div class="edit-b">' +
+      '<div class="b" style="margin-bottom:3px">Codes</div><div class="mono" style="font-size:12px;margin-bottom:6px">' + E(c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).concat(c.dx).join(', ')) + '  →  <b>' + E(pr.codes.map(function (x) { return x.code + (x.mod ? '-' + x.mod : ''); }).join(', ')) + '</b></div>' +
+      pr.codes.filter(function (x) { return x.reason; }).map(function (x) { return '<div class="mut" style="font-size:11.5px"><b>' + E(x.code) + '</b>: ' + E(x.reason) + '</div>'; }).join('') +
+      (pr.adds.length ? '<div class="b" style="margin:8px 0 3px">Added to the record when you approve</div>' + pr.adds.map(function (a) { return '<div class="box"><div class="box-b prop">' + E(a.text) + '<div class="mut" style="font-size:11.5px;margin-top:3px">Source: “' + E(a.source_quote) + '”</div></div></div>'; }).join('') : '') +
+      ((pr.unresolved || []).length ? '<div class="ok-list" style="margin-top:6px">' + pr.unresolved.map(function (u) { return '<div class="e">' + U.err + E(u) + '</div>'; }).join('') + '</div>' : '') +
+      '<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn pri" data-approvebuilt="' + c.id + '">Approve Claim</button></div></div></div></div>';
+  };
+  U.on(document.body, '[data-approvebuilt]', 'click', function (b) {
+    var c = D.claim(b.dataset.approvebuilt), pr = c && c.proposal; if (!pr) return;
+    var who = (D.staff(c.prov) || {}).name || S.clinic.user;
+    if (!confirm('Approve this claim as ' + who + '?\n\nCodes: ' + pr.codes.map(function (x) { return x.code; }).join(', ') + (pr.adds.length ? '\n' + pr.adds.length + ' addition(s) to the record, each quoting the visit.' : '') + '\nClaim check: ' + pr.score + '%. It is sent once approved.')) return;
+    var ctx = { enc: D.enc(c.encId), claim: c, mrn: c.mrn, dos: c.dos, prov: c.prov, payer: D.payer(c), note: c.note || '' };
+    V.approveBuilt({ ctx: ctx, codes: pr.codes, adds: pr.adds, check: pr.check }, who, V.refresh);
+  });
 })();
