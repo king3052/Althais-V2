@@ -11,10 +11,11 @@
   V.pages.claims = function () {
     var Q = q.get('q') || 'edits', sel = q.get('claim') || '', tab = 'edits', CHK = {}, F = { dos: 'month', prov: '', payer: '', edit: '' };
     if (sel && findClaim(sel)) Q = findClaim(sel).stage;
+    else if (!q.get('q') && S.encs.some(function (e) { return e.status === 'Draft' && e.codes.some(function (c) { return c.state === 'acc' && c.type === 'CPT'; }); })) Q = 'signoff';
     var QS = { edits: function (c) { return c.stage === 'edits'; }, ready: function (c) { return c.stage === 'ready'; }, submitted: function (c) { return c.stage === 'submitted'; },
       stale: function (c) { return c.stage === 'submitted' && D.daysBetween(c.submittedOn || D.today(), D.today()) > 30; }, rejected: function (c) { return c.stage === 'submitted' && /reject/i.test(c.status || ''); }, denied: function (c) { return c.stage === 'denied'; },
-      appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 7; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
-    var TITLES = { edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
+      signoff: function () { return false; }, appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 7; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
+    var TITLES = { signoff: 'Waiting for sign-off', edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
@@ -29,8 +30,12 @@
       return (F.dos === '' || (F.dos === 'month' ? (c.dos || '').slice(0, 7) === D.today().slice(0, 7) : F.dos === '30' ? age <= 30 : age <= 90) || ['edits', 'ready'].indexOf(c.stage) >= 0 && F.dos === 'month')
         && (!F.prov || c.prov === F.prov) && (!F.payer || D.payer(c) === F.payer) && (!F.edit || (c.edits || []).some(function (x) { return x.label === F.edit; }));
     };
+    // visits Althea has coded that the provider hasn't signed yet: reviewed and signed here, one at a time or all at once
+    var waiting = function () { return S.encs.filter(function (e) { return e.status === 'Draft' && e.codes.some(function (c) { return c.state === 'acc' && c.type === 'CPT'; }); }).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }); };
+    var vsel = q.get('visit') || '';
     var lag = function () { return S.encs.filter(function (e) { return e.status === 'Signed' && !e.imported && !S.claims.some(function (c) { return c.encId === e.id; }); }); };
     function detail() {
+      if (Q === 'signoff') return visitDetail();
       var c = findClaim(sel);
       if (!c) return U.pane('Claim detail', '', '', '<div class="blank">' + (S.claims.length ? 'Select a claim.' : 'No claims yet. Claims are created when a provider signs a visit note with an accepted CPT code, or with New claim.') + '</div>');
       var p = D.pt(c.mrn) || {}, e = D.enc(c.encId), body = '', foot = '';
@@ -82,6 +87,26 @@
         U.tabs([['edits', c.stage === 'edits' ? 'Edits' : 'Status', c.stage === 'edits' ? c.edits.length : ''], ['charges', 'Charges'], ['dx', 'Diagnoses'], ['note', 'Encounter note'], ['hist', 'History']], tab) +
         '<div class="pbody">' + body + '</div>' + (foot ? '<div class="dp-f">' + foot + '</div>' : '') + '</section>';
     }
+    function signoffGrid(W) {
+      return U.grid(['DOS', 'Patient', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], 'Claim check', ['Est. charge', 'num'], ''], W.map(function (e) {
+        var c = V.visitClaim(e), k = e.check;
+        return { sel: e.id === vsel, attrs: ' data-visit="' + e.id + '"', cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), E(D.provName(e.prov)), E((D.pt(e.mrn) || {}).payer || ''), c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).join(', '), c.dx.join(', '),
+          k ? '<span class="s-' + V.scoreColor(k.score) + '">' + k.score + '%</span> <span class="tc mut">' + (k.score >= 85 ? 'ready to submit' : 'needs review') + '</span>' : '<span class="mut">Checking…</span>', M(D.charge(c)), '<button class="mini pri" data-signvisit="' + e.id + '">Review And Sign</button>'] };
+      }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(9, 'Nothing waiting. Visits Althea has coded show up here until the provider signs them.') + '</tbody>');
+    }
+    function visitDetail() {
+      var e = D.enc(vsel);
+      if (!e) return U.pane('Claim detail', '', '', '<div class="blank">Nothing waiting for sign-off.</div>');
+      var p = D.pt(e.mrn) || {}, c = V.visitClaim(e), k = e.check, acc = e.codes.filter(function (x) { return x.state === 'acc'; }), adds = e.pendingAdds || [];
+      var col = k ? V.scoreColor(k.score) : 'mut';
+      var body = '<div class="dp-sec"><div style="font-size:14px;font-weight:600">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12px">' + E(p.sex || '') + ', DOB ' + E(D.us(p.dob || '')) + '</span></div>' +
+          U.kv([['Visit', D.us(e.date) + ', ' + E(e.visitType || 'Office visit')], ['Provider', E(D.provName(e.prov))], ['Payer', E(p.payer || 'None')], ['Member ID', E(p.member || 'Missing')]]) + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Claim check</div>' + (k ? '<div style="display:flex;align-items:center;gap:12px"><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b><div style="flex:1"><div style="height:6px;background:var(--b2)"><div style="height:6px;width:' + k.score + '%;background:var(--' + col + ')"></div></div><div class="mut" style="font-size:12px;margin-top:3px">' + (k.score >= 85 ? 'Ready To Submit' : 'Needs Review') + ' · Checked ' + new Date(k.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</div></div></div>' : '<div class="mut">Checking…</div>') + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Codes <span class="sub">picked by Althea</span></div>' + U.grid(['Code', 'Description'], acc.map(function (x) { return { cells: ['<b class="mono">' + E(x.code) + (x.mod ? '-' + E(x.mod) : '') + '</b>', '<span class="wrap">' + E(x.desc || '') + '</span>'] }; })) +
+          '<div style="display:flex;justify-content:space-between;padding:8px 2px 0"><span class="mut">Estimated charge</span><b>' + M(D.charge(c)) + '</b></div></div>' +
+        (adds.length ? '<div class="dp-sec"><div class="dp-h">Added to the note when signed <span class="sub">' + adds.length + ', quoted from the visit</span></div>' + adds.map(function (a) { return '<div style="margin-bottom:6px"><span class="s-blue tc" style="font-size:11.5px">' + E(a.section) + '</span> ' + E(a.text) + '</div>'; }).join('') + '</div>' : '');
+      return U.pane('Claim detail', '', V.link('Open note', V.encHref(e.id)), body, { footer: '<button class="btn" id="vcms">View CMS-1500</button><button class="btn pri" data-signvisit="' + e.id + '" style="margin-left:auto">Sign And Approve Claim</button>' });
+    }
     function draw() {
       var list = Q === 'lag' ? [] : S.claims.filter(QS[Q]).filter(fOK).sort(function (a, b) { return (b.dos || '').localeCompare(a.dos || ''); }), n = function (k) { return S.claims.filter(QS[k]).length; }, t = D.totals();
       if (!sel || !findClaim(sel)) sel = list[0] ? list[0].id : (S.claims[0] || {}).id || '';
@@ -91,18 +116,21 @@
       var chips = '<div class="fl">' + U.chip('DOS', 'dos', [['month', 'This month'], ['30', 'Last 30 days'], ['90', 'Last 90 days']], F.dos) + U.chip('Provider', 'prov', D.providers().map(function (s) { return [s.id, D.short(s)]; }), F.prov) +
         U.chip('Payer', 'payer', U.uniq(S.claims.map(D.payer)), F.payer) + (Q === 'edits' ? U.chip('Edit type', 'edit', editTypes, F.edit) : '') + '<a class="end" href="#" id="clrf">Clear filters</a></div>';
       var empty = function (txt) { return function (h) { return h.replace('<tbody></tbody>', '<tbody>' + U.empty(12, txt) + '</tbody>'); }; };
-      var body = Q === 'lag' ? U.grid(['DOS', 'Patient', 'MRN', 'Provider', 'Note', ''], lag().map(function (e) { return { cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), '<span class="mono s-mut">' + e.mrn + '</span>', E(D.provName(e.prov)), 'Signed, no CPT accepted', V.link('Open note', V.encHref(e.id))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'Every signed note has a claim.') + '</tbody>')
+      var W = waiting(); if (Q === 'signoff' && (!vsel || !W.some(function (e) { return e.id === vsel; }))) vsel = W[0] ? W[0].id : '';
+      var body = Q === 'signoff' ? signoffGrid(W) : Q === 'lag' ? U.grid(['DOS', 'Patient', 'MRN', 'Provider', 'Note', ''], lag().map(function (e) { return { cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), '<span class="mono s-mut">' + e.mrn + '</span>', E(D.provName(e.prov)), 'Signed, no CPT accepted', V.link('Open note', V.encHref(e.id))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'Every signed note has a claim.') + '</tbody>')
         : empty(S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.')(U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }));
       var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + (Q === 'lag' ? lag().length + ' signed notes' : list.length + ' claim' + (list.length === 1 ? '' : 's') + ', ' + M(D.sum(list, D.charge))) + '</span></div>' + (Q === 'lag' ? '' : chips) + '<div class="pbody">' + body +
         (Q === 'edits' ? U.sect('Ready to submit', n('ready') + ' claims, ' + M(t.ready.amt) + ', passed all edits', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', empty('Nothing submitted in the last 7 days.')(U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         '</div><div class="pf"><span id="nsel">' + picked.length + ' selected</span><span id="ssel">Selected charges <b>' + M(D.sum(picked, D.charge)) + '</b></span><span class="end">Showing ' + list.length + ' of ' + S.claims.length + '</span></div>';
+      if (Q === 'signoff') mid = '<div class="ph">' + TITLES.signoff + ' <span class="sub">' + W.length + ' visit' + (W.length === 1 ? '' : 's') + ', ' + M(D.sum(W, function (e) { return D.charge(V.visitClaim(e)); })) + ', coded by Althea</span>' +
+        (W.length ? '<span class="end"><button class="mini pri" id="signall">Sign All (' + W.length + ')</button></span>' : '') + '</div><div class="pbody">' + body + '</div>';
       app.innerHTML = U.header('claims') +
         U.toolbar('Claims', [['Submit selected', 'send', { pri: 1, id: 'subsel' }], ['New claim', 'plus', { id: 'newclaim' }], ['Re-scrub', 'check', { id: 'rescrub' }], '|', ['Print', 'print', { id: 'print' }], ['Export', 'download', { id: 'export' }], ['Import 837', 'upload', { id: 'imp' }]],
           (S.integrations.filter(function (i) { return i.name === 'Availity'; })[0] || {}).on ? '<span class="dot grn"></span>Clearinghouse marked connected (preview: claims are not transmitted)' : '<span class="dot" style="background:var(--m)"></span>No clearinghouse: submitting is recorded here only') +
         '<div class="main" style="grid-template-columns:200px minmax(0,1fr) 400px">' +
           U.pane('Work queues', '', '', U.queue([
-            { h: 'Before submission', items: [{ key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
+            { h: 'Before submission', items: [{ key: 'signoff', label: 'Waiting for sign-off', n: waiting().length, color: 'blue' }, { key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
             { h: 'With payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'Over 30 days', n: n('stale'), color: null, indent: 1 }, { key: 'rejected', label: 'Rejected by clearinghouse', n: n('rejected'), color: 'amb' }] },
             { h: 'After adjudication', items: [{ key: 'denied', label: 'Denied', n: n('denied'), color: 'red' }, { key: 'appeal', label: 'Appeal due in 7 days', n: n('appeal'), color: null, indent: 1 }, { key: 'paid', label: 'Paid', n: n('paid'), color: 'grn' }, { key: 'balance', label: 'Patient balance', n: S.patients.filter(function (p) { return p.balance > 0; }).length, color: 'gray' }] },
             { h: 'All', items: [{ key: 'all', label: 'All claims, ' + new Date().toLocaleDateString('en-US', { month: 'long' }), n: S.claims.length, color: null }] },
@@ -121,6 +149,16 @@
       V.autoCheck(c, function () { draw(); setTimeout(bg, 800); }); })();
     var C = function () { return findClaim(sel); };
     var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
+    U.on(app, 'tr[data-visit]', 'click', function (tr, ev) { if (ev.target.closest('button,a')) return; vsel = tr.dataset.visit; draw(); });
+    U.on(app, '[data-signvisit]', 'click', function (b, ev) { ev.stopPropagation(); var e = D.enc(b.dataset.signvisit); if (!e) return;
+      V.signVisit(e, function (made) { if (made && !waiting().length) { Q = made.stage; sel = made.id; } draw(); }); });
+    U.on(app, '#vcms', 'click', function () { var e = D.enc(vsel); if (!e) return; var c = V.visitClaim(e); c.id = 'Draft, ' + D.us(e.date); c.payer = (D.pt(e.mrn) || {}).payer; V.cms1500(c); });
+    U.on(app, '#signall', 'click', function () { var W = waiting(); if (!W.length) return;
+      var tot = D.sum(W, function (e) { return D.charge(V.visitClaim(e)); });
+      U.confirm('Sign All', '<p class="cf">Sign ' + W.length + ' visit note' + (W.length === 1 ? '' : 's') + ' as ' + E(S.clinic.user) + ' and approve ' + (W.length === 1 ? 'its claim' : 'their claims') + ' (' + M(tot) + ')? Althea’s note additions are added to each note. Each signature is recorded with your name and the time.</p>', 'Sign All (' + W.length + ')', function () {
+        var made = 0; W.forEach(function (e) { V.signVisit(e, function (c) { if (c) made++; }, { silent: 1 }); });
+        Q = 'ready'; sel = ''; draw(); U.toast('Signed ' + W.length + ' note' + (W.length === 1 ? '' : 's') + '. ' + made + ' claim' + (made === 1 ? '' : 's') + ' created.');
+      }); });
     U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'balance') { location.href = '/v4/emr/patients?list=balance'; return; } Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });
     U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
     U.on(app, '#clrf', 'click', function (a, e) { e.preventDefault(); F = { dos: '', prov: '', payer: '', edit: '' }; draw(); });

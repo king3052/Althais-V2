@@ -92,7 +92,7 @@
       var prov = appt ? appt.prov : (V.myProvider() || {}).id;
       if (!prov) { U.toast('Add a provider first (Staff › Team).'); return V.staffForm(null, function () { V.startVisit(mrn, apptId); }, true); }
       e = { id: D.id('E'), mrn: mrn, apptId: appt ? appt.id : '', date: appt ? appt.date : D.today(), prov: prov, visitType: appt && appt.type === 'Telehealth' ? 'Telehealth' : 'Office visit', reason: appt ? appt.reason : '',
-        status: 'Draft', s: appt && appt.reason ? 'Chief complaint: ' + appt.reason + '.' : '', o: '', a: '', p: '', vitals: {}, transcript: [], orders: [], codes: [], addenda: [], ignored: {}, created: new Date().toISOString() };
+        status: 'Draft', s: appt && appt.reason ? 'Chief complaint: ' + appt.reason + '.\n' : '', o: '', a: '', p: '', vitals: {}, transcript: [], orders: [], codes: [], addenda: [], ignored: {}, created: new Date().toISOString() };
       S.encs.push(e);
       if (appt) { appt.encId = e.id; if (appt.visit === 'Scheduled' || appt.visit === 'Checked in') appt.visit = 'In room'; }
       D.log('Visit started: ' + p.name); D.save();

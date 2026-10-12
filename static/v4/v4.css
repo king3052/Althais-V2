@@ -81,7 +81,7 @@ input, select, textarea { font: inherit; color: var(--t); }
 .ms > div { flex: 1; padding: 6px 10px 7px; border-right: 1px solid var(--b2); min-width: 0; }
 .ms > div:last-child { border-right: 0; }
 .ms span { display: block; color: var(--m); font-size: 12px; }
-.ms b { font-size: 15.5px; font-weight: 600; }
+.ms b { font-size: 15.5px; font-weight: 600; display: inline-block; max-width: 100%; vertical-align: bottom; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms small { color: var(--m); font-size: 12px; margin-left: 4px; }
 
 /* ---- panes ---- */

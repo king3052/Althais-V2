@@ -1353,83 +1353,10 @@ async def validate_claim(request: Request, user=Depends(require_role("provider")
         _ckey, _hit = _ai_cache_get('validate', data)
         if _hit is not None:
             return JSONResponse(_hit)
-        prompt = f"""You are a medical billing compliance expert reviewing a claim before submission.
-
-Check the codes below against these specific things, not just a general impression:
-1. Medical necessity linkage, does at least one ICD-10 code on the claim actually justify each CPT/procedure code? A CPT code with no supporting diagnosis is a near-certain denial.
-2. E/M level support, if an E/M code is present, does the note's documented Medical Decision Making (problems addressed, data reviewed, risk) actually support that level, or is it over/under-coded relative to what's documented?
-3. Missing modifiers, flag if a modifier is likely required (e.g. modifier 25 for a same-day E/M plus procedure) but absent.
-4. Specificity, flag any ICD-10 code billed as "unspecified" when the note contains enough detail to code more specifically.
-5. Missing demographic/administrative fields required for a clean claim (patient DOB, payer, rendering provider, service date).
-6. Possible NCCI bundling conflict, flag if two CPT codes on this claim are ones you know are commonly bundled (not separately payable together) under Medicare's National Correct Coding Initiative edits, unless an appropriate modifier (e.g. 59, XE, XS, XU) is already present to justify billing them separately. Base this on your own coding knowledge, you do NOT have access to the live, current-quarter NCCI edit table, so word any such flag as "possible" and recommend the biller verify against the current NCCI edits before treating it as certain.
-
-Return a JSON object with exactly these fields:
-- score (integer 0-100, overall claim readiness, be strict, not generous)
-- flags (array of strings, each a specific issue found, referencing the code involved)
-- missing (array of strings, each a specific thing that's absent and required)
-
-Respond with the JSON object only. No markdown, no backticks, no commentary.
-
-Codes: {json.dumps(data['codes'])}
-Clinical note: {data.get('note', '')}"""
-
-        validation_schema = {
-            "type": "object",
-            "properties": {
-                "score": {"type": "integer"},
-                "flags": {"type": "array", "items": {"type": "string"}},
-                "missing": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["score", "flags", "missing"],
-            "additionalProperties": False,
-        }
-
-        # the claim check must always answer: retry the model (and a bad reply) up to 3 times before giving up
-        result, last_err = None, None
-        for attempt in range(3):
-            try:
-                try:
-                    response = client.chat.completions.create(
-                        model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0,
-                        response_format={"type": "json_schema", "json_schema": {"name": "validation_response", "strict": True, "schema": validation_schema}},
-                    )
-                except Exception:
-                    response = client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}], temperature=0)
-                text = (response.choices[0].message.content or "").strip()
-                match = re.search(r'\{.*\}', text, re.S)
-                if match:
-                    text = match.group(0)
-                result = json.loads(text)
-                result["score"] = int(result.get("score", 0))
-                break
-            except Exception as e:
-                last_err = e
-                t = str(e).lower()
-                if _is_rate_limited(e) or "401" in t or "invalid api key" in t or "authentication" in t:
-                    break   # retrying won't help
-                time.sleep(0.4 * (attempt + 1))
-        if result is None:
-            raise last_err
-
-        # Real NCCI PTP edit check - deterministic lookup against the
-        # CMS edit table, replacing any AI-guessed bundling flags with
-        # actual authoritative answers for the pairs we have on file.
-        cpt_codes = [
-            c.get("code", "") for c in data.get("codes", [])
-            if str(c.get("type", "")).upper().strip().startswith("CPT")
-        ]
-        ncci_flags = check_claim_ncci_flags(cpt_codes)
-        if ncci_flags:
-            existing_flags = result.get("flags", [])
-            existing_flags = [
-                f for f in existing_flags
-                if "ncci" not in f.lower() and "bundl" not in f.lower()
-            ]
-            result["flags"] = existing_flags + ncci_flags
-            hard_conflicts = sum(1 for f in ncci_flags if "no modifier" in f.lower())
-            if hard_conflicts:
-                result["score"] = max(0, result.get("score", 80) - (hard_conflicts * 15))
-
+        # the same checker Althea builds against (fast model, official ICD-10-CM, deterministic NCCI), off the event loop
+        codes = [c for c in (data.get("codes") or []) if isinstance(c, dict)]
+        result = await run_in_threadpool(_claim_check, "", codes, str(data.get("note") or "")[:20000])
+        result = {"score": result["score"], "flags": result.get("flags", []), "missing": result.get("missing", [])}
         _ai_cache_put(_ckey, result)
         return JSONResponse(result)
     except Exception as e:
