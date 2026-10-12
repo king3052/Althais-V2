@@ -32,11 +32,11 @@
     x: svg('<path d="M4 4l8 8M12 4l-8 8"/>'),
   };
   // status marks: filled red circle with "!", amber triangle
-  U.err = '<svg class="ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#b42318"/><path d="M8 4.5v4.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.3" r="1" fill="#fff"/></svg>';
+  U.err = '<svg class="ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#1d5bb8"/><path d="M8 4.5v4.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.3" r="1" fill="#fff"/></svg>';
   U.warn = '<svg class="ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l7 12.5H1z" fill="#a15c07"/><path d="M8 6v3.5" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".95" fill="#fff"/></svg>';
   U.mark = function (lvl) { return lvl === 'red' ? U.err : lvl === 'amb' ? U.warn : ''; };
-  U.st = function (text, lvl) { return '<span class="s-' + (lvl || 'mut') + '">' + U.mark(lvl) + U.esc(text) + '</span>'; };
-  U.SQ = { red: '#b42318', amb: '#a15c07', grn: '#17784a', blue: '#1d5bb8', lblue: '#8fb0e3', gray: '#a3adb8', mut: '#a3adb8', '': '#a3adb8' };
+  U.st = function (text, lvl) { return '<span class="s-' + (lvl === 'red' ? 'blue' : lvl || 'mut') + '">' + U.mark(lvl) + U.esc(text) + '</span>'; };
+  U.SQ = { red: '#1d5bb8', amb: '#a15c07', grn: '#17784a', blue: '#1d5bb8', lblue: '#8fb0e3', gray: '#a3adb8', mut: '#a3adb8', '': '#a3adb8' };
 
   var NAV = [
     ['overview', 'Overview', '/v4/overview', []],
@@ -67,7 +67,7 @@
     return html + '<span class="tb-end">' + (end || '') + '</span></div>';
   };
   U.strip = function (cells) {
-    return '<div class="ms">' + cells.map(function (c) { return '<div><span>' + U.esc(c[0]) + '</span><b class="' + (c[3] ? 's-' + c[3] : '') + '">' + c[1] + '</b>' + (c[2] ? '<small>' + c[2] + '</small>' : '') + '</div>'; }).join('') + '</div>';
+    return '<div class="ms">' + cells.map(function (c) { return '<div><span>' + U.esc(c[0]) + '</span><b class="' + (c[3] ? 's-' + (c[3] === 'red' ? 'blue' : c[3]) : '') + '">' + c[1] + '</b>' + (c[2] ? '<small>' + c[2] + '</small>' : '') + '</div>'; }).join('') + '</div>';
   };
   // pane(title, sub, end, body, {footer, id, cls, bodyId})
   U.pane = function (title, sub, end, body, o) {

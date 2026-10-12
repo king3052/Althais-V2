@@ -20,7 +20,7 @@
   };
 
   /* ---------- claim check: likelihood of acceptance ---------- */
-  V.scoreColor = function (s) { return s >= 85 ? 'grn' : s >= 65 ? 'amb' : 'red'; };
+  V.scoreColor = function (s) { return s >= 85 ? 'grn' : s >= 65 ? 'amb' : 'blue'; };
   V.claimCheck = function (c) {
     var snap = V.claimSnap(c);
     return fetch('/api/validate-claim', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
