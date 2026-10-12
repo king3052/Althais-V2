@@ -40,7 +40,7 @@ templates = Jinja2Templates(directory="templates")
 
 from auth import (
     router as auth_router, current_user, require_user, COOKIE_NAME,
-    current_admin, require_biller, require_admin_role,
+    current_admin, require_biller, require_admin_role, require_role,
     get_db, Base, engine, _org_namespace, OrgPatient, OrgClaim,
     SessionLocal, org_products, has_product, ensure_product, org_althea, ensure_althea, org_manager, ensure_area, area_for_path, member_blocked, AREAS,
     impersonation_info,
@@ -79,6 +79,9 @@ platform_pages._templates = templates
 app.include_router(platform_pages.router)
 import practice_pages
 app.include_router(practice_pages.router)
+import v4_preview   # design preview, local only (ALTHAIS_V4_PREVIEW=1)
+v4_preview._templates = templates
+app.include_router(v4_preview.router)
 import more_pages
 app.include_router(more_pages.router)
 import demo_api
@@ -588,6 +591,8 @@ _WORKSPACE_PAGES = {
     # EMR (top-level workspace pages; the full patient-chart SPA stays at /emr)
     "/emr/patients": "patients.html",
     "/emr/schedule": "schedule.html",
+    "/emr/encounter": "encounter.html",   # New Claim > pick a patient: note, live coding and the claim
+    "/emr/sign-off": "signoff.html",      # end-of-day sign-off for visits saved from the encounter workspace
     # Revenue
     "/revenue/claims": "revenue_claims.html",
     "/revenue/billing-activation": "revenue_billing_activation.html",
@@ -1093,7 +1098,9 @@ def api_delete_claim(claim_id: str, user=Depends(require_biller), db: Session = 
 
 
 @app.post("/api/code-note")
-async def code_note(request: Request, user=Depends(require_biller), db: Session = Depends(get_db)):
+# Providers too: they code their own visits as they write them (encounter workspace, Virtual SOAP). Code suggestions
+# only; sending a claim still goes through the claim gate and its own permissions.
+async def code_note(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
     ensure_product(user, db, "coding")
     ensure_area(user, "code_a_note")
     try:

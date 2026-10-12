@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} | Althais</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/v4/v4.css?v={{ asset_v }}">
+  <link rel="stylesheet" href="/static/css/althea.css?v={{ asset_v }}">
+  <script>var __ALTHAIS_USER__ = {{ user_json|safe }};</script>
+</head>
+<body>
+  {# Working preview: every page is drawn by static/v4/app*.js from the clinic data in this browser (static/v4/store.js) #}
+  <div id="app" data-page="{{ page }}"></div>
+  <script src="/static/v4/store.js?v={{ asset_v }}"></script>
+  <script src="/static/v4/ui.js?v={{ asset_v }}"></script>
+  <script src="/static/v4/app1.js?v={{ asset_v }}"></script>
+  <script src="/static/v4/app2.js?v={{ asset_v }}"></script>
+  <script src="/static/v4/app3.js?v={{ asset_v }}"></script>
+  <script src="/static/v4/althea-bridge.js?v={{ asset_v }}"></script>
+  <script src="/static/js/althea-ui.js?v={{ asset_v }}"></script>
+  <script src="/static/js/althea-revenue.js?v={{ asset_v }}"></script>
+  <script src="/static/js/althea.js?v={{ asset_v }}"></script>
+</body>
+</html>

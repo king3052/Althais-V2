@@ -1,0 +1,276 @@
+/* v4 working preview, part 2: the encounter (Virtual SOAP). Editable SOAP note, browser speech recording,
+   codes from /api/code-note (or added by hand), payer-rule checks with cited evidence, orders, and signing,
+   which creates the claim. */
+(function () {
+  var app = V.app, E = U.esc, M = U.money, I = U.I, S = D.S;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+  var SRC = { althea_typed: 'Typed to Althea', althea_spoken: 'Said to Althea', command: 'Althea command (not used in the note)', paste: 'Pasted' };
+  V.pages.encounter = function () {
+    var e = D.enc(V.q.get('enc'));
+    if (!e) return chooser();
+    var p = D.pt(e.mrn) || { name: '(removed patient)', mrn: e.mrn };
+    var tab = V.q.get('tab') || 'note', REC = { on: false, rec: null, start: 0, consent: false }, codeMsg = '', busy = false;
+    var signed = function () { return e.status === 'Signed'; };
+    var save = function () { e.updated = new Date().toISOString(); D.save(); };
+    var stamp = function () { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
+    // the claim this note would produce, checked against every rule
+    function preview() {
+      var acc = e.codes.filter(function (c) { return c.state === 'acc'; });
+      return { encId: e.id, mrn: e.mrn, dos: e.date, prov: e.prov, lines: acc.filter(function (c) { return c.type === 'CPT'; }).map(function (c) { return { code: c.code, mod: c.mod || '', units: 1 }; }), dx: acc.filter(function (c) { return c.type !== 'CPT'; }).map(function (c) { return c.code; }), stage: 'edits', resolved: e.ignored || {} };
+    }
+    function edits() { var c = preview(); return D.checkClaim(c).filter(function (x) { return !(e.ignored || {})[x.id]; }); }
+
+    function left() {
+      var v = e.vitals || {}, prior = S.encs.filter(function (x) { return x.mrn === e.mrn && x.id !== e.id; }).length;
+      var vin = function (k, label, ph) { return '<div><label>' + label + '</label><input data-v="' + k + '" value="' + E(v[k] || '') + '" placeholder="' + ph + '"' + (signed() ? ' readonly' : '') + '></div>'; };
+      return U.pane('Chart', '', '', '<div class="dp-sec"><div class="dp-h">Vitals ' + D.us(e.date, 1).slice(0, 5) + '</div><div class="vit-in" style="grid-template-columns:1fr 1fr">' + vin('bp', 'BP', '120/80') + vin('hr', 'HR', 'bpm') + vin('temp', 'Temp', '°F') + vin('wt', 'Weight', 'lb') + vin('spo2', 'SpO2', '%') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Problems <span class="end"><a href="#" data-editpt>Edit</a></span></div><div class="lst">' + (V.lines(p.problems).map(function (x) { return '<div>' + E(x) + '</div>'; }).join('') || '<span class="mut">None on file</span>') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Medications</div><div class="lst">' + (V.lines(p.meds).map(function (x) { return '<div>' + E(x) + '</div>'; }).join('') || '<span class="mut">None on file</span>') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Allergies</div><div class="s-red">' + (V.lines(p.allergies).map(E).join('<br>') || '<span class="mut">None recorded</span>') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Visits</div>' + U.kv([['Earlier visits', prior], ['Coverage', E(p.payer || 'None')], ['Member ID', p.member ? '<span class="mono">' + E(p.member) + '</span>' : U.st('Missing', 'amb')]]) + '</div>');
+    }
+    function noteTab() {
+      var ro = signed() ? ' readonly' : '', ed = function (k, label, rows, ph) { return '<h4>' + label + '</h4><textarea class="ed" data-n="' + k + '" rows="' + rows + '" placeholder="' + ph + '"' + ro + '>' + E(e[k] || '') + '</textarea>'; };
+      var pend = (e.addenda || []).filter(function (a) { return !a.signed; });
+      return '<div class="banner-note">' + (signed() ? '<span class="s-grn">Signed by ' + E(e.signedBy) + ', ' + new Date(e.signedAt).toLocaleString('en-US') + '.</span> The note is locked; changes go in an addendum.' :
+        (REC.on ? '<span class="rec"><span class="dot"></span>Recording</span> · the transcript fills in as you talk. ' : '') + 'Draft. Not signed. ' + (SR ? '' : 'This browser can’t record speech; type the note or paste a transcript.')) + '</div>' +
+        (pend.length ? '<div class="dp-sec" style="background:var(--amb-bg)">' + pend.map(function (a, i) { return '<div style="margin-bottom:6px"><b class="s-amb">' + U.warn + 'Addendum waiting for your signature</b> <span class="mut">from ' + E(a.from) + '</span><div style="margin:4px 0">' + E(a.text) + '</div><button class="mini pri" data-sign-add="' + e.addenda.indexOf(a) + '">Sign addendum</button> <button class="mini" data-drop-add="' + e.addenda.indexOf(a) + '">Decline</button></div>'; }).join('') + '</div>' : '') +
+        (!signed() ? '<div class="dp-sec" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="chk" style="margin:0"><input type="checkbox" id="consent"' + (REC.consent || REC.on ? ' checked' : '') + (REC.on ? ' disabled' : '') + '> Patient agreed to be recorded</label>' +
+          '<button class="btn sm' + (REC.on ? '' : ' pri') + '" id="rec"' + (SR && (REC.consent || REC.on) ? '' : ' disabled') + '>' + (REC.on ? I.pause + 'Stop recording' : I.mic + 'Start recording') + '</button>' +
+          '<button class="btn sm" id="fill"' + (e.transcript.length ? '' : ' disabled') + '>Write note from transcript</button><span class="mut" id="fillmsg"></span></div>' : '') +
+        '<div class="note">' + ed('s', 'Subjective', 3, 'Chief complaint, HPI, ROS') + ed('o', 'Objective', 3, 'Exam findings, results reviewed') + ed('a', 'Assessment', 3, 'One problem per line') + ed('p', 'Plan', 3, 'Orders, prescriptions, follow-up') +
+          ((e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum, ' + D.us(a.signedOn) + '</h4><p>' + E(a.text) + '</p>'; }).join('')) + '</div>' +
+        U.sect('Orders from this note', e.orders.length + (signed() ? '' : ' pending signature'), ordersTable(), signed() ? '' : '<a href="#" data-tab="orders">Add order</a>') +
+        U.sect('Transcript excerpt', e.transcript.length + ' lines', '<div style="padding:8px 12px">' + (e.transcript.slice(-5).map(function (l) { return '<div class="tx-line"><span class="mono">' + l.t + '</span><span>' + E(l.text) + '</span></div>'; }).join('') || '<span class="mut">Nothing recorded yet.</span>') + '</div>');
+    }
+    function ordersTable() {
+      return U.grid(['Type', 'Order', 'Detail', 'Dx', 'Status', ''], e.orders.map(function (o, i) { return { cells: [E(o.type), E(o.name), E(o.detail || ''), E(o.dx || ''), '<span class="' + (o.status === 'Signed' ? 's-grn' : 's-amb') + '">' + o.status + '</span>', signed() ? '' : '<button class="mini" data-del-order="' + i + '">Remove</button>'] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'No orders.') + '</tbody>');
+    }
+    function midBody() {
+      if (tab === 'note') return noteTab();
+      if (tab === 'transcript') return '<div style="padding:10px 14px">' + (e.transcript.map(function (l, i) { return '<div class="tx-line"' + (l.src === 'command' ? ' style="opacity:.6"' : '') + '><span class="mono">' + l.t + '</span><span style="flex:1">' + (l.src ? '<span class="mut" style="font-size:11.5px">' + E(SRC[l.src] || l.src) + ': </span>' : '') + E(l.text) + '</span>' + (signed() ? '' : '<button class="mini" data-del-tx="' + i + '">×</button>') + '</div>'; }).join('') || '<div class="mut">No transcript yet. Record the visit, or paste or type lines below.</div>') +
+        (REC.on ? '<div class="tx-line mut"><span class="mono">' + stamp() + '</span><span id="interim">Listening…</span></div>' : '') +
+        (signed() ? '' : '<div style="margin-top:10px"><textarea class="ed" id="txadd" rows="3" placeholder="Paste or type what was said"></textarea><div style="margin-top:6px"><button class="btn sm" id="txaddbtn">Add to transcript</button></div></div>') + '</div>';
+      if (tab === 'orders') return ordersTable() + (signed() ? '' : '<div class="dp-sec"><div class="dp-h">Add order</div>' + U.fields([{ k: 'type', label: 'Type', type: 'select', options: ['Rx', 'Lab', 'Imaging', 'Referral', 'Procedure'] }, { k: 'name', label: 'Order', span: 2, ph: 'Losartan 100 mg tab' }, { k: 'dx', label: 'Dx', ph: 'I10' }, { k: 'detail', label: 'Detail', span: 4, ph: '1 daily, #90, 1 refill' }]) + '<div style="margin-top:8px"><button class="btn sm pri" id="addorder">Add order</button></div></div>');
+      if (tab === 'history') return U.grid(['Date', 'Provider', 'Type', 'Assessment', 'Status'], S.encs.filter(function (x) { return x.mrn === e.mrn && x.id !== e.id; }).map(function (x) { return { attrs: ' data-href="' + V.encHref(x.id) + '"', cells: [D.us(x.date), E(D.provName(x.prov)), E(x.visitType), E((x.a || '').split('\n')[0].slice(0, 70)), x.status] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'No earlier visits.') + '</tbody>');
+      return U.grid(['Name', 'Type', 'Received', 'Status'], S.docs.filter(function (d) { return d.mrn === e.mrn; }).map(function (d) { return { attrs: ' data-href="/v4/emr/documents?mrn=' + e.mrn + '"', cells: [E(d.name), E(d.type), D.us(d.rec), E(d.status)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'No documents for this patient.') + '</tbody>');
+    }
+    function right() {
+      var ed = edits(), acc = e.codes.filter(function (c) { return c.state === 'acc'; }), cpt = acc.filter(function (c) { return c.type === 'CPT'; }), dx = acc.filter(function (c) { return c.type !== 'CPT'; });
+      var claim = S.claims.filter(function (c) { return c.encId === e.id; })[0];
+      var callouts = ed.filter(function (x) { return !/^BASIC/.test(x.id); }).map(function (x) {
+        return '<div class="dp-sec"><div class="edit' + (x.lvl === 'amb' ? ' amb' : '') + '"><div class="edit-h">' + U.mark(x.lvl) + E(x.id) + ' ' + E(x.label) + '</div><div class="edit-b"><p>' + E(x.text) + '</p>' +
+          (x.evidence ? '<div class="box"><div class="box-h"><span>Source: ' + E(x.evidence.kind) + (x.evidence.when ? ', ' + x.evidence.when : '') + '</span></div><div class="box-b">"' + E(x.evidence.quote) + '"</div></div>' : '<div class="mut" style="font-size:12px;margin-bottom:6px">Nothing in the note or transcript supports this yet. Document it if it was done.</div>') +
+          (x.addendum && !signed() ? '<div class="box"><div class="box-h"><span>Proposed change, ' + (x.id === 'MCR-CKD-003' ? 'assessment' : 'objective') + '</span></div><div class="box-b prop">' + E(x.addendum) + '</div></div><div class="mut" style="font-size:12px">Nothing changes until you apply it.</div>' : '') +
+          (signed() ? '' : '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="mini" data-ignore="' + E(x.id) + '">Ignore</button>' + (x.addendum ? '<button class="mini pri" data-apply="' + E(x.id) + '">Apply to note</button>' : '') + '</div>') + '</div></div></div>';
+      }).join('');
+      return '<section class="pane"><div class="ph">Coding <span class="sub">' + (busy ? 'updating from the note…' : e.codedAt ? 'updates as you write · ' + new Date(e.codedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'updates as you write') + '</span>' + (signed() ? '' : '<span class="end"><button class="mini" id="getcodes"' + (busy ? ' disabled' : '') + ' title="Codes update on their own; this re-runs them now">Refresh codes</button></span>') + '</div><div class="pbody">' +
+        '<div class="ms" style="border-bottom:1px solid var(--b2)"><div><span>Est. charge</span><b>' + M(D.sum(cpt, function (c) { return D.fee(c.code); })) + '</b></div><div><span>Edits</span><b class="' + (ed.length ? (ed.some(function (x) { return x.lvl === 'red'; }) ? 's-red' : 's-amb') : 's-grn') + '">' + ed.length + '</b></div><div><span>Payer</span><b>' + E(p.payer || 'None') + '</b></div></div>' +
+        (codeMsg ? '<div class="banner-note">' + E(codeMsg) + '</div>' : '') +
+        U.grid(['Code', 'Description', ['Conf.', 'num'], ''], e.codes.map(function (c, i) {
+          return { cells: ['<b>' + E(c.code) + '</b><div class="mut" style="font-size:11px">' + c.type + '</div>', '<div class="wrap">' + E(c.desc) + '</div>' + (c.why ? '<div class="mut wrap" style="font-size:11.5px">' + E(c.why) + '</div>' : ''), c.conf ? '<b class="' + (c.conf < 80 ? 's-amb' : 's-grn') + '">' + c.conf + '%</b>' : '<span class="mut">manual</span>',
+            signed() ? (c.state === 'acc' ? '<span class="s-grn">Billed</span>' : '') : '<button class="mini' + (c.state === 'acc' ? ' pri' : '') + '" data-acc="' + i + '">' + (c.state === 'acc' ? '✓' : 'Accept') + '</button> <button class="mini" data-rej="' + i + '">' + (c.state === 'rej' ? 'Undo' : 'Reject') + '</button>'] };
+        }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, busy ? 'Reading the note…' : noteHasText() ? 'Codes will appear here in a moment.' : 'Start writing the note. Codes appear here as you go, or add one below.') + '</tbody>') +
+        (signed() ? '' : '<div class="dp-sec" style="display:flex;gap:5px"><input class="inl" id="mcode" placeholder="Code (99213, E11.9)" style="width:120px"><input class="inl" id="mdesc" placeholder="Description"><button class="mini" id="addcode">Add</button></div>') +
+        callouts +
+        '<div class="dp-sec"><div class="dp-h">Claim preview <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : 'drafts on signature') + '</span></div>' +
+          U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, c.code, signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(', '), M(D.fee(c.code))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Accept a CPT code.') + '</tbody>') +
+          '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + c.code; }).join('  ') || 'No diagnosis accepted') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Checks run <span class="sub">' + E(p.payer || '') + '</span></div><div class="ok-list">' + (ed.map(function (x) { return '<div class="' + (x.lvl === 'red' ? 'e' : 'w') + '">' + U.mark(x.lvl) + E(x.label) + (/^BASIC/.test(x.id) ? ': ' + E(x.text) : '') + '</div>'; }).join('') || '<div>All ' + (6 + D.allRules().length) + ' checks passed</div>') +
+          Object.keys(e.ignored || {}).map(function (k) { return '<div class="w">' + E(k) + ' ignored: ' + E(e.ignored[k]) + '</div>'; }).join('') + '</div></div>' +
+        '</div></section>';
+    }
+    function draw() {
+      var rec = REC.on ? '<span class="rec"><span class="dot"></span>Virtual SOAP <span id="clock">0:00</span></span>' : signed() ? '<span class="s-grn">' + I.check + 'Note signed</span>' : '<span class="mut">Draft</span>';
+      app.innerHTML = U.header('encounter') + V.banner(e.mrn, rec + '<button class="btn" id="switch">Switch patient</button>') +
+        U.toolbar('Encounter ' + D.us(e.date), [['Edit note', 'pencil', { id: 'editnote' }], ['Orders', 'clip', { id: 'toorders' }], ['Message patient', 'chat', { id: 'msg' }], '|', ['Print', 'print', { id: 'print' }]],
+          '<select class="mini" id="vtype"' + (signed() ? ' disabled' : '') + '>' + ['Office visit', 'Telehealth', 'New patient', 'Annual wellness', 'Procedure'].map(function (t) { return '<option' + (t === e.visitType ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</select>' +
+          '<select class="mini" id="vprov"' + (signed() ? ' disabled' : '') + '>' + V.provOptions().map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === e.prov ? ' selected' : '') + '>' + E(o[1]) + '</option>'; }).join('') + '</select>') +
+        '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 470px">' + left() +
+          '<section class="pane">' + U.tabs([['note', 'Progress note'], ['transcript', 'Transcript (' + e.transcript.length + ')'], ['orders', 'Orders (' + e.orders.length + ')'], ['history', 'History'], ['docs', 'Documents']], tab) +
+            '<div class="pbody" id="midbody">' + midBody() + '</div>' + (signed() ? '<div class="dp-f">' + (S.claims.filter(function (c) { return c.encId === e.id; })[0] ? '<a class="btn" style="display:inline-flex;align-items:center" href="' + V.claimHref(S.claims.filter(function (c) { return c.encId === e.id; })[0].id) + '">Open claim</a>' : '') + '<button class="btn" id="addendum">Add addendum</button></div>'
+              : '<div class="dp-f"><button class="btn" id="delete" style="margin-right:auto">Delete draft</button><button class="btn" id="save">Save draft</button><button class="btn pri" id="sign">Sign note and orders</button></div>') + '</section>' +
+          right() + '</div>';
+      U.fit(); U.search();
+      app.querySelectorAll('textarea.ed').forEach(function (t) { t.style.height = Math.max(64, t.scrollHeight + 2) + 'px'; });
+    }
+    function redrawRight() { var r = app.querySelector('.main > section:last-child'); if (r) r.outerHTML = right(); }
+    V.redraw = draw; draw();
+
+    // typing in the note: save as you go, and re-check rules a moment later
+    var t1 = null;
+    app.addEventListener('input', function (ev) {
+      var n = ev.target.dataset.n, v = ev.target.dataset.v;
+      if (n) { e[n] = ev.target.value; ev.target.style.height = Math.max(64, ev.target.scrollHeight + 2) + 'px'; }
+      else if (v) { e.vitals[v] = ev.target.value.trim(); }
+      else return;
+      save(); clearTimeout(t1); t1 = setTimeout(redrawRight, 600); scheduleCodes();
+    });
+    U.on(app, '[data-tab]', 'click', function (b, ev) { ev.preventDefault(); tab = b.dataset.tab; draw(); });
+    U.on(app, '#toorders', 'click', function () { tab = 'orders'; draw(); });
+    U.on(app, '#editnote', 'click', function () { tab = 'note'; draw(); var t = app.querySelector('[data-n=s]'); if (t) t.focus(); });
+    U.on(app, '#msg', 'click', function () { V.sendMessage(e.mrn); });
+    U.on(app, '#switch', 'click', function () { V.pickPatient('Switch patient', function (m) { V.startVisit(m); }); });
+    U.on(app, '[data-editpt]', 'click', function (a, ev) { ev.preventDefault(); V.patientForm(p, function () { draw(); }); });
+    U.on(app, 'tr[data-href]', 'click', function (tr) { location.href = tr.dataset.href; });
+    U.on(app, '#vtype', 'change', function (s) { e.visitType = s.value; save(); redrawRight(); scheduleCodes(300); });
+    U.on(app, '#vprov', 'change', function (s) { e.prov = s.value; save(); });
+
+    // recording: the browser's speech recognition, one transcript line per phrase
+    U.on(app, '#consent', 'change', function (c) { REC.consent = c.checked; draw(); });
+    var tick = null;
+    U.on(app, '#rec', 'click', function () {
+      if (REC.on) { REC.on = false; V.recording = ''; if (REC.rec) try { REC.rec.stop(); } catch (x) {} clearInterval(tick); D.log('Recording stopped: ' + p.name); draw(); return; }
+      if (!SR) return U.toast('This browser can’t record speech. Use Chrome or Edge, or paste a transcript.');
+      var r = new SR(); r.lang = 'en-US'; r.continuous = true; r.interimResults = true;
+      r.onresult = function (ev) { var interim = ''; for (var i = ev.resultIndex; i < ev.results.length; i++) { var t = ev.results[i][0].transcript.trim(); if (ev.results[i].isFinal && t) { e.transcript.push({ t: stamp(), text: t }); save(); if (tab === 'transcript') draw(); } else interim += t; } var el = document.getElementById('interim'); if (el) el.textContent = interim || 'Listening…'; };
+      r.onend = function () { if (REC.on) try { r.start(); } catch (x) {} };
+      r.onerror = function (ev) { if (ev.error === 'not-allowed') { REC.on = false; clearInterval(tick); U.toast('Microphone permission was denied.'); draw(); } };
+      try { r.start(); } catch (x) {}
+      REC.rec = r; REC.on = true; REC.start = Date.now(); V.recording = e.id; D.log('Recording started: ' + p.name);
+      tick = setInterval(function () { var s = Math.floor((Date.now() - REC.start) / 1000), c = document.getElementById('clock'); if (c) c.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 1000);
+      draw();
+    });
+    U.on(app, '#txaddbtn', 'click', function () { var t = document.getElementById('txadd').value.trim(); if (!t) return; t.split(/\n+/).forEach(function (l) { if (l.trim()) e.transcript.push({ t: stamp(), text: l.trim() }); }); save(); draw(); });
+    U.on(app, '[data-del-tx]', 'click', function (b) { e.transcript.splice(+b.dataset.delTx, 1); save(); draw(); });
+    // write the note from the transcript (same service Virtual SOAP uses); fills empty sections only
+    U.on(app, '#fill', 'click', function (b) {
+      b.disabled = true; var msg = document.getElementById('fillmsg'); msg.textContent = 'Writing…';
+      fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_scribe', text: e.transcript.filter(function (l) { return l.src !== 'command'; }).map(function (l) { return l.text; }).join(' ') }) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
+        .then(function (x) {
+          if (!x.ok || x.j.error) throw new Error(x.s === 401 || x.s === 403 ? 'Log in to Althais on this server (/login) to use note writing.' : (x.j.error || x.j.detail || 'Note writing is unavailable.'));
+          var f = x.j.fields || {}, filled = [];
+          var put = function (k, val) { if (val && !String(e[k] || '').trim()) { e[k] = val; filled.push(k.toUpperCase()); } };
+          put('s', [f.chief_complaint && 'Chief complaint: ' + f.chief_complaint, f.hpi, f.ros && 'ROS: ' + f.ros, f.pmh && 'PMH: ' + f.pmh, f.medications && 'Medications: ' + f.medications, f.allergies && 'Allergies: ' + f.allergies].filter(Boolean).join('\n'));
+          put('o', [f.exam, f.labs && 'Results: ' + f.labs].filter(Boolean).join('\n')); put('a', f.assessment); put('p', f.plan);
+          ['bp', 'hr', 'temp', 'spo2'].forEach(function (k) { if (f[k] && !e.vitals[k]) e.vitals[k] = f[k]; });
+          save(); draw(); scheduleCodes(300); U.toast(filled.length ? 'Filled ' + filled.join(', ') + '. Review before signing.' : 'Nothing new to fill; sections that already had text were left alone.');
+        }).catch(function (err) { b.disabled = false; msg.textContent = err.message; });
+    });
+
+    // codes
+    // codes update by themselves a moment after the note changes (and on opening a note that has none yet)
+    var lastCoded = '', codeTimer = null, fails = 0;
+    function codeKey() { return D.noteText(e) + '|' + e.visitType + '|' + (p.payer || ''); }
+    function noteHasText() { return (e.s + e.o + e.a + e.p).replace(/Chief complaint:[^\n]*/i, '').trim().length >= 12; }
+    function scheduleCodes(ms) { clearTimeout(codeTimer); if (signed() || !noteHasText()) return; codeTimer = setTimeout(function () { runCodes(false); }, ms == null ? 2000 : ms); }
+    function runCodes(force) {
+      if (signed()) return;
+      if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('Write the note first.');
+      if (busy) { scheduleCodes(1500); return; }
+      var key = codeKey(); if (!force && key === lastCoded) return;
+      busy = true; codeMsg = ''; redrawRight();
+      fetch('/api/code-note', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: D.noteText(e), encounter_type: 'office', is_new_patient: e.visitType === 'New patient', payer: p.payer || '', specialty: 'primary care / outpatient office' }) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })
+        .then(function (x) {
+          if (!x.ok || x.j.error) throw new Error(x.s === 401 ? 'Log in to Althais on this server (/login) to get code suggestions. You can add codes by hand below.' : x.s === 403 ? 'Your account’s plan or role doesn’t include coding. Add codes by hand below.' : 'Coding is unavailable right now (' + (x.j.error || x.s) + '). Add codes by hand below.');
+          var keep = {}; e.codes.forEach(function (c) { keep[c.code] = c; });
+          e.codes = (x.j.codes || []).map(function (c) { var old = keep[c.code]; return { code: c.code, desc: c.description || '', type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', conf: Number(c.confidence) || 0, why: c.justification || '', mod: c.modifier || '', state: old ? old.state : '' }; })
+            .concat(e.codes.filter(function (c) { return !c.conf && !(x.j.codes || []).some(function (n) { return n.code === c.code; }); }));
+          codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; e.codedAt = new Date().toISOString(); save();
+        }).catch(function (err) {
+          codeMsg = err.message; fails++;
+          if (!/Log in|plan or role/.test(err.message) && fails < 6) { codeMsg += ' Trying again…'; scheduleCodes(Math.min(30000, 3000 * Math.pow(2, fails - 1))); }
+        }).then(function () { busy = false; redrawRight(); });
+    }
+    U.on(app, '#getcodes', 'click', function () { runCodes(true); });
+    if (!signed() && !e.codes.some(function (c) { return c.conf; })) scheduleCodes(400);   // a note with no suggested codes yet
+    U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? '' : 'acc'; save(); redrawRight(); });
+    U.on(app, '[data-rej]', 'click', function (b) { var c = e.codes[+b.dataset.rej]; if (c.state === 'rej' || !c.conf) { if (!c.conf && c.state !== 'rej') { e.codes.splice(+b.dataset.rej, 1); } else c.state = ''; } else c.state = 'rej'; save(); redrawRight(); });
+    U.on(app, '#addcode', 'click', function () {
+      var code = document.getElementById('mcode').value.trim().toUpperCase(), desc = document.getElementById('mdesc').value.trim();
+      if (!/^([0-9]{5}|[A-Z][0-9]{4}|[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?)$/.test(code)) return U.toast('Enter a CPT (5 digits, or a letter and 4 digits) or an ICD-10 code (E11.9).');
+      var cpt = /^([0-9]{5}|[A-Z][0-9]{4})$/.test(code) && !/^[A-Z][0-9]{2}\./.test(code);
+      if (!desc && cpt) desc = (S.fees.filter(function (f) { return f.code === code; })[0] || {}).desc || '';
+      e.codes.push({ code: code, desc: desc || code, type: cpt ? 'CPT' : 'ICD-10', conf: 0, why: 'Added by ' + S.clinic.user, state: 'acc' }); save(); redrawRight();
+    });
+    U.on(app, '[data-mod]', 'change', function (i) { e.codes[+i.dataset.mod].mod = i.value.trim().toUpperCase(); save(); redrawRight(); });
+    // rule edits
+    U.on(app, '[data-apply]', 'click', function (b) {
+      var x = edits().filter(function (y) { return y.id === b.dataset.apply; })[0]; if (!x) return;
+      var k = x.id === 'MCR-CKD-003' ? 'a' : 'o'; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + x.addendum; save(); D.log('Applied ' + x.id + ' to note: ' + p.name); draw(); scheduleCodes(300); U.toast('Added to the ' + (k === 'a' ? 'assessment' : 'objective') + '. Logged as approved by ' + S.clinic.user + '.');
+    });
+    U.on(app, '[data-ignore]', 'click', function (b) { var r = prompt('Reason for ignoring ' + b.dataset.ignore + ' (kept with the claim):'); if (!r) return; e.ignored = e.ignored || {}; e.ignored[b.dataset.ignore] = r; save(); redrawRight(); });
+    // orders
+    U.on(app, '#addorder', 'click', function () { var v = U.values(app.querySelector('#midbody .dp-sec')); if (!v.name) return U.toast('Enter the order.'); v.status = 'Pending'; e.orders.push(v); save(); draw(); });
+    U.on(app, '[data-del-order]', 'click', function (b) { e.orders.splice(+b.dataset.delOrder, 1); save(); draw(); });
+    // addenda
+    U.on(app, '[data-sign-add]', 'click', function (b) {
+      var a = e.addenda[+b.dataset.signAdd]; a.signed = true; a.signedOn = D.today(); a.signedBy = S.clinic.user; save();
+      S.claims.filter(function (c) { return c.encId === e.id && c.stage === 'edits'; }).forEach(function (c) { if (c.waitingOn) { delete c.resolved[c.waitingOn]; delete c.waitingOn; } D.scrub(c); D.history(c, 'Addendum signed, claim re-checked: ' + (c.stage === 'ready' ? 'ready to submit' : c.edits.length + ' edit(s) remain')); });
+      D.log('Addendum signed: ' + p.name); D.save(); draw(); U.toast('Addendum signed. The claim was re-checked.');
+    });
+    U.on(app, '[data-drop-add]', 'click', function (b) { e.addenda.splice(+b.dataset.dropAdd, 1); S.claims.filter(function (c) { return c.encId === e.id && c.waitingOn; }).forEach(function (c) { delete c.resolved[c.waitingOn]; delete c.waitingOn; D.scrub(c); }); save(); draw(); });
+    U.on(app, '#addendum', 'click', function () {
+      U.form('Addendum', [{ k: 'text', label: 'Addendum text', type: 'textarea', req: 1, span: 4 }], {}, function (v) { e.addenda.push({ text: v.text, from: S.clinic.user, signed: true, signedOn: D.today(), signedBy: S.clinic.user }); save(); S.claims.filter(function (c) { return c.encId === e.id && (c.stage === 'edits' || c.stage === 'ready'); }).forEach(D.scrub); D.save(); draw(); }, { save: 'Sign addendum' });
+    });
+    /* ---- Althea on this visit (static/js/althea.js asks window.AlthaisEncounter first) ---- */
+    var QUESTION = /\?\s*$|^(how|what|why|where|when|who|which|can|could|does|do|is|are|should|will|would)\b/i;
+    var COMMAND = /^(open|show|go|take me|read|scribe|start|stop|end|record|check|find|list|tell|sign|submit|accept|reject|switch|help|hey|hi|hello|thanks|thank you)\b/i;
+    var CHART = /^(chart|add|note|document|write down|put)\b[:,\s]*(that\s+)?(to the note[:,\s]*)?/i;
+    window.AlthaisEncounter = {
+      handles: function (intent) { return !signed() && ['scribe_visit', 'dictate_visit_note', 'start_visit', 'start_visit_timer', 'stop_visit_timer'].indexOf(intent) >= 0; },
+      run: function (intent) {
+        if (intent === 'stop_visit_timer') { if (!REC.on) return { text: 'Nothing is being recorded right now.', spoken: 'Nothing is being recorded.' }; app.querySelector('#rec').click(); return { text: 'Stopped. Use Write note from transcript, then Get codes.', spoken: 'Stopped.' }; }
+        if (REC.on) return { text: 'Already recording ' + p.name + '’s visit.', spoken: '', quiet: true };
+        if (!SR) return { text: 'This browser can’t record speech. Use Chrome or Edge, or paste the transcript in the Transcript tab.', spoken: '' };
+        REC.consent = true; tab = 'note'; draw(); app.querySelector('#rec').click();
+        return { quiet: true, spoken: '', text: 'Recording ' + p.name + '’s visit into this note. Make sure the patient agreed to be recorded. Tap Stop recording when it’s over.' };
+      },
+      wantsChart: function (t) { t = String(t).trim(); return !signed() && (CHART.test(t) || (!QUESTION.test(t) && !COMMAND.test(t) && t.split(/\s+/).length >= 2)); },
+      log: function (text, kind) { if (signed()) return; e.transcript.push({ t: stamp(), text: String(text).trim(), src: kind }); save(); if (tab === 'transcript') draw(); },
+      chart: function (raw) {
+        var text = String(raw).replace(CHART, '').trim();
+        return fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_note', text: text.slice(0, 4000) }) })
+          .then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (j) {
+            var f = j.fields || {}, put = [], add = function (k, label, val) { val = String(val || '').trim(); if (!val || String(e[k] || '').toLowerCase().indexOf(val.toLowerCase()) >= 0) return; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + val; if (put.indexOf(label) < 0) put.push(label); };
+            add('s', 'Subjective', [f.chief_complaint && 'Chief complaint: ' + f.chief_complaint, f.hpi, f.ros && 'ROS: ' + f.ros, f.medications && 'Medications: ' + f.medications, f.allergies && 'Allergies: ' + f.allergies].filter(Boolean).join('\n'));
+            add('o', 'Objective', [f.exam, f.labs && 'Results: ' + f.labs].filter(Boolean).join('\n')); add('a', 'Assessment', f.assessment); add('p', 'Plan', f.plan);
+            ['bp', 'hr', 'temp', 'spo2'].forEach(function (k) { if (f[k]) { e.vitals[k] = f[k]; if (put.indexOf('Vitals') < 0) put.push('Vitals'); } });
+            if (!put.length) { e.s = (e.s ? e.s.replace(/\s+$/, '') + '\n' : '') + text; put.push('Subjective'); }   // couldn't sort it: keep it, in Subjective
+            save(); tab = 'note'; draw(); scheduleCodes(300);
+            return { text: 'Added to ' + put.join(', ') + '.' + (j.fields ? '' : ' (Log in to have me sort it into sections.)'), spoken: 'Added to ' + put.slice(0, 3).join(', ') + '.' };
+          });
+      },
+    };
+    U.on(app, '#save', 'click', function () { save(); D.log('Draft saved: ' + p.name); U.toast('Draft saved, ' + stamp() + '.'); });
+    U.on(app, '#delete', 'click', function () {
+      if (!confirm('Delete this draft visit? This can’t be undone.')) return;
+      S.encs.splice(S.encs.indexOf(e), 1); S.appts.forEach(function (a) { if (a.encId === e.id) { a.encId = ''; if (a.visit === 'In room') a.visit = 'Checked in'; } }); D.log('Draft deleted: ' + p.name); D.save(); location.href = '/v4/emr/schedule';
+    });
+    U.on(app, '#sign', 'click', function () {
+      if (REC.on) app.querySelector('#rec').click();
+      if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('The note is empty.');
+      var ed = edits(), cpt = e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; });
+      var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' +
+        (cpt.length ? '\n\nA claim will be created' + (ed.length ? ' and held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve' : ' and checked') + '.' : '\n\nNo CPT code is accepted, so no claim will be created.');
+      if (!confirm(msg)) return;
+      e.status = 'Signed'; e.signedAt = new Date().toISOString(); e.signedBy = S.clinic.user; e.orders.forEach(function (o) { o.status = 'Signed'; });
+      S.appts.forEach(function (a) { if (a.encId === e.id) a.visit = 'Checked out'; });
+      var made = null;
+      if (cpt.length) {
+        var c = preview(); c.id = D.nextClaimId(); c.payer = p.payer; c.created = new Date().toISOString(); c.resolved = Object.assign({}, e.ignored || {}); D.scrub(c); c.hadEdits = c.stage === 'edits';
+        D.history(c, 'Created from signed note, ' + (c.stage === 'edits' ? c.edits.length + ' edit(s) to resolve' : 'all checks passed')); S.claims.push(c); made = c;
+      }
+      D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save(); draw();
+      U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits to resolve.' : ' is ready to submit.') : ''));
+    });
+  };
+
+  // no visit chosen: today's appointments and any open drafts
+  function chooser() {
+    var today = S.appts.filter(function (a) { return a.date === D.today() && ['Cancelled', 'No show'].indexOf(a.visit) < 0; }).sort(function (a, b) { return a.time.localeCompare(b.time); });
+    var drafts = S.encs.filter(function (x) { return x.status === 'Draft'; });
+    app.innerHTML = U.header('encounter') + U.toolbar('Encounter', [['Start visit', 'mic', { pri: 1, id: 'start' }], ['New patient', 'user', { id: 'newpt' }]], 'Choose a visit') +
+      '<div class="main" style="grid-template-columns:1fr 1fr">' +
+        U.pane('Today’s appointments', today.length, '', U.grid(['Time', 'Patient', 'Reason', 'Provider', 'Status'], today.map(function (a) { return { attrs: ' data-start="' + a.mrn + '" data-appt="' + a.id + '"', cells: [V.fmtT(a.time), E(D.ptName(a.mrn)), E(a.reason || ''), E(D.provName(a.prov)), V.apptStatus(a)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'No appointments today. Use Start visit to pick any patient.') + '</tbody>')) +
+        U.pane('Open drafts', drafts.length, '', U.grid(['Date', 'Patient', 'Provider', 'Reason'], drafts.map(function (x) { return { attrs: ' data-href="' + V.encHref(x.id) + '"', cells: [D.us(x.date), E(D.ptName(x.mrn)), E(D.provName(x.prov)), E(x.reason || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'None.') + '</tbody>')) + '</div>';
+    U.fit(); U.search();
+    U.on(app, 'tr[data-start]', 'click', function (tr) { V.startVisit(tr.dataset.start, tr.dataset.appt); });
+    U.on(app, 'tr[data-href]', 'click', function (tr) { location.href = tr.dataset.href; });
+    U.on(app, '#start', 'click', function () { V.pickPatient('Start visit for', function (m) { V.startVisit(m); }); });
+    U.on(app, '#newpt', 'click', function () { V.patientForm(null, function (pt) { V.startVisit(pt.mrn); }); });
+  }
+})();

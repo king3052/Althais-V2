@@ -76,7 +76,10 @@
   var HANDOFF = { scribe_visit: 1, new_patient: 1, dictate_visit_note: 1, open_patient: 1, start_visit: 1, check_claim_readiness: 1, read_allergies: 1, read_medications: 1, read_labs: 1, start_visit_timer: 1, stop_visit_timer: 1, claims_denial_scan: 1 };
 
   function $(id) { return document.getElementById(id); }
-  function load(key, fallback) { try { var raw = localStorage.getItem(key); if (!raw) return fallback; var v = JSON.parse(raw); return v == null ? fallback : v; } catch (e) { return fallback; } }
+  /* a page can supply Althea's data itself (the v4 preview does; static/v4/althea-bridge.js) instead of the EMR's storage */
+  var HOST = window.AltheaHost || null;
+  if (HOST && HOST.sections) Object.keys(HOST.sections).forEach(function (k) { SECTIONS[k] = HOST.sections[k]; });
+  function load(key, fallback) { if (HOST && HOST.data) { for (var hk in K) if (K[hk] === key && HOST.data[hk]) return HOST.data[hk](); } try { var raw = localStorage.getItem(key); if (!raw) return fallback; var v = JSON.parse(raw); return v == null ? fallback : v; } catch (e) { return fallback; } }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function todayIso() { return new Date().toISOString().slice(0, 10); }
   function spokenName(name) { var s = String(name || "").trim(), m = s.match(/^([^,]+),\s*(.+)$/); return m ? m[2] + " " + m[1] : s; }   /* "Smith, John" -> "John Smith" for speech */
@@ -209,10 +212,19 @@
 
   /* ---------- ask the backend which request this is, then answer from local data ---------- */
   function run(transcript) {
-    openPanel(); statusEl.textContent = "Thinking…"; showStop(true);
+    openPanel();
+    /* on the encounter workspace, anything that isn't a question or a command is charted into the open note */
+    var ENC = window.AlthaisEncounter, chart = ENC && ENC.wantsChart && ENC.wantsChart(transcript);
+    if (ENC && ENC.log) ENC.log(transcript, chart ? (voiceTurn ? "althea_spoken" : "althea_typed") : "command");   /* everything said to Althea goes in the visit's transcript */
+    if (chart) {
+      statusEl.textContent = "Charting…"; responseEl.textContent = "Adding that to the note…";
+      ENC.chart(transcript).then(function (r) { responseEl.textContent = r.text; statusEl.textContent = IDLE; speak(r.spoken || ""); maybeResume(); });
+      return;
+    }
+    statusEl.textContent = "Thinking…"; showStop(true);
     abortCtl = window.AbortController ? new AbortController() : null;
     fetch("/api/althea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript, history: history }), signal: abortCtl ? abortCtl.signal : undefined })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { if (r.status === 401) { var err = new Error("login"); err.login = true; throw err; } return r.json(); })
       .then(function (data) {
         if (data.error) throw new Error(data.error);
         history.push({ transcript: transcript, intent: data.intent }); if (history.length > 6) history = history.slice(-6);
@@ -220,6 +232,7 @@
       })
       .catch(function (e) {
         if (e && e.name === "AbortError") return;
+        if (e && e.login) { responseEl.innerHTML = 'Log in to Althais on this server to talk to me. <a href="/login" style="font-weight:600">Log in</a>'; statusEl.textContent = IDLE; showStop(false); return; }
         responseEl.textContent = "Sorry, something went wrong reaching Althea."; statusEl.textContent = IDLE; maybeResume();
       })
       .then(function () { abortCtl = null; if (!speaking()) showStop(false); });
@@ -261,6 +274,21 @@
   function execute(data, transcript) {
     var intent = data.intent, params = data.params || {}, spoken = data.spoken_ack || "", html = null, text = null;
 
+    /* the encounter workspace has its own note open: scribing goes into that note, not a new one in the EMR */
+    var ENC = window.AlthaisEncounter;
+    if (ENC && ENC.handles(intent)) {
+      var r = ENC.run(intent, params) || {};
+      if (r.quiet) { conversation = false; stopListening(false); }   /* free the microphone for the visit recording */
+      responseEl.textContent = r.text || ""; statusEl.textContent = r.quiet ? "Recording the visit" : IDLE;
+      speak(r.spoken || "");
+      if (!r.quiet) maybeResume();
+      return;
+    }
+
+    if (HANDOFF[intent] && HOST && HOST.handoff) {   /* the host page carries out chart requests itself */
+      var hr = HOST.handoff(intent, params, transcript);
+      if (hr) { responseEl.textContent = hr.text || ""; statusEl.textContent = IDLE; speak(hr.spoken || ""); if (!hr.quiet) maybeResume(); return; }
+    }
     if (HANDOFF[intent]) {
       /* needs the patient chart: the EMR page picks the request up and runs it */
       try { sessionStorage.setItem("althea:pending", JSON.stringify({ transcript: transcript, ts: Date.now(), voice: voiceTurn })); } catch (e) {}

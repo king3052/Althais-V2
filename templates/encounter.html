@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Althais | Encounter</title>
+  {# The encounter workspace (New Claim > pick a patient). Virtual SOAP and coding in one screen: record the visit and the
+     note fills in from the transcript (/api/althea/extract, same as Virtual SOAP's scribe), and codes are re-suggested
+     every time the note changes (/api/code-note), so they're ready when the visit ends. Notes, claims and the fee
+     schedule are the same clinic data the EMR uses; claims go through the same server gate (/api/billing/claims/transmit). #}
+  <script>
+    var __ALTHAIS_USER__ = {{ user_json|safe }};
+    var __ALTHAIS_NS__ = (function () {
+      var base = (__ALTHAIS_USER__.organization || __ALTHAIS_USER__.email || 'unknown').trim().toLowerCase();
+      return 'org_' + base.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    })();
+  </script>
+  <style>
+    /* ---- tokens: every color on this page comes from here, so light and dark both hold up ---- */
+    :root {
+      --e-page: #f4f5f8; --e-panel: #ffffff; --e-line: #e6e8ee; --e-line2: #eff1f5;
+      --e-ink: #0f1116; --e-ink2: #2c313b; --e-muted: #6b7280; --e-faint: #9aa0ab;
+      --e-field: #f6f7fa; --e-field-line: transparent; --e-soft: #f6f7f9; --e-hover: #f1f3f6;
+      --e-ok: #137a4a; --e-ok-bg: #e9f7ef; --e-ok-line: #8fd3ad; --e-warn: #a35c00; --e-warn-bg: #fff6e6; --e-warn-line: #f0c27a;
+      --e-bad: #b42323; --e-bad-bg: #fdeeee; --e-rec: #d33a3a; --e-ai: var(--brand-50, #eef4fe);
+      --e-shadow: 0 1px 2px rgba(15,17,22,.04), 0 4px 16px rgba(15,17,22,.04);
+    }
+    html[data-theme-resolved="dark"] {
+      --e-page: #0e1116; --e-panel: #171a21; --e-line: #272c36; --e-line2: #222730;
+      --e-ink: #eef0f5; --e-ink2: #c9ced8; --e-muted: #8d94a2; --e-faint: #6b7383;
+      --e-field: #1e222b; --e-field-line: #272c36; --e-soft: #1e222b; --e-hover: #232833;
+      --e-ok: #6ad19c; --e-ok-bg: #11291c; --e-ok-line: #2c6b48; --e-warn: #f0b45c; --e-warn-bg: #2a2010; --e-warn-line: #6b4c18;
+      --e-bad: #f39a98; --e-bad-bg: #2c1515; --e-rec: #ef5a5a; --e-ai: #172540;
+      --e-shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+    body.bg-shell { background: var(--e-page); }
+
+    /* ---- patient header ---- */
+    .pt-bar { background: var(--e-panel); border-bottom: 1px solid var(--e-line); padding: 12px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .pt-av { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--e-ai), color-mix(in srgb, var(--brand, #0d5bd7) 22%, var(--e-panel))); color: var(--brand-text-strong, #0d5bd7); }
+    html[data-theme-resolved="dark"] .pt-av { background: var(--e-ai); color: #8fb4f5; }
+    .pt-name { font-size: 17px; font-weight: 650; color: var(--e-ink); letter-spacing: -.01em; }
+    .pt-meta { font-size: 12.5px; color: var(--e-muted); font-variant-numeric: tabular-nums; }
+    .pt-sub { font-size: 11.5px; color: var(--e-muted); margin-top: 2px; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .chip.allergy { background: var(--e-warn-bg); color: var(--e-warn); }
+    .chip.quiet { background: var(--e-soft); color: var(--e-muted); }
+    .chip.ok { background: var(--e-ok-bg); color: var(--e-ok); }
+    .chip.draft { background: var(--e-warn-bg); color: var(--e-warn); }
+    .chip.queued { background: var(--e-ai); color: var(--brand-text-strong, #0d5bd7); }
+    .chip.rec { background: var(--e-bad-bg); color: var(--e-bad); }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .chip.rec .dot { animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .25; } }
+
+    /* ---- three columns ---- */
+    .enc { display: grid; grid-template-columns: 236px minmax(0, 1fr) 368px; height: calc(100vh - var(--enc-top, 140px)); }
+    .enc > * { overflow-y: auto; scrollbar-width: thin; }
+    .enc-rail { border-right: 1px solid var(--e-line); background: var(--e-panel); padding: 16px; }
+    .enc-main { padding: 16px; min-width: 0; }
+    .enc-code { border-left: 1px solid var(--e-line); background: var(--e-panel); display: flex; flex-direction: column; min-width: 0; overflow: hidden !important; }
+
+    .rail-h { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--e-muted); font-weight: 650; margin: 20px 0 8px; display: flex; align-items: center; gap: 6px; }
+    .rail-h:first-child { margin-top: 0; }
+    .rail-h svg { color: var(--e-faint); }
+    .rail-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 12.5px; color: var(--e-ink2); border-bottom: 1px dashed var(--e-line2); }
+    .rail-row:last-of-type { border-bottom: 0; }
+    .rail-row b { font-weight: 650; color: var(--e-ink); font-variant-numeric: tabular-nums; }
+    .rail-row b.warn { color: var(--e-warn); }
+    .rail-li { padding: 4px 0; font-size: 12.5px; color: var(--e-ink2); line-height: 1.4; }
+    .rail-li small { display: block; font-size: 11px; color: var(--e-faint); font-family: ui-monospace, Menlo, monospace; }
+    .rail-empty { font-size: 12px; color: var(--e-faint); }
+
+    /* ---- note card ---- */
+    .enc-card { background: var(--e-panel); border: 1px solid var(--e-line); border-radius: 12px; box-shadow: var(--e-shadow); }
+    .enc-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--e-line2); overflow-x: auto; scrollbar-width: none; }
+    .enc-tab { padding: 13px 10px 11px; font-size: 13px; color: var(--e-muted); border: 0; background: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+    .enc-tab:hover { color: var(--e-ink); }
+    .enc-tab.on { color: var(--e-ink); border-bottom-color: var(--brand, #0d5bd7); font-weight: 650; }
+    .enc-tab .n { font-size: 10.5px; font-weight: 650; padding: 1px 6px; border-radius: 999px; background: var(--e-soft); color: var(--e-muted); }
+    .enc-body { padding: 18px 20px 26px; }
+    .sec-h { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-text-strong, #0d5bd7); font-weight: 700; margin: 18px 0 6px; }
+    .sec-h:first-child { margin-top: 0; }
+    .sec-p { font-size: 13.5px; line-height: 1.7; color: var(--e-ink); white-space: pre-wrap; }
+    .sec-p mark { background: var(--e-ai); color: var(--brand-text-strong, #0d5bd7); padding: 1px 0; border-radius: 3px; box-shadow: 0 0 0 2px var(--e-ai); cursor: pointer; }
+
+    /* scribe card */
+    .scribe { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--e-line); background: var(--e-soft); margin-bottom: 18px; flex-wrap: wrap; }
+    .scribe.on { border-color: color-mix(in srgb, var(--e-rec) 45%, transparent); background: color-mix(in srgb, var(--e-rec) 7%, var(--e-panel)); }
+    .rec-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--e-rec); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--e-rec) 18%, transparent); transition: transform .15s, box-shadow .2s, opacity .2s; }
+    .rec-btn:hover { transform: scale(1.05); }
+    .rec-btn:disabled { opacity: .35; cursor: not-allowed; transform: none; box-shadow: none; }
+    .rec-btn.on { animation: ring 1.6s ease-out infinite; }
+    @keyframes ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--e-rec) 45%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+    .scribe-txt { flex: 1; min-width: 200px; }
+    .scribe-title { font-size: 13.5px; font-weight: 650; color: var(--e-ink); display: flex; align-items: center; gap: 8px; }
+    .rec-time { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: var(--e-rec); }
+    .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .bars i { width: 3px; border-radius: 2px; background: var(--e-rec); animation: bar 1s ease-in-out infinite; }
+    .bars i:nth-child(2) { animation-delay: .15s; } .bars i:nth-child(3) { animation-delay: .3s; } .bars i:nth-child(4) { animation-delay: .45s; }
+    @keyframes bar { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+    .rec-status { font-size: 12px; color: var(--e-muted); margin-top: 2px; line-height: 1.4; }
+    .rec-live { font-size: 12px; color: var(--e-ink2); font-style: italic; margin-top: 4px; }
+    .switch { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; color: var(--e-ink2); cursor: pointer; user-select: none; }
+    .switch input { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--e-line); position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0; margin: 0; }
+    .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .2s; }
+    .switch input:checked { background: #1f9d63; }
+    .switch input:checked::after { transform: translateX(14px); }
+    .switch input:disabled { opacity: .6; cursor: default; }
+
+    /* visit details + fields */
+    .vrow { display: grid; grid-template-columns: 150px repeat(3, minmax(0, 1fr)) 96px; gap: 10px; }
+    .toggles { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .tgl { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--e-ink2); padding: 6px 11px; border-radius: 999px; border: 1px solid var(--e-line); cursor: pointer; user-select: none; background: var(--e-panel); }
+    .tgl input { display: none; }
+    .tgl:has(input:checked) { border-color: var(--brand, #0d5bd7); background: var(--e-ai); color: var(--brand-text-strong, #0d5bd7); }
+    .tgl::before { content: ""; width: 12px; height: 12px; border-radius: 4px; border: 1.5px solid var(--e-faint); }
+    .tgl:has(input:checked)::before { background: var(--brand, #0d5bd7); border-color: var(--brand, #0d5bd7); box-shadow: inset 0 0 0 2px var(--e-panel); }
+    .soap { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--e-line2); }
+    .soap-h { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .soap-h b { width: 24px; height: 24px; border-radius: 7px; background: var(--e-ai); color: var(--brand-text-strong, #0d5bd7); font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+    .soap-h span { font-size: 14px; font-weight: 650; color: var(--e-ink); }
+    .soap-h em { font-style: normal; font-size: 11.5px; color: var(--e-faint); margin-left: auto; }
+    .f-l { display: block; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--e-muted); font-weight: 650; margin: 12px 0 5px; }
+    html .f-i, html[data-theme-resolved="dark"] .f-i { width: 100%; border: 1px solid var(--e-field-line); border-radius: 8px; background: var(--e-field); padding: 8px 11px; font: inherit; font-size: 13.5px; line-height: 1.55; color: var(--e-ink); outline: none; transition: background .25s, border-color .2s, box-shadow .2s; }
+    html .f-i:hover { border-color: var(--e-line); }
+    html .f-i:focus, html[data-theme-resolved="dark"] .f-i:focus { border-color: var(--brand, #0d5bd7); background: var(--e-panel); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand, #0d5bd7) 16%, transparent); }
+    html .f-i::placeholder { color: var(--e-faint); }
+    textarea.f-i { resize: none; overflow: hidden; min-height: 40px; }
+    select.f-i { padding-right: 26px; text-overflow: ellipsis; }
+    html .f-i.ai, html[data-theme-resolved="dark"] .f-i.ai { background: var(--e-ai); }
+    .f-i.flash { border-color: var(--brand, #0d5bd7); }
+    .vit { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .vit .f-l { margin-top: 4px; }
+    details.hx { margin-top: 14px; border: 1px solid var(--e-line2); border-radius: 10px; padding: 0 12px 10px; }
+    details.hx > summary { cursor: pointer; list-style: none; padding: 10px 0 2px; font-size: 12.5px; font-weight: 650; color: var(--e-ink2); display: flex; align-items: center; gap: 8px; }
+    details.hx > summary::-webkit-details-marker { display: none; }
+    details.hx > summary::after { content: ""; width: 7px; height: 7px; border-right: 1.6px solid var(--e-muted); border-bottom: 1.6px solid var(--e-muted); transform: rotate(-45deg); margin-left: auto; transition: transform .2s; }
+    details.hx[open] > summary::after { transform: rotate(45deg); }
+    details.hx > summary small { font-weight: 500; color: var(--e-faint); }
+
+    /* ---- coding panel ---- */
+    .code-head { padding: 16px 16px 10px; }
+    .code-head h2 { font-size: 14px; font-weight: 650; color: var(--e-ink); }
+    .live-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--e-muted); background: none; border: 0; padding: 0; margin-top: 3px; cursor: pointer; text-align: left; }
+    .live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--e-faint); flex-shrink: 0; }
+    .live-dot.busy i { background: var(--brand, #0d5bd7); animation: pulse 1s ease-in-out infinite; }
+    .live-dot.ok i { background: #1f9d63; }
+    .live-dot:hover { color: var(--e-ink); }
+    .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 16px; }
+    .kpi { background: var(--e-soft); border-radius: 10px; padding: 10px 11px; }
+    .kpi span { display: block; font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--e-muted); font-weight: 650; }
+    .kpi b { display: block; margin-top: 5px; font-size: 18px; font-weight: 750; color: var(--e-ink); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+    .kpi b.med { color: var(--e-warn); } .kpi b.hi { color: var(--e-bad); } .kpi b.lo { color: var(--e-ok); }
+    .ready { padding: 12px 16px 2px; }
+    .ready-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .ready-bar i { height: 4px; border-radius: 4px; background: var(--e-line); }
+    .ready-bar i.ok { background: #1f9d63; }
+    .ready-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--e-faint); }
+    .ready-list span.ok { color: var(--e-ok); }
+    .codes { padding: 14px 16px 40px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; scrollbar-width: thin; }
+    .grp { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--e-faint); font-weight: 700; margin: 6px 2px 0; }
+    .grp:first-child { margin-top: 0; }
+    .cc { border: 1px solid var(--e-line); border-radius: 10px; padding: 11px 12px; background: var(--e-panel); transition: border-color .15s, background .15s, opacity .15s; }
+    .cc:hover { border-color: color-mix(in srgb, var(--e-ink) 18%, transparent); }
+    .cc.acc { border-color: var(--e-ok-line); background: var(--e-ok-bg); }
+    .cc.rej { opacity: .5; }
+    .cc.gap { border-color: var(--e-warn-line); background: var(--e-warn-bg); }
+    .cc.new { animation: ccIn .5s ease-out; }
+    @keyframes ccIn { from { opacity: 0; transform: translateY(4px); } }
+    .cc-top { display: flex; align-items: flex-start; gap: 10px; }
+    .cc-code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: var(--e-soft); color: var(--e-ink2); flex-shrink: 0; }
+    .cc.acc .cc-code { background: color-mix(in srgb, #1f9d63 16%, transparent); color: var(--e-ok); }
+    .cc-desc { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--e-ink); min-width: 0; line-height: 1.4; padding-top: 1px; }
+    .cc-conf { font-size: 11.5px; font-weight: 700; color: var(--e-ok); font-variant-numeric: tabular-nums; padding-top: 2px; }
+    .cc-conf.mid { color: var(--e-warn); } .cc-conf.low { color: var(--e-bad); }
+    .cc-why { margin-top: 6px; font-size: 11.5px; line-height: 1.5; color: var(--e-muted); }
+    .cc-gap { margin-top: 8px; padding: 7px 9px; border-radius: 7px; background: color-mix(in srgb, var(--e-warn) 10%, transparent); font-size: 11.5px; line-height: 1.5; color: var(--e-warn); }
+    .cc-acts { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini { font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--e-line); background: var(--e-panel); color: var(--e-ink2); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+    .mini:hover { background: var(--e-hover); }
+    .mini.warn { border-color: var(--e-warn-line); color: var(--e-warn); }
+    .mini.on { background: #1f9d63; border-color: #1f9d63; color: #fff; }
+    .enc-foot { border-top: 1px solid var(--e-line); padding: 12px 16px; display: flex; align-items: center; gap: 10px; background: var(--e-panel); }
+    .enc-foot small { flex: 1; font-size: 11.5px; color: var(--e-muted); line-height: 1.35; }
+    .btn-l { font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 13px; border-radius: 8px; border: 1px solid var(--e-line); background: var(--e-panel); color: var(--e-ink2); cursor: pointer; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-l:hover { background: var(--e-hover); color: var(--e-ink); }
+    .btn-b { font: inherit; font-size: 12.5px; font-weight: 650; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--brand, #0d5bd7); background: var(--brand, #0d5bd7); color: var(--brand-on, #fff); cursor: pointer; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    .btn-b:hover:not(:disabled) { filter: brightness(1.06); }
+    .btn-b:disabled { opacity: .45; cursor: default; box-shadow: none; }
+    .enc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; color: var(--e-ink2); }
+    .enc-table th { text-align: left; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--e-muted); font-weight: 650; padding: 8px 10px; border-bottom: 1px solid var(--e-line2); }
+    .enc-table td { padding: 10px; border-bottom: 1px solid var(--e-line2); vertical-align: top; }
+    .empty { padding: 36px 12px; text-align: center; font-size: 12.5px; color: var(--e-faint); line-height: 1.55; }
+    .empty .ico { width: 40px; height: 40px; margin: 0 auto 10px; border-radius: 12px; background: var(--e-soft); display: flex; align-items: center; justify-content: center; color: var(--e-muted); }
+    .sw-menu { position: absolute; right: 0; top: calc(100% + 6px); width: 300px; max-height: 360px; overflow-y: auto; background: var(--e-panel); border: 1px solid var(--e-line); border-radius: 10px; box-shadow: 0 16px 40px rgba(15,17,22,.18); z-index: 40; padding: 6px; }
+    .sw-menu input { width: 100%; margin-bottom: 4px; border-radius: 6px; border: 1px solid var(--e-line); padding: 7px 9px; font-size: 12.5px; outline: none; background: var(--e-field); color: var(--e-ink); }
+    .sw-menu a { display: block; padding: 8px 10px; border-radius: 6px; font-size: 12.5px; color: var(--e-ink); text-decoration: none; }
+    .sw-menu a:hover, .sw-menu a.on { background: var(--e-hover); }
+    .sw-menu a small { display: block; color: var(--e-faint); font-size: 11px; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #0f1116; color: #fff; font-size: 12.5px; padding: 10px 14px; border-radius: 8px; z-index: 400; box-shadow: 0 10px 30px rgba(0,0,0,.25); max-width: calc(100vw - 32px); }
+
+    /* transcript timeline */
+    .log-e { border-left: 3px solid var(--e-line); padding: 4px 0 4px 12px; margin-bottom: 14px; }
+    .log-e.recording { border-left-color: var(--e-rec); } .log-e.althea_typed, .log-e.althea_spoken { border-left-color: var(--brand, #0d5bd7); } .log-e.pasted { border-left-color: #1f9d63; } .log-e.command { opacity: .7; }
+    .log-h { display: flex; gap: 8px; align-items: baseline; font-size: 10.5px; color: var(--e-faint); margin-bottom: 3px; }
+    .log-src { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--e-muted); }
+    .log-note { font-style: italic; }
+    .log-t { font-size: 13.5px; line-height: 1.65; color: var(--e-ink); white-space: pre-wrap; }
+
+    /* claim review */
+    .rv-wrap { position: fixed; inset: 0; z-index: 300; background: rgba(8,10,14,.5); backdrop-filter: blur(2px); display: flex; align-items: flex-start; justify-content: center; padding: 5vh 16px 16px; overflow-y: auto; animation: fadeIn .15s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } }
+    .rv { width: min(840px, 100%); background: var(--e-panel); border: 1px solid var(--e-line); border-radius: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.3); display: flex; flex-direction: column; max-height: 90vh; animation: rise .2s ease-out; }
+    @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
+    .rv-head { display: flex; justify-content: space-between; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--e-line2); }
+    .rv-title { font-size: 17px; font-weight: 700; color: var(--e-ink); letter-spacing: -.01em; }
+    .rv-sub { font-size: 12.5px; color: var(--e-muted); margin-top: 4px; line-height: 1.5; }
+    .rv-x { width: 30px; height: 30px; flex-shrink: 0; font-size: 20px; line-height: 1; color: var(--e-muted); background: none; border: 0; border-radius: 8px; cursor: pointer; }
+    .rv-x:hover { background: var(--e-hover); color: var(--e-ink); }
+    .rv-body { padding: 16px 22px 20px; overflow-y: auto; }
+    .rv-warns { display: flex; flex-direction: column; gap: 6px; }
+    .rv-w { font-size: 12.5px; line-height: 1.45; padding: 9px 12px; border-radius: 8px; }
+    .rv-w.stop { background: var(--e-bad-bg); color: var(--e-bad); } .rv-w.warn { background: var(--e-warn-bg); color: var(--e-warn); } .rv-w.info { background: var(--e-soft); color: var(--e-muted); } .rv-w.ok { background: var(--e-ok-bg); color: var(--e-ok); }
+    .rv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 30px; }
+    .rv-h { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-text-strong, #0d5bd7); font-weight: 700; margin: 18px 0 6px; }
+    .rv-kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--e-line2); }
+    .rv-kv span { color: var(--e-muted); } .rv-kv b { font-weight: 600; color: var(--e-ink); text-align: right; } .rv-kv i { font-style: normal; color: var(--e-warn); font-weight: 600; }
+    .rv-dx { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12.5px; color: var(--e-ink2); }
+    .rv-ptr { width: 18px; font-weight: 700; color: var(--e-muted); font-family: ui-monospace, Menlo, monospace; }
+    .rv-t .rv-in { width: 72px; padding: 5px 8px; font-size: 12px; }
+    .rv-t tfoot td { border-bottom: 0; color: var(--e-ink); }
+    .rv-attest { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--e-line); border-radius: 10px; font-size: 12.5px; line-height: 1.45; color: var(--e-ink2); cursor: pointer; background: var(--e-soft); }
+    .rv-attest:has(input:checked) { border-color: var(--e-ok-line); background: var(--e-ok-bg); }
+    .rv-attest input { margin-top: 2px; accent-color: #1f9d63; }
+    .rv-foot { display: flex; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--e-line2); flex-wrap: wrap; }
+    .rv-held { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: var(--e-ink2); display: flex; flex-direction: column; gap: 8px; }
+
+    /* Althea: just her mark on this screen (the note and codes need the room), clear of the coding footer */
+    html body #althea-fab .alt-launch { width: auto; padding: 9px; border-radius: 16px; gap: 0; }
+    html body #althea-fab .alt-tx, html body #althea-fab .alt-go { display: none; }
+    @media (min-width: 961px) { html body #althea-fab { bottom: 80px; right: 20px; } }
+    /* this screen is one visit, so the EMR's Patients / Schedule / … sub-menu row is left off */
+    nav:has(> #secondary-nav) { display: none !important; }
+
+    @media (max-width: 1240px) { .enc { grid-template-columns: 210px minmax(0, 1fr) 330px; } .vrow { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 960px) {
+      .enc { grid-template-columns: 1fr; height: auto; } .enc > * { overflow: visible; }
+      .enc-main { order: 1; } .enc-code { order: 2; border: 0; border-top: 1px solid var(--e-line); } .enc-rail { order: 3; border: 0; border-top: 1px solid var(--e-line); }
+      .codes { overflow: visible; }
+      /* the claim button stays on screen */
+      .enc-foot { position: fixed; left: 0; right: 0; bottom: 0; z-index: 200; box-shadow: 0 -8px 24px rgba(15,17,22,.08); padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+      body { padding-bottom: 72px; }
+      html body #althea-fab { bottom: 84px; }
+    }
+    @media (max-width: 640px) {
+      .pt-bar { padding: 10px 12px; gap: 10px; } .pt-av { display: none; }
+      .enc-main { padding: 10px; } .enc-body { padding: 14px 14px 20px; }
+      .vrow { grid-template-columns: 1fr 1fr; } .vit { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .rv-grid { grid-template-columns: 1fr; } .rv-wrap { padding: 0; } .rv { max-height: 100vh; min-height: 100vh; border-radius: 0; }
+      .rv-foot { flex-direction: column-reverse; align-items: stretch; } .rv-foot > span { display: none; } .rv-foot > * { justify-content: center; }
+      .scribe-txt { min-width: 0; flex-basis: calc(100% - 60px); }
+      #sw-btn .lbl, #back-emr .lbl { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .rec-btn.on, .bars i, .chip.rec .dot, .cc.new, .rv, .rv-wrap { animation: none; } }
+  </style>
+</head>
+<body class="bg-shell">
+  {% include "_nav.html" %}
+  <script src="/static/js/althais-claims.js?v={{ asset_v }}"></script>
+
+  <!-- patient header -->
+  <div class="pt-bar">
+    <a href="/emr" id="back-emr" class="btn-l" title="Back to the EMR. This visit's draft is saved."><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4"/></svg><span class="lbl">Back to EMR</span></a>
+    <div id="pt-av" class="pt-av">-</div>
+    <div class="min-w-0">
+      <div class="flex items-baseline gap-2 flex-wrap"><span id="pt-name" class="pt-name">Loading…</span><span id="pt-meta" class="pt-meta"></span></div>
+      <div id="pt-sub" class="pt-sub"></div>
+    </div>
+    <div id="pt-allergy" class="flex gap-1.5 flex-wrap"></div>
+    <div class="ml-auto flex items-center gap-2">
+      <span id="pt-status" class="hidden"></span>
+      <a id="signoff-link" href="/emr/sign-off" class="btn-l hidden" title="Visits saved for end-of-day sign-off"></a>
+      <div class="relative">
+        <button id="sw-btn" type="button" class="btn-l" aria-haspopup="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h10M10 2l3 3-3 3M13 11H3M6 8l-3 3 3 3"/></svg><span class="lbl">Switch patient</span></button>
+        <div id="sw-menu" class="sw-menu hidden"><input id="sw-q" placeholder="Search patients…" aria-label="Search patients"><div id="sw-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="enc">
+    <aside class="enc-rail" id="rail" aria-label="Patient summary"></aside>
+
+    <main class="enc-main">
+      <div class="enc-card">
+        <div class="enc-tabs" role="tablist">
+          <button class="enc-tab on" data-tab="note" role="tab">Encounter Note</button>
+          <button class="enc-tab" data-tab="transcript" role="tab">Transcript <span class="n hidden" id="tx-n"></span></button>
+          <button class="enc-tab" data-tab="history" role="tab">History</button>
+          <button class="enc-tab" data-tab="labs" role="tab">Labs</button>
+          <button class="enc-tab" data-tab="docs" role="tab">Documents</button>
+        </div>
+        <div class="enc-body" id="tab-body"></div>
+      </div>
+    </main>
+
+    <aside class="enc-code" aria-label="Coding for this visit">
+      <div class="code-head">
+        <h2>Coding for this visit</h2>
+        <button id="code-run" type="button" class="live-dot" title="Codes update as the note changes. Click to re-run now."><i></i><span id="code-state">Waiting for the note</span></button>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>Est. reimb.</span><b id="k-amt">-</b></div>
+        <div class="kpi"><span>Denial risk</span><b id="k-risk">-</b></div>
+        <div class="kpi"><span>Ready</span><b id="k-ready">-</b></div>
+      </div>
+      <div class="ready" id="ready"><div class="ready-bar" id="ready-bar"><i></i><i></i><i></i><i></i></div><div class="ready-list" id="ready-list"></div></div>
+      <div class="codes" id="codes"></div>
+      <div class="enc-foot">
+        <small id="foot-note"></small>
+        <button id="sign" type="button" class="btn-b" disabled>Review claim<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
+      </div>
+    </aside>
+  </div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const NS = __ALTHAIS_NS__ + '::';
+  const K = { patients: NS + 'althais.patients.v1', notes: NS + 'althais.notes.v1', claims: NS + 'althais.claims.v1', fees: NS + 'althais.fee_schedule.v1', codes: NS + 'althais.encounter_codes.v1', active: NS + 'althais.active.v1' };
+  const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
+  const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const QS = new URLSearchParams(location.search);
+  const mrn = QS.get('mrn') || localStorage.getItem(K.active) || '';
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const BLANK = () => ({ cc: '', hpi: '', ros: '', pmh: '', psh: '', fh: '', sh: '', hospitalizations: '', medications: '', allergies: '',
+    vitals: { bp: '', hr: '', temp: '', rr: '', spo2: '', weight: '' }, exam: '', labs: '', assessment: '', plan: '',
+    visitType: 'Office Visit', pos: '11', encounterType: 'office', durationMinutes: null, isNewPatient: false, isCriticalCare: false });
+
+  let P = null, NOTE = null, CODES = [], TAB = 'note', IGNORED = {};
+  let S = BLANK(), TOUCHED = {}, TRANSCRIPT = '', VISIT_DATE = today();
+  // The transcript: everything that went into making this note, in order. Recording speech, what was typed or said to
+  // Althea, and anything pasted. Althea commands and questions are kept too, but only the clinical entries are used to
+  // write the note (TRANSCRIPT).
+  let LOG = [];
+  const LOG_LABEL = { recording: 'Recording', althea_typed: 'Typed to Althea', althea_spoken: 'Said to Althea', pasted: 'Pasted / typed', command: 'Althea command' };
+  function syncTranscript() {
+    TRANSCRIPT = LOG.filter(e => e.src !== 'command').map(e => e.text).join('\n').trim();
+    const n = $('tx-n'); if (n) { n.textContent = LOG.length; n.classList.toggle('hidden', !LOG.length); }
+  }
+  function addLog(src, text, session) {
+    text = String(text || '').trim(); if (!text || isSigned()) return;
+    const last = LOG[LOG.length - 1];
+    if (src === 'recording' && last && last.src === 'recording' && last.session === session) last.text = (last.text + ' ' + text).replace(/\s+/g, ' ');
+    else LOG.push({ src, text, at: new Date().toISOString(), session: session || null });
+    syncTranscript(); saveDraft();
+    if (TAB === 'transcript') paintLog();
+  }
+
+  function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 4200); }
+  function age(dob) { if (!dob) return ''; const d = new Date(dob); if (isNaN(d)) return ''; const n = new Date(); let a = n.getFullYear() - d.getFullYear(); if (n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) a--; return a; }
+  function usDate(s) { if (!s) return ''; const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }); }
+  function longDate(s) { if (!s) return ''; const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  function initials(n) { const p = String(n || '').replace(/,/g, ' ').split(/\s+/).filter(Boolean); if (!p.length) return '-'; const name = /,/.test(n) ? [p[1] || p[0], p[0]] : [p[0], p[p.length - 1]]; return (name[0][0] + (name[1] ? name[1][0] : '')).toUpperCase(); }
+  function displayName(n) { const m = String(n || '').match(/^([^,]+),\s*(.+)$/); return m ? m[2] + ' ' + m[1] : (n || ''); }
+  function lines(t) { return String(t || '').split(/\n|;\s*/).map(x => x.trim()).filter(Boolean); }
+  const isSigned = () => !!(NOTE && /^signed/i.test(NOTE.status || ''));
+  const isQueued = () => !!(NOTE && NOTE.status === 'Ready to sign');
+  const hasInsurance = () => !!(P && P.insPrimary && P.insPrimary !== '-');
+
+  async function loadPatient() {
+    let list = read(K.patients, []);
+    try { const r = await fetch('/api/patients', { credentials: 'same-origin' }); if (r.ok) { const server = await r.json(); (Array.isArray(server) ? server : []).forEach(s => { if (!list.find(x => x.mrn === s.mrn)) list.push(s); }); } } catch (e) {}
+    window.__PTS = list;
+    return list.find(x => x.mrn === mrn) || null;
+  }
+
+  const noteText = AlthaisClaims.noteText;   // the layout Virtual SOAP sends for coding
+  // Anything written anywhere in the note (any section, any vital) is enough to code from.
+  function noteContent(s) {
+    const v = s.vitals || {};
+    return ['cc', 'hpi', 'ros', 'pmh', 'psh', 'fh', 'sh', 'hospitalizations', 'medications', 'allergies', 'exam', 'labs', 'assessment', 'plan'].map(k => String(s[k] || '').trim())
+      .concat(Object.keys(v).map(k => String(v[k] || '').trim())).filter(Boolean).join(' ');
+  }
+  function noteFilled(s) { return noteContent(s).length >= 2; }
+
+  /* ---------- saving the draft (same NOTES list the EMR shows under Clinical Notes) ---------- */
+  let saveTimer = null;
+  function saveDraft(now) {
+    clearTimeout(saveTimer);
+    const run = () => {
+      if (!P || isSigned()) return;
+      if (!NOTE && !noteFilled(S) && !TRANSCRIPT) return;   // nothing worth saving yet
+      const notes = read(K.notes, []);
+      if (!NOTE) NOTE = { id: 'n' + Date.now(), mrn: P.mrn, date: VISIT_DATE, provider: __ALTHAIS_USER__.provider_name || __ALTHAIS_USER__.full_name || P.pcp || '', status: 'Draft', source: 'encounter' };
+      Object.assign(NOTE, { date: VISIT_DATE, type: S.visitType || 'Office Visit', desc: S.cc || String(S.hpi || '').slice(0, 200), structured: JSON.parse(JSON.stringify(S)), transcript: TRANSCRIPT, transcriptLog: LOG,
+        cpt: (CODES.find(c => c.type === 'CPT' && c.state === 'acc') || {}).code || '' });
+      const i = notes.findIndex(n => n.id === NOTE.id);
+      if (i >= 0) notes[i] = NOTE; else notes.unshift(NOTE);
+      write(K.notes, notes);
+      renderHeader();
+    };
+    if (now) run(); else saveTimer = setTimeout(run, 700);
+  }
+
+  /* ---------- header + rail ---------- */
+  function renderHeader() {
+    if (!P) { $('pt-name').textContent = 'No patient selected'; $('pt-sub').innerHTML = '<a class="text-med-600" href="/emr#claims">Back to the EMR</a>'; return; }
+    const a = age(P.dob);
+    $('pt-av').textContent = initials(P.name); $('pt-name').textContent = displayName(P.name);
+    $('pt-meta').textContent = [(a !== '' ? a : '') + (P.sex || ''), P.dob ? 'DOB ' + usDate(P.dob) : '', P.mrn].filter(Boolean).join(' · ');
+    const visit = [S.visitType || 'Visit', longDate(VISIT_DATE)].join(' · ');
+    $('pt-sub').textContent = [visit, hasInsurance() ? P.insPrimary + (P.insPrimaryMeta && P.insPrimaryMeta !== '-' ? ', ' + P.insPrimaryMeta : '') : 'No insurance on file'].join(' · ');
+    const allergies = (Array.isArray(P.allergies) ? P.allergies : lines(P.allergies)).filter(x => x && !/^(nkda|none|-)$/i.test(x));
+    $('pt-allergy').innerHTML = allergies.length ? allergies.map(x => '<span class="chip allergy">⚠ ' + esc(x) + ' allergy</span>').join('') : '<span class="chip quiet">No known allergies</span>';
+    const st = $('pt-status');
+    if (REC.on) { st.className = 'chip rec'; st.innerHTML = '<span class="dot"></span> Recording · ' + REC.clock(); }
+    else if (isSigned()) { st.className = 'chip ok'; st.textContent = '✓ Note signed'; }
+    else if (isQueued()) { st.className = 'chip queued'; st.textContent = '◷ Waiting for end-of-day sign-off'; }
+    else if (NOTE) { st.className = 'chip draft'; st.innerHTML = '<span class="dot"></span> Draft · review to sign'; }
+    else { st.className = 'chip quiet'; st.textContent = 'New visit'; }
+  }
+  function renderRail() {
+    const v = S.vitals || {};
+    const bpWarn = (() => { const m = String(v.bp || '').match(/(\d+)\s*\/\s*(\d+)/); return m && (+m[1] >= 140 || +m[2] >= 90); })();
+    const vitals = [['BP', v.bp, bpWarn], ['HR', v.hr], ['Temp', v.temp ? v.temp + '°F' : ''], ['SpO2', v.spo2 ? v.spo2 + '%' : ''], ['Weight', v.weight ? v.weight + ' lb' : ''], ['A1c', P && P.a1c && P.a1c !== '-' ? P.a1c : '']].filter(x => x[1]);
+    const problems = (P && Array.isArray(P.problems) && P.problems.length) ? P.problems.map(pr => [pr.label || pr.code, pr.code]) : [];
+    const meds = (P && Array.isArray(P.meds) && P.meds.length) ? P.meds.filter(m => !m.status || /active/i.test(m.status)).map(m => [m.name || m.drug || '', m.dose || m.sig || '']) : lines(S.medications).map(l => [l, '']);
+    const claims = read(K.claims, []).filter(c => P && c.mrn === P.mrn && !c.isPlaceholder);
+    const open = claims.filter(c => !/paid/i.test(c.status || '')).length;
+    const I = d => '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+    $('rail').innerHTML =
+      '<div class="rail-h">' + I('<path d="M1 8h3l2-5 4 10 2-5h3"/>') + 'Vitals today</div>' + (vitals.length ? vitals.map(x => '<div class="rail-row"><span>' + x[0] + '</span><b class="' + (x[2] ? 'warn' : '') + '">' + esc(x[1]) + '</b></div>').join('') : '<div class="rail-empty">Not recorded yet</div>') +
+      '<div class="rail-h">' + I('<path d="M4 3h8v11H4zM6 6h4M6 9h4"/>') + 'Problem list</div>' + (problems.length ? problems.slice(0, 8).map(x => '<div class="rail-li">' + esc(x[0]) + (x[1] ? '<small>' + esc(x[1]) + '</small>' : '') + '</div>').join('') : '<div class="rail-empty">None on file</div>') +
+      '<div class="rail-h">' + I('<rect x="2" y="6" width="12" height="5" rx="2.5" transform="rotate(-30 8 8.5)"/><path d="M6.3 5.5l3 5.2"/>') + 'Medications</div>' + (meds.length ? meds.slice(0, 10).map(x => '<div class="rail-li">' + esc(x[0]) + (x[1] ? ' <span style="color:var(--e-faint)">' + esc(x[1]) + '</span>' : '') + '</div>').join('') : '<div class="rail-empty">None on file</div>') +
+      '<div class="rail-h">' + I('<rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M2 7h12"/>') + 'Account</div><div class="rail-row"><span>Balance</span><b>$' + Number((P && P.balance) || 0).toFixed(2) + '</b></div><div class="rail-row"><span>Open claims</span><b>' + open + '</b></div>';
+  }
+
+  /* ---------- recording: the browser's speech recognition, same as Virtual SOAP's scribe ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  const REC = {
+    on: false, session: 0, startedAt: 0, rec: null, tick: null, interim: '', newWords: 0, lastFill: 0, filling: false, consent: false,
+    clock() { const s = Math.floor((Date.now() - this.startedAt) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); },
+  };
+  function recStart() {
+    if (REC.on || !REC.consent) return;
+    REC.on = true; REC.session = Date.now(); REC.startedAt = Date.now(); REC.interim = ''; REC.newWords = 0; REC.lastFill = Date.now();
+    if (SR) {
+      const r = new SR(); r.lang = 'en-US'; r.continuous = true; r.interimResults = true;
+      r.onresult = e => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) { addLog('recording', t, REC.session); REC.newWords += t.split(/\s+/).filter(Boolean).length; }
+          else interim += t;
+        }
+        REC.interim = interim; paintRecording();
+      };
+      r.onend = () => { if (REC.on) { try { r.start(); } catch (e) {} } };   // keep going through pauses
+      try { r.start(); } catch (e) {}
+      REC.rec = r;
+    }
+    REC.tick = setInterval(() => {
+      paintRecording(); renderHeader();
+      if (!TOUCHED.durationMinutes) { S.durationMinutes = Math.max(1, Math.round((Date.now() - REC.startedAt) / 60000)); const d = $('f-durationMinutes'); if (d) d.value = S.durationMinutes; }
+      // Write the note from what's been said so far: after ~20 new words, at most every 12 seconds
+      if (REC.newWords >= 20 && Date.now() - REC.lastFill > 12000 && !REC.filling) fillFromTranscript();
+    }, 1000);
+    renderTab(); renderHeader();
+  }
+  function recStop() {
+    if (!REC.on) return;
+    REC.on = false; clearInterval(REC.tick);
+    if (REC.rec) { try { REC.rec.stop(); } catch (e) {} REC.rec = null; }
+    REC.interim = '';
+    renderTab(); renderHeader();
+    if (TRANSCRIPT) fillFromTranscript(true);
+    saveDraft(true);
+    scheduleCoding(true);
+  }
+  function paintRecording() {
+    const t = $('rec-time'); if (t) t.textContent = REC.on ? REC.clock() : '';
+    const live = $('rec-live'); if (live) live.textContent = REC.on && REC.interim ? '“' + REC.interim + '”' : '';
+    const st = $('rec-status');
+    const words = TRANSCRIPT.split(/\s+/).filter(Boolean).length;
+    if (st) st.textContent = REC.on ? (SR ? words + ' words · the note and codes fill in as you talk' + (REC.filling ? ' · writing…' : '') : 'This browser can’t transcribe speech. Paste the transcript in the Transcript tab.')
+      : words ? words + ' words in the transcript. The note is written from it.'
+      : REC.consent ? 'Tap the mic and talk normally. Or type below, or tell Althea what to chart.' : 'Turn on consent once the patient agrees to be recorded. You can also type below.';
+    if (TAB === 'transcript' && REC.on) { const live = $('log-live'); if (live) live.textContent = REC.interim ? '“' + REC.interim + '”' : 'Listening…'; }
+  }
+  // Map Althea's fields onto the note. A field you've typed in yourself is never overwritten.
+  const FIELD_MAP = { chief_complaint: 'cc', hpi: 'hpi', ros: 'ros', pmh: 'pmh', psh: 'psh', fh: 'fh', sh: 'sh', medications: 'medications', allergies: 'allergies', labs: 'labs', exam: 'exam', assessment: 'assessment', plan: 'plan' };
+  async function fillFromTranscript(final) {
+    const text = TRANSCRIPT.replace(/\s+/g, ' ').trim();
+    if (text.split(' ').length < 12) { if (final) toast('Not enough transcript yet to write a note.'); return; }
+    REC.filling = true; REC.newWords = 0; REC.lastFill = Date.now(); paintRecording();
+    try {
+      const r = await fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_scribe', text }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || 'Could not write the note just now.');
+      const f = j.fields || {}, changed = [];
+      Object.keys(FIELD_MAP).forEach(k => { const key = FIELD_MAP[k], v = String(f[k] || '').trim(); if (v && !TOUCHED[key] && v !== S[key]) { S[key] = v; changed.push(key); } });
+      ['bp', 'hr', 'rr', 'temp', 'spo2'].forEach(k => { const v = String(f[k] || '').trim(); if (v && !TOUCHED['v_' + k] && v !== S.vitals[k]) { S.vitals[k] = v; changed.push('v_' + k); } });
+      if (f.encounter_type && !TOUCHED.encounterType && f.encounter_type !== S.encounterType) { S.encounterType = f.encounter_type; changed.push('encounterType'); }
+      changed.forEach(k => { AI_FILLED[k] = true; });
+      if (changed.length) { if (TAB === 'note') applyToEditor(changed); renderRail(); renderHeader(); saveDraft(); scheduleCoding(); }
+    } catch (e) { if (final) toast(e.message); }
+    finally { REC.filling = false; paintRecording(); }
+  }
+  const AI_FILLED = {};
+  function paintLog() {
+    const box = $('log'); if (!box) return;
+    const time = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
+    box.innerHTML = (LOG.length ? LOG.map(e => '<div class="log-e ' + esc(e.src) + '"><div class="log-h"><span class="log-src">' + esc(LOG_LABEL[e.src] || e.src) + '</span><span>' + esc(time(e.at)) + '</span>' +
+        (e.src === 'command' ? '<span class="log-note">not used in the note</span>' : '') + '</div><div class="log-t">' + esc(e.text) + '</div></div>').join('')
+      : (REC.on ? '' : '<div class="empty" style="padding:22px 10px">Nothing yet. Record the visit, tell Althea what to chart, or paste a transcript below.</div>')) +
+      (REC.on ? '<div class="log-e recording"><div class="log-h"><span class="log-src">Recording</span><span>now</span></div><div class="log-t" id="log-live" style="color:var(--e-muted);font-style:italic">' + esc(REC.interim ? '“' + REC.interim + '”' : 'Listening…') + '</div></div>' : '');
+  }
+  function applyToEditor(changed) {
+    changed.forEach(k => {
+      const el = $('f-' + k); if (!el || document.activeElement === el) return;
+      el.value = k.startsWith('v_') ? S.vitals[k.slice(2)] : S[k];
+      el.classList.add('ai', 'flash'); setTimeout(() => el.classList.remove('flash'), 900);
+      if (el.tagName === 'TEXTAREA') { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; const d = el.closest('details'); if (d) d.open = true; }
+    });
+  }
+
+  /* ---------- tabs ---------- */
+  function highlight(text) {
+    let h = esc(text);
+    CODES.forEach((c, i) => {
+      if (c.state === 'rej') return;
+      const quotes = String(c.why || '').match(/[“"]([^”"]{6,80})[”"]/g) || [];
+      quotes.forEach(q => { const raw = esc(q.slice(1, -1)); if (raw && h.includes(raw)) h = h.replace(raw, '<mark data-code="' + i + '" title="Supports ' + esc(c.code) + '">' + raw + '</mark>'); });
+    });
+    return h;
+  }
+  const ta = (key, label, rows, ph) => '<label class="f-l" for="f-' + key + '">' + label + '</label><textarea id="f-' + key + '" data-k="' + key + '" class="f-i' + (AI_FILLED[key] && !TOUCHED[key] ? ' ai' : '') + '" rows="' + (rows || 2) + '" placeholder="' + esc(ph || '') + '">' + esc(S[key]) + '</textarea>';
+  const vin = (key, label, ph) => '<div><label class="f-l" for="f-v_' + key + '">' + label + '</label><input id="f-v_' + key + '" data-v="' + key + '" class="f-i' + (AI_FILLED['v_' + key] && !TOUCHED['v_' + key] ? ' ai' : '') + '" value="' + esc(S.vitals[key]) + '" placeholder="' + esc(ph) + '"></div>';
+  const sel = (key, label, opts) => '<div><label class="f-l" for="f-' + key + '">' + label + '</label><select id="f-' + key + '" data-k="' + key + '" class="f-i' + (AI_FILLED[key] && !TOUCHED[key] ? ' ai' : '') + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(S[key]) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></div>';
+
+  function renderEditor(changed) {
+    const body = $('tab-body');
+    const hxOpen = ['pmh', 'psh', 'fh', 'sh', 'hospitalizations', 'medications', 'allergies'].some(k => S[k]);
+    const words = TRANSCRIPT.split(/\s+/).filter(Boolean).length;
+    const MIC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+    const STOP = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor"/></svg>';
+    const soap = (letter, title, hint) => '<div class="soap"><div class="soap-h"><b>' + letter + '</b><span>' + title + '</span>' + (hint ? '<em>' + hint + '</em>' : '') + '</div>';
+    const hxFilled = ['pmh', 'psh', 'fh', 'sh', 'hospitalizations', 'medications', 'allergies'].filter(k => S[k]).length;
+    body.innerHTML =
+      '<div class="scribe' + (REC.on ? ' on' : '') + '">' +
+        '<button id="rec-btn" type="button" class="rec-btn' + (REC.on ? ' on' : '') + '"' + (REC.consent || REC.on ? '' : ' disabled') + ' aria-label="' + (REC.on ? 'Stop recording' : 'Start recording') + '" title="' + (REC.on ? 'Stop recording' : REC.consent ? 'Start recording' : 'Turn on consent first') + '">' + (REC.on ? STOP : MIC) + '</button>' +
+        '<div class="scribe-txt"><div class="scribe-title">' + (REC.on ? 'Listening <span class="bars"><i></i><i></i><i></i><i></i></span><span class="rec-time" id="rec-time"></span>' : words ? 'Recording paused · tap to resume' : 'Record the visit') + '</div>' +
+          '<div class="rec-status" id="rec-status"></div><div class="rec-live" id="rec-live"></div></div>' +
+        '<label class="switch"><input type="checkbox" role="switch" id="rec-consent"' + (REC.consent ? ' checked' : '') + (REC.on ? ' disabled' : '') + '>Patient agreed to be recorded</label>' +
+      '</div>' +
+      '<div class="vrow">' +
+        '<div><label class="f-l" for="f-date">Date of service</label><input id="f-date" type="date" class="f-i" value="' + esc(VISIT_DATE) + '"></div>' +
+        sel('visitType', 'Visit type', [['Office Visit', 'Office Visit'], ['Telehealth', 'Telehealth'], ['Follow-Up', 'Follow-Up'], ['Procedure', 'Procedure'], ['Wellness', 'Wellness']]) +
+        sel('pos', 'Place of service', [['11', '11 · Office'], ['02', '02 · Telehealth'], ['22', '22 · Outpatient'], ['21', '21 · Inpatient']]) +
+        sel('encounterType', 'Setting', [['office', 'Office'], ['urgent_care', 'Urgent care'], ['emergency', 'Emergency dept.']]) +
+        '<div><label class="f-l" for="f-durationMinutes">Minutes</label><input id="f-durationMinutes" data-k="durationMinutes" type="number" min="1" class="f-i" value="' + esc(S.durationMinutes == null ? '' : S.durationMinutes) + '" placeholder="Auto"></div>' +
+      '</div>' +
+      '<div class="toggles"><label class="tgl"><input type="checkbox" data-b="isNewPatient"' + (S.isNewPatient ? ' checked' : '') + '>New patient</label><label class="tgl"><input type="checkbox" data-b="isCriticalCare"' + (S.isCriticalCare ? ' checked' : '') + '>Critical care</label></div>' +
+      soap('S', 'Subjective', 'What the patient tells you') + ta('cc', 'Chief complaint', 1, 'Why the patient came in') + ta('hpi', 'History of present illness', 3, 'Onset, duration, severity, what helps or worsens it') + ta('ros', 'Review of systems', 2, 'Pertinent positives and negatives') +
+        '<details class="hx"' + (hxFilled ? ' open' : '') + '><summary>Medical, surgical, family & social history<small>' + (hxFilled ? hxFilled + ' filled' : 'optional') + '</small></summary>' +
+          ta('pmh', 'Past medical history', 1) + ta('psh', 'Past surgical history', 1) + ta('fh', 'Family history', 1) + ta('sh', 'Social history', 1) + ta('hospitalizations', 'Hospitalizations', 1) + ta('medications', 'Current medications', 1) + ta('allergies', 'Allergies', 1) +
+        '</details></div>' +
+      soap('O', 'Objective', 'What you find') + '<div class="vit">' + vin('bp', 'BP', '120/80') + vin('hr', 'HR', 'bpm') + vin('temp', 'Temp', '°F') + vin('rr', 'RR', '/min') + vin('spo2', 'SpO₂', '%') + vin('weight', 'Weight', 'lb') + '</div>' +
+        ta('exam', 'Physical exam', 2, 'Findings by system') + ta('labs', 'Labs & imaging', 1, 'Results reviewed today') + '</div>' +
+      soap('A', 'Assessment', 'Coded as you write') + ta('assessment', 'Diagnoses & impression', 2, 'One problem per line') + '</div>' +
+      soap('P', 'Plan', '') + ta('plan', 'Orders, prescriptions & follow-up', 2) + '</div>';
+    const grow = el => { if (el.tagName === 'TEXTAREA') { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; } };
+    body.querySelectorAll('textarea.f-i').forEach(grow);
+    body.querySelectorAll('[data-k]').forEach(el => el.addEventListener('input', () => {
+      const k = el.dataset.k; TOUCHED[k] = true; el.classList.remove('ai');
+      S[k] = k === 'durationMinutes' ? (el.value ? parseInt(el.value, 10) : null) : el.value;
+      if (k === 'visitType') renderHeader();
+      grow(el); saveDraft(); scheduleCoding();
+    }));
+    body.querySelectorAll('[data-v]').forEach(el => el.addEventListener('input', () => { const k = el.dataset.v; TOUCHED['v_' + k] = true; el.classList.remove('ai'); S.vitals[k] = el.value; renderRail(); saveDraft(); scheduleCoding(); }));
+    body.querySelectorAll('[data-b]').forEach(el => el.addEventListener('change', () => { S[el.dataset.b] = el.checked; TOUCHED[el.dataset.b] = true; saveDraft(); scheduleCoding(true); }));
+    $('f-date').addEventListener('change', e => { VISIT_DATE = e.target.value || today(); renderHeader(); saveDraft(true); });
+    $('rec-consent').addEventListener('change', e => { REC.consent = e.target.checked; $('rec-btn').disabled = !REC.consent; paintRecording(); });
+    $('rec-btn').addEventListener('click', () => REC.on ? recStop() : recStart());
+    (changed || []).forEach(k => { const el = $('f-' + k); if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 900); } });
+    paintRecording();
+  }
+
+  function renderSigned() {
+    const s = S, v = s.vitals || {}, body = $('tab-body');
+    const obj = [[v.bp && 'BP ' + v.bp, v.hr && 'HR ' + v.hr, v.temp && 'Temp ' + v.temp + '°F', v.rr && 'RR ' + v.rr, v.spo2 && 'SpO2 ' + v.spo2 + '%'].filter(Boolean).join(', '), s.exam, s.labs].filter(Boolean).join('\n');
+    const subj = [s.cc && 'Chief complaint: ' + s.cc, s.hpi, s.ros].filter(Boolean).join('\n');
+    const parts = [['Subjective', subj], ['Objective', obj], ['Assessment', s.assessment], ['Plan', s.plan]];
+    body.innerHTML = '<div class="flex items-center justify-between gap-3 mb-3 flex-wrap"><span class="text-[11.5px] text-ink-500">' + esc((NOTE.provider ? NOTE.provider + ' · ' : '') + longDate(NOTE.date) + ' · ' + (NOTE.type || 'Visit')) + (NOTE.signedAt ? ' · signed ' + esc(new Date(NOTE.signedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) : '') + '</span>' +
+      '<span class="flex items-center gap-2"><span class="ai-pill ok">Signed</span><a class="mini" href="/emr/encounter?mrn=' + encodeURIComponent(P.mrn) + '&new=1">Start a new visit</a></span></div>' +
+      parts.filter(x => x[1]).map(x => '<div class="sec-h">' + x[0] + '</div><div class="sec-p">' + highlight(x[1]) + '</div>').join('') +
+      (s.medications || s.allergies || s.pmh ? '<div class="sec-h">History</div><div class="sec-p">' + esc([s.pmh && 'PMH: ' + s.pmh, s.medications && 'Medications: ' + s.medications, s.allergies && 'Allergies: ' + s.allergies].filter(Boolean).join('\n')) + '</div>' : '');
+    body.querySelectorAll('mark[data-code]').forEach(m => m.addEventListener('click', () => flashCode(m.dataset.code)));
+  }
+  function flashCode(i) { const el = document.querySelector('.cc[data-i="' + i + '"]'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.animate([{ boxShadow: '0 0 0 3px rgba(13,91,215,.35)' }, { boxShadow: '0 0 0 0 rgba(13,91,215,0)' }], { duration: 1200 }); } }
+
+  function renderTab(changed) {
+    document.querySelectorAll('.enc-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === TAB));
+    const body = $('tab-body');
+    if (!P) { body.innerHTML = '<div class="empty">Pick a patient with <b>New Claim</b> in the EMR.<br><br><a class="btn-b" href="/emr#claims">Back to the EMR</a></div>'; return; }
+    if (TAB === 'note') { if (isSigned()) renderSigned(); else renderEditor(changed); }
+    else if (TAB === 'transcript') {
+      body.innerHTML = '<div class="text-[11.5px] text-ink-500 mb-3">Everything that went into this note, in order: the recording, what was typed or said to Althea, and anything pasted.</div><div id="log"></div>' +
+        (isSigned() ? '' : '<div class="sec-h" style="margin-top:18px">Add to the transcript</div>' +
+          '<textarea id="tx" class="f-i" rows="4" style="overflow:auto;resize:vertical" placeholder="' + (SR ? 'Paste or type anything said in the visit' : 'This browser can’t transcribe speech. Paste or type the visit transcript here') + '"></textarea>' +
+          '<div class="mt-2 flex items-center gap-2 flex-wrap"><button id="tx-add" class="btn-l" type="button">Add to transcript</button><button id="tx-fill" class="btn-b" type="button">Write the note from the transcript</button><span class="text-[11.5px] text-ink-500">Fills empty or AI-written fields only. Anything you typed stays.</span></div>');
+      paintLog();
+      if (!isSigned()) {
+        $('tx-add').addEventListener('click', () => { const ta = $('tx'); addLog('pasted', ta.value); ta.value = ''; });
+        $('tx-fill').addEventListener('click', async () => { const ta = $('tx'); if (ta.value.trim()) { addLog('pasted', ta.value); ta.value = ''; } const b = $('tx-fill'); b.disabled = true; b.textContent = 'Writing…'; await fillFromTranscript(true); b.disabled = false; b.textContent = 'Write the note from the transcript'; TAB = 'note'; renderTab(); });
+      }
+    } else if (TAB === 'history') {
+      const notes = read(K.notes, []).filter(n => n.mrn === P.mrn);
+      const claims = read(K.claims, []).filter(c => c.mrn === P.mrn && !c.isPlaceholder);
+      body.innerHTML = '<div class="sec-h">Visits</div>' + (notes.length ? '<table class="enc-table"><thead><tr><th>Date</th><th>Type</th><th>Provider</th><th>Reason</th><th>Status</th></tr></thead><tbody>' + notes.map(n => '<tr><td>' + esc(usDate(n.date)) + '</td><td>' + esc(n.type || '') + '</td><td>' + esc(n.provider || '') + '</td><td>' + esc((n.structured || {}).cc || n.desc || '') + '</td><td>' + esc(n.status || '') + '</td></tr>').join('') + '</tbody></table>' : '<div class="rail-empty">No visits yet</div>') +
+        '<div class="sec-h" style="margin-top:20px">Claims</div>' + (claims.length ? '<table class="enc-table"><thead><tr><th>Claim</th><th>CPT</th><th>Payer</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead><tbody>' + claims.map(c => '<tr><td class="mono">' + esc(c.claimId) + '</td><td class="mono">' + esc(c.cpt || '') + '</td><td>' + esc(c.payer || '') + '</td><td>' + esc(c.status || '') + '</td><td style="text-align:right">$' + Number(c.amount || 0).toFixed(2) + '</td></tr>').join('') + '</tbody></table>' : '<div class="rail-empty">No claims yet</div>');
+    } else if (TAB === 'labs') {
+      const labs = Array.isArray(P.labs) ? P.labs : [];
+      body.innerHTML = (labs.length ? '<table class="enc-table"><thead><tr><th>Test</th><th>Result</th><th>Date</th></tr></thead><tbody>' + labs.map(l => '<tr><td>' + esc(l.name || l.test || '') + '</td><td>' + esc([l.value, l.unit].filter(Boolean).join(' ') || l.result || '') + (l.flag ? ' <span style="color:var(--e-bad);font-weight:600">' + esc(l.flag) + '</span>' : '') + '</td><td>' + esc(usDate(l.date)) + '</td></tr>').join('') + '</tbody></table>' : '') +
+        (S.labs ? '<div class="sec-h" style="margin-top:' + (labs.length ? '20px' : '0') + '">From this visit</div><div class="sec-p">' + esc(S.labs) + '</div>' : '') + (!labs.length && !S.labs ? '<div class="empty">No labs on file</div>' : '');
+    } else {
+      body.innerHTML = '<div class="empty">Documents for this patient live in the EMR.<br><br><a class="btn-l" href="/emr?patient=' + encodeURIComponent(P.mrn) + '">Open documents</a></div>';
+    }
+  }
+
+  /* ---------- live coding: re-suggest codes whenever the note changes ---------- */
+  const CODE = { timer: null, busy: false, again: false, lastText: '', lastAt: 0, error: '', retry: null, fails: 0 };
+  const SPECIALTY = { office: 'primary care / outpatient office', urgent_care: 'urgent care', emergency: 'emergency department' };
+  function codeState(text, cls) { const b = $('code-run'); b.className = 'live-dot ' + (cls || ''); $('code-state').textContent = text; }
+  function scheduleCoding(soon) {
+    if (isSigned()) return;
+    clearTimeout(CODE.timer);
+    if (!noteFilled(S)) { codeState(REC.on ? 'Listening…' : 'Codes appear as soon as you write'); return; }
+    codeState('Note changed, updating…', 'busy');
+    CODE.timer = setTimeout(runCoding, soon ? 300 : 1200);
+  }
+  async function runCoding(force) {
+    if (!P || isSigned() || !noteFilled(S)) { summarize(); return; }
+    const text = noteText(S);
+    const minutesNow = REC.on && !TOUCHED.durationMinutes ? null : (S.durationMinutes || null);
+    const key = [text, minutesNow, S.encounterType, S.isNewPatient, S.isCriticalCare].join('|');
+    if (!force && key === CODE.lastText && !CODE.error) { codeState('Up to date', 'ok'); return; }
+    if (CODE.busy) { CODE.again = true; return; }
+    CODE.busy = true; CODE.again = false; clearTimeout(CODE.retry); codeState('Coding…', 'busy');
+    // While the visit is still being recorded the timer is only partway, so it isn't sent as the visit length
+    // (that would lock in a time-based E/M level from a half-finished visit). Minutes you type are always sent.
+    const minutes = REC.on && !TOUCHED.durationMinutes ? null : (S.durationMinutes || null);
+    try {
+      const r = await fetch('/api/code-note', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        note: text, duration_minutes: minutes, encounter_type: S.encounterType || 'office', specialty: SPECIALTY[S.encounterType] || SPECIALTY.office,
+        is_new_patient: !!S.isNewPatient, is_critical_care: !!S.isCriticalCare, payer: P.insPrimary || '' }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(r.status === 403 ? (j.detail || 'Your account can’t use coding.') : 'Coding didn’t answer');
+      // Keep what the provider already decided: a code that comes back again keeps its Accept/Reject;
+      // a code they accepted that's no longer suggested stays, marked so they can look at it again.
+      const prev = {}; CODES.forEach(c => { prev[c.type + c.code] = c; });
+      const next = (j.codes || []).map(c => {
+        const type = /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', old = prev[type + c.code];
+        return { type, code: c.code, desc: c.description || '', conf: Number(c.confidence) || 0, why: c.justification || '',
+          gap: c.documentation_gap || c.format_warning || '', modifier: c.modifier || '', units: c.units || 1, timeVerified: !!c.time_verified,
+          state: old ? old.state : (c.time_verified ? 'acc' : ''), isNew: !old && CODES.length > 0 };
+      });
+      CODES.filter(c => c.state === 'acc' && !next.find(n => n.type === c.type && n.code === c.code)).forEach(c => next.push(Object.assign({}, c, { stale: true, isNew: false })));
+      CODES = next; CODES.note = j.time_coding_note || '';
+      CODE.lastText = key; CODE.lastAt = Date.now(); CODE.error = ''; CODE.fails = 0;
+      saveCodes(); renderCodes();
+      codeState('Updated ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }), 'ok');
+    } catch (e) {
+      // Keep the last codes on screen and try again on its own: 3s, 6s, 12s… up to every 30s, until it answers
+      CODE.error = e.message; CODE.fails++;
+      const wait = Math.min(30, 3 * Math.pow(2, CODE.fails - 1));
+      const permanent = /can’t use coding|role/i.test(e.message);
+      codeState(permanent ? e.message : e.message + ', retrying in ' + wait + 's', '');
+      if (!permanent) CODE.retry = setTimeout(() => runCoding(true), wait * 1000);
+      if (!CODES.length) $('codes').innerHTML = '<div class="empty">' + esc(permanent ? e.message : 'Coding didn’t answer. Trying again on its own…') + '</div>';
+      summarize();
+    } finally {
+      CODE.busy = false;
+      if (CODE.again) runCoding();
+    }
+  }
+  const fees = AlthaisClaims.fees;
+  function saveCodes() { if (!NOTE) saveDraft(true); if (!NOTE) return; const cache = read(K.codes, {}); cache[NOTE.id] = CODES.map(c => Object.assign({}, c, { isNew: false })); write(K.codes, cache); }
+  function renderCodes() {
+    const box = $('codes');
+    if (!CODES.length) {
+      box.innerHTML = '<div class="empty"><div class="ico"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4L1.5 8 5 12M11 4l3.5 4-3.5 4M9.5 2.5l-3 11"/></svg></div>' + (isSigned() ? 'No codes were saved with this note.' : CODE.lastText ? 'Nothing billable in the note yet. Codes appear as soon as it describes the visit.' : REC.on ? 'Codes appear here while you talk.' : 'Record the visit or start typing the note. Codes appear here as it’s written.') + '</div>';
+      summarize(); return;
+    }
+    const signed = isSigned();
+    // CPT (what was done) first, then ICD-10 (why); a signed note shows only what went on the claim
+    const order = CODES.map((c, i) => [c, i]).filter(([c]) => !signed || c.state === 'acc').sort((a, b) => (b[0].type === 'CPT') - (a[0].type === 'CPT'));
+    let lastType = '';
+    box.innerHTML = order.map(([c, i]) => {
+      const head = c.type !== lastType ? '<div class="grp">' + (c.type === 'CPT' ? 'Procedures · CPT' : 'Diagnoses · ICD-10') + '</div>' : ''; lastType = c.type;
+      const openGap = c.gap && !IGNORED[c.code] && c.state !== 'rej';
+      const cls = [c.state === 'acc' ? 'acc' : c.state === 'rej' ? 'rej' : (openGap ? 'gap' : ''), c.isNew ? 'new' : ''].join(' ');
+      const confCls = c.timeVerified ? '' : (c.conf < 75 ? 'low' : c.conf < 88 ? 'mid' : '');
+      return head + '<div class="cc ' + cls + '" data-i="' + i + '"><div class="cc-top"><span class="cc-code">' + esc(c.code) + '</span><span class="cc-desc">' + esc(c.desc) + '</span><span class="cc-conf ' + confCls + '">' + (c.timeVerified ? 'time-verified' : c.conf + '%') + '</span></div>' +
+        (c.why ? '<div class="cc-why">' + esc(c.why) + '</div>' : '') +
+        (c.stale ? '<div class="cc-gap"><b>No longer suggested</b> by the current note. Check it still applies.</div>' : '') +
+        (openGap ? '<div class="cc-gap"><b>Documentation:</b> ' + esc(c.gap) + '</div>' + (signed ? '' : '<div class="cc-acts"><button class="mini warn" data-fix="' + i + '">Fix in note</button><button class="mini" data-ignore="' + i + '">Ignore</button></div>') : '') +
+        (signed ? '' : '<div class="cc-acts"><button class="mini ' + (c.state === 'acc' ? 'on' : '') + '" data-acc="' + i + '" aria-pressed="' + (c.state === 'acc') + '">' + (c.state === 'acc' ? '✓ Accepted' : 'Accept') + '</button><button class="mini" data-rej="' + i + '">' + (c.state === 'rej' ? 'Rejected' : 'Reject') + '</button></div>') + '</div>';
+    }).join('') + (CODES.note ? '<div class="cc-why" style="padding:2px 2px 0">' + esc(CODES.note) + '</div>' : '') +
+      (signed || CODES.every(c => c.state) ? '' : '<button class="mini" id="acc-all" style="align-self:flex-start;margin-top:2px">✓ Accept all suggested</button>');
+    const set = (i, st) => { const c = CODES[i]; c.state = c.state === st ? '' : st; saveCodes(); renderCodes(); };
+    box.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => set(+b.dataset.acc, 'acc'));
+    box.querySelectorAll('[data-rej]').forEach(b => b.onclick = () => set(+b.dataset.rej, 'rej'));
+    box.querySelectorAll('[data-ignore]').forEach(b => b.onclick = () => { IGNORED[CODES[+b.dataset.ignore].code] = true; renderCodes(); });
+    box.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => { TAB = 'note'; renderTab(); const el = $('f-assessment'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+    const all = $('acc-all'); if (all) all.onclick = () => { CODES.forEach(c => { if (c.state !== 'rej') c.state = 'acc'; }); saveCodes(); renderCodes(); };
+    summarize();
+  }
+  function summarize() {
+    const F = fees(), list = CODES;
+    const accepted = list.filter(c => c.state === 'acc'), cpts = (accepted.length ? accepted : list.filter(c => c.state !== 'rej')).filter(c => c.type === 'CPT');
+    const amt = cpts.reduce((s, c) => s + (F[String(c.code).toUpperCase()] || 0) * (c.units || 1), 0);
+    $('k-amt').textContent = list.length ? '$' + Math.round(amt).toLocaleString('en-US') : '-';
+    const live = list.filter(c => c.state !== 'rej');
+    const gaps = live.filter(c => c.gap && !IGNORED[c.code]).length, minConf = live.filter(c => !c.timeVerified).reduce((m, c) => Math.min(m, c.conf || 100), 100);
+    const risk = !list.length ? '-' : (gaps > 1 || minConf < 70) ? 'High' : (gaps || minConf < 85) ? 'Medium' : 'Low';
+    const rk = $('k-risk'); rk.textContent = risk; rk.className = risk === 'High' ? 'hi' : risk === 'Medium' ? 'med' : risk === 'Low' ? 'lo' : '';
+    const checks = [['Note written', noteFilled(S)], ['Codes reviewed', list.length > 0 && list.every(c => c.state)], ['No documentation issues', list.length > 0 && !gaps], ['Insurance on file', hasInsurance()]];
+    $('k-ready').textContent = checks.filter(c => c[1]).length + ' of 4';
+    $('ready-list').innerHTML = checks.map(c => '<span class="' + (c[1] ? 'ok' : '') + '">' + (c[1] ? '✓' : '○') + ' ' + c[0] + '</span>').join('');
+    $('ready-bar').innerHTML = checks.map(c => '<i class="' + (c[1] ? 'ok' : '') + '"></i>').join('');
+    $('ready').classList.toggle('hidden', isSigned());
+    const signed = isSigned(), sent = signed && read(K.claims, []).some(c => c.noteId === NOTE.id);
+    const btn = $('sign');
+    btn.disabled = signed ? sent || !accepted.some(c => c.type === 'CPT') : !accepted.some(c => c.type === 'CPT');
+    btn.innerHTML = sent ? '✓ Claim created' : 'Review claim <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+    $('foot-note').textContent = !hasInsurance() ? 'Add insurance before submitting' : sent ? 'Track it in Claims' : isQueued() ? 'Saved for end-of-day sign-off. Edits here are included.' : 'Review the claim before it goes to ' + P.insPrimary;
+  }
+
+  /* ---------- claim review: sign and send now, or save it for end-of-day sign-off (static/js/althais-claims.js) ---------- */
+  const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const buildClaim = () => { const cl = AlthaisClaims.build({ patient: P, note: Object.assign({}, NOTE, { date: VISIT_DATE }), structured: S, codes: CODES, ignored: IGNORED }); return cl; };
+  function openReview() {
+    if (REC.on) recStop();
+    if (!CODES.some(c => c.state === 'acc' && c.type === 'CPT')) return toast('Accept at least one CPT code first.');
+    saveDraft(true);
+    let box = $('review');
+    if (!box) { box = document.createElement('div'); box.id = 'review'; box.className = 'rv-wrap'; document.body.appendChild(box); }
+    const paint = () => {
+      const cl = buildClaim(), warns = AlthaisClaims.warnings(cl), blocked = warns.some(w => w[0] === 'stop');
+      const addr = [P.addrStreet, [P.addrCity, P.addrState].filter(Boolean).join(', '), P.addrZip].filter(Boolean).join(' ');
+      const row = (k, v) => '<div class="rv-kv"><span>' + k + '</span><b>' + (v ? esc(v) : '<i>Not on file</i>') + '</b></div>';
+      box.innerHTML = '<div class="rv" role="dialog" aria-modal="true" aria-labelledby="rv-title">' +
+        '<div class="rv-head"><div><div id="rv-title" class="rv-title">Review the claim</div><div class="rv-sub">This is what goes to ' + esc(hasInsurance() ? P.insPrimary : 'the payer') + ' when you sign. Sign it now, or save it and sign all of today’s visits at once on the Sign-Off page.</div></div><button type="button" class="rv-x" data-rv-close aria-label="Close">&times;</button></div>' +
+        '<div class="rv-body">' +
+          (warns.length ? '<div class="rv-warns">' + warns.map(w => '<div class="rv-w ' + w[0] + '">' + (w[0] === 'stop' ? '⛔ ' : w[0] === 'warn' ? '⚠ ' : 'ℹ ') + esc(w[1]) + '</div>').join('') + '</div>' : '<div class="rv-w ok">✓ No problems found. Ready to send.</div>') +
+          '<div class="rv-grid">' +
+            '<div><div class="rv-h">Patient</div>' + row('Name', displayName(P.name)) + row('DOB', usDate(P.dob)) + row('Sex', P.sex) + row('MRN', P.mrn) + row('Address', addr) + '</div>' +
+            '<div><div class="rv-h">Coverage</div>' + row('Payer', hasInsurance() ? P.insPrimary : '') + row('Member ID', cl.insuredId) + '<div class="rv-h" style="margin-top:14px">Visit</div>' + row('Date of service', usDate(cl.svcDate)) + row('Rendering provider', cl.provider) + row('Place of service', AlthaisClaims.POS_NAMES[S.pos] || S.pos) + row('Visit', [S.visitType, S.durationMinutes ? S.durationMinutes + ' min' : ''].filter(Boolean).join(' · ')) + '</div>' +
+          '</div>' +
+          '<div class="rv-h">Diagnoses (ICD-10)</div>' + (cl.icds.length ? cl.icds.map((c, k) => '<div class="rv-dx"><span class="rv-ptr">' + (k < 4 ? String.fromCharCode(65 + k) : '') + '</span><span class="cc-code">' + esc(c.code) + '</span><span>' + esc(c.desc) + '</span></div>').join('') : '<div class="rail-empty">None accepted</div>') +
+          '<div class="rv-h">Services</div><div style="overflow-x:auto"><table class="enc-table rv-t"><thead><tr><th>CPT</th><th>Description</th><th>Modifier</th><th>Units</th><th>Dx</th><th style="text-align:right">Charge</th></tr></thead><tbody>' +
+            cl.lines.map(l => { const idx = CODES.indexOf(l.c); return '<tr><td><span class="cc-code">' + esc(l.c.code) + '</span></td><td>' + esc(l.c.desc) + '</td>' +
+              '<td><input class="f-i rv-in" data-mod="' + idx + '" value="' + esc(l.c.modifier || '') + '" maxlength="8" placeholder="-"></td>' +
+              '<td><input class="f-i rv-in" data-units="' + idx + '" type="number" min="1" value="' + l.units + '"></td>' +
+              '<td class="mono">' + esc(l.pointers || '-') + '</td><td style="text-align:right" class="mono">' + (l.rate ? money(l.charge) : '<span style="color:#b86a00">$0.00</span>') + '</td></tr>'; }).join('') +
+            '</tbody><tfoot><tr><td colspan="5" style="text-align:right;font-weight:600">Total charge</td><td style="text-align:right;font-weight:700" class="mono">' + money(cl.amount) + '</td></tr></tfoot></table></div>' +
+          '<label class="rv-attest"><input type="checkbox" id="rv-ok"> I reviewed this visit note and every code on this claim, and I’m signing the note as ' + esc(cl.provider || 'the rendering provider') + '.</label>' +
+        '</div>' +
+        '<div class="rv-foot"><button type="button" class="btn-l" data-rv-close>Back to the note</button><span style="flex:1"></span>' +
+          (isQueued() ? '' : '<button type="button" class="btn-l" id="rv-queue" title="Not signed yet. Sign it with the rest of today’s visits on the Sign-Off page.">Save for end-of-day sign-off</button>') +
+          '<button type="button" class="btn-b" id="rv-send" disabled>' + (blocked ? 'Fix the item above to send' : 'Sign and send now') + '</button></div></div>';
+      box.querySelectorAll('[data-rv-close]').forEach(b => b.onclick = () => box.remove());
+      box.onclick = e => { if (e.target === box) box.remove(); };
+      box.querySelectorAll('[data-mod]').forEach(el => el.onchange = () => { CODES[+el.dataset.mod].modifier = el.value.trim().toUpperCase(); saveCodes(); paint(); });
+      box.querySelectorAll('[data-units]').forEach(el => el.onchange = () => { CODES[+el.dataset.units].units = Math.max(1, parseInt(el.value, 10) || 1); saveCodes(); renderCodes(); paint(); });
+      $('rv-ok').onchange = e => { $('rv-send').disabled = !e.target.checked || blocked; };
+      $('rv-send').onclick = () => finalize(box);
+      if ($('rv-queue')) $('rv-queue').onclick = () => queueForSignoff(box);
+    };
+    paint();
+    document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { const b = $('review'); if (b && !b.dataset.busy) b.remove(); document.removeEventListener('keydown', onKey); } });
+  }
+  function resultScreen(box, title, msg, items, links) {
+    box.querySelector('.rv').innerHTML = '<div class="rv-head"><div><div class="rv-title">' + title + '</div><div class="rv-sub">' + esc(msg) + '</div></div></div>' +
+      (items ? '<div class="rv-body"><ul class="rv-held">' + items + '</ul></div>' : '') +
+      '<div class="rv-foot"><span style="flex:1"></span>' + links + '<button type="button" class="btn-b" data-rv-done>Done</button></div>';
+    delete box.dataset.busy;
+    box.querySelector('[data-rv-done]').onclick = () => box.remove();
+  }
+  function queueForSignoff(box) {
+    saveDraft(true);
+    NOTE = AlthaisClaims.queue(buildClaim()) || NOTE;
+    renderHeader(); renderCodes(); renderSignoffLink();
+    const n = AlthaisClaims.queued().length;
+    resultScreen(box, '◷ Saved for end-of-day sign-off', displayName(P.name) + '’s visit is waiting on the Sign-Off page (' + n + ' visit' + (n === 1 ? '' : 's') + ' waiting). It isn’t signed or sent yet, and you can keep editing it until you sign.', '',
+      '<a class="btn-l" href="/emr/sign-off">Open Sign-Off</a><a class="btn-l" href="/emr">Back to EMR</a>');
+  }
+  async function finalize(box) {
+    box.dataset.busy = '1';
+    box.querySelectorAll('button').forEach(b => b.disabled = true);
+    $('rv-send').textContent = 'Sending…';
+    saveDraft(true);
+    const res = await AlthaisClaims.signAndSend(buildClaim(), true);
+    NOTE = read(K.notes, []).find(n => n.id === NOTE.id) || NOTE;
+    renderHeader(); renderRail(); renderTab(); renderCodes(); renderSignoffLink(); codeState('Signed', 'ok');
+    const title = res.status === 'sent' ? '✓ Claim sent' : res.status === 'held' ? 'Note signed. Claim held, not sent' : 'Note signed. Claim not sent';
+    const msg = res.status === 'sent' ? 'Claim ' + res.claimId + ' for ' + money(res.amount) + ' went to ' + P.insPrimary + (res.test ? ' (test clearinghouse)' : '') + (res.reference ? '. Reference ' + res.reference : '') + '.'
+      : res.status === 'held' ? 'Claim ' + res.claimId + ' was saved but the claim check stopped it. Finish these, then send it from Claims:'
+      : 'Claim ' + res.claimId + ' is saved as a draft. ' + (res.message || 'Send it from Claims.');
+    const items = (res.blockers || []).map(b => '<li><b>' + esc(b.title || '') + '</b><br>' + esc(b.reason || '') + (b.next ? ' · <span style="color:var(--brand-text-strong,#0d5bd7)">' + esc(b.next) + '</span>' : '') + '</li>').join('');
+    resultScreen(box, title, msg, items, '<a class="btn-l" href="/revenue/claims">Open Claims</a>');
+  }
+  // header shortcut to the Sign-Off page while visits are waiting
+  function renderSignoffLink() {
+    const n = AlthaisClaims.queued().length, a = $('signoff-link');
+    a.classList.toggle('hidden', !n); a.textContent = 'Sign-Off · ' + n + ' waiting';
+  }
+
+  /* ---------- switch patient ---------- */
+  function renderSwitch(q) {
+    const list = (window.__PTS || []).filter(p => !q || ((p.name || '') + ' ' + (p.mrn || '')).toLowerCase().includes(q.toLowerCase()));
+    $('sw-list').innerHTML = list.length ? list.slice(0, 50).map(p => '<a href="/emr/encounter?mrn=' + encodeURIComponent(p.mrn) + '&new=1" class="' + (P && p.mrn === P.mrn ? 'on' : '') + '">' + esc(displayName(p.name)) + '<small>' + esc(p.mrn) + (p.insPrimary ? ' · ' + esc(p.insPrimary) : '') + '</small></a>').join('') : '<div class="rail-empty" style="padding:8px">No patients match</div>';
+  }
+  $('sw-btn').onclick = e => { e.stopPropagation(); $('sw-menu').classList.toggle('hidden'); renderSwitch(''); $('sw-q').value = ''; $('sw-q').focus(); };
+  $('sw-q').oninput = () => renderSwitch($('sw-q').value);
+  document.addEventListener('click', e => { if (!e.target.closest('#sw-menu') && e.target !== $('sw-btn')) $('sw-menu').classList.add('hidden'); });
+  document.querySelectorAll('.enc-tab').forEach(t => t.onclick = () => { TAB = t.dataset.tab; renderTab(); });
+  $('code-run').onclick = () => runCoding(true);
+  $('sign').onclick = openReview;
+  // Althea on this page ("scribe this visit", "stop the visit"): record into this note instead of opening a new one in the EMR
+  const SECTION_NAMES = { cc: 'Chief complaint', hpi: 'HPI', ros: 'ROS', pmh: 'Past medical history', psh: 'Past surgical history', fh: 'Family history', sh: 'Social history',
+    medications: 'Medications', allergies: 'Allergies', labs: 'Labs', exam: 'Exam', assessment: 'Assessment', plan: 'Plan', v_bp: 'BP', v_hr: 'HR', v_rr: 'RR', v_temp: 'Temp', v_spo2: 'SpO2' };
+  const QUESTION = /\?\s*$|^(how|what|why|where|when|who|which|can|could|does|do|is|are|should|will|would)\b/i;
+  const COMMAND = /^(open|show|go|take me|read|scribe|start|stop|end|record|check|find|list|tell|sign|submit|accept|reject|switch|log ?out|help|hey|hi|hello|thanks|thank you)\b/i;
+  const CHART_PREFIX = /^(chart|add|note|document|write down|put)\b[:,\s]*(that\s+)?(to the note[:,\s]*)?/i;
+  // Text typed or said to Althea on this page goes into the note: Althea sorts it into the right sections.
+  // It adds to what's there (it never erases what you wrote); vitals take the newest value.
+  async function chartFromAlthea(raw) {
+    if (isSigned()) return { text: 'This note is signed, so it can’t be changed. Start a new visit to chart more.' };
+    let text = String(raw || '').replace(CHART_PREFIX, '').trim();
+    if (!text) return { text: 'What should I add to the note?' };
+    let f = {};
+    try {
+      const r = await fetch('/api/althea/extract', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'soap_note', text: text.slice(0, 4000) }) });
+      const j = await r.json().catch(() => ({})); if (r.ok && !j.error) f = j.fields || {};
+    } catch (e) {}
+    const changed = [];
+    Object.keys(FIELD_MAP).forEach(k => {
+      const key = FIELD_MAP[k], v = String(f[k] || '').trim(); if (!v) return;
+      const cur = String(S[key] || '').trim();
+      if (cur.toLowerCase().includes(v.toLowerCase())) return;
+      S[key] = cur ? cur + '\n' + v : v; TOUCHED[key] = true; changed.push(key);
+    });
+    ['bp', 'hr', 'rr', 'temp', 'spo2'].forEach(k => { const v = String(f[k] || '').trim(); if (v && v !== S.vitals[k]) { S.vitals[k] = v; TOUCHED['v_' + k] = true; changed.push('v_' + k); } });
+    if (!changed.length) { S.hpi = (String(S.hpi || '').trim() ? S.hpi.trim() + '\n' : '') + text; TOUCHED.hpi = true; changed.push('hpi'); }   // couldn't sort it: keep it, in the HPI
+    TAB = 'note'; renderTab(changed); renderRail(); renderHeader(); saveDraft(true); scheduleCoding(true);
+    changed.forEach(k => { const el = $('f-' + k); if (el) el.classList.remove('ai'); });
+    const names = changed.map(k => SECTION_NAMES[k] || k);
+    return { text: 'Added to ' + names.join(', ') + '. Codes are updating.', spoken: 'Added to ' + names.slice(0, 3).join(', ') + '.' };
+  }
+  window.AlthaisEncounter = {
+    log: (text, kind) => { if (P) addLog(kind, text); },
+    wantsChart: t => !!P && !isSigned() && (CHART_PREFIX.test(String(t).trim()) || (!QUESTION.test(String(t).trim()) && !COMMAND.test(String(t).trim()) && String(t).trim().split(/\s+/).length >= 2)),
+    chart: chartFromAlthea,
+    handles: intent => !!P && !isSigned() && ['scribe_visit', 'dictate_visit_note', 'start_visit', 'start_visit_timer', 'stop_visit_timer'].includes(intent),
+    run(intent) {
+      const name = displayName(P.name);
+      if (intent === 'stop_visit_timer') {
+        if (!REC.on) return { text: 'Nothing is being recorded right now.', spoken: 'Nothing is being recorded right now.' };
+        recStop(); return { text: 'Stopped. I’m finishing ' + name + '’s note and the codes. Review them, then tap Review claim.', spoken: 'Stopped. Finishing the note now.' };
+      }
+      if (REC.on) return { text: 'Already recording ' + name + '’s visit. Tap Stop recording when it’s over.', spoken: '' , quiet: true };
+      REC.consent = true;   // asked out loud; the reminder below is shown with it
+      TAB = 'note'; renderTab(); recStart();
+      return { quiet: true, spoken: '',
+        text: 'Scribing ' + name + '’s visit into this note. Make sure the patient has agreed to being recorded. The note and codes fill in as you talk. Tap Stop recording when the visit is over.' };
+    },
+  };
+  $('back-emr').addEventListener('click', e => { if (REC.on && !confirm('The visit is still recording. Stop recording and go back to the EMR? The note is saved as a draft.')) { e.preventDefault(); return; } if (REC.on) recStop(); saveDraft(true); });
+  window.addEventListener('beforeunload', e => { saveDraft(true); if (REC.on) { e.preventDefault(); e.returnValue = ''; } });
+
+  (async function init() {
+    P = await loadPatient();
+    if (P) {
+      try { localStorage.setItem(K.active, P.mrn); } catch (e) {}
+      const mine = read(K.notes, []).filter(n => n.mrn === P.mrn).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id).localeCompare(String(a.id)));
+      // New Claim: pick up an unsigned draft from this workspace if there is one, otherwise start a fresh visit.
+      // Opened any other way: show the latest visit.
+      NOTE = QS.get('note') ? (mine.find(n => n.id === QS.get('note')) || null)
+        : QS.get('new') === '1' ? (mine.find(n => n.source === 'encounter' && (n.status || 'Draft') === 'Draft') || null) : (mine[0] || null);
+      if (NOTE) {
+        S = Object.assign(BLANK(), JSON.parse(JSON.stringify(NOTE.structured || {})));
+        S.vitals = Object.assign(BLANK().vitals, S.vitals || {});
+        LOG = Array.isArray(NOTE.transcriptLog) ? NOTE.transcriptLog : (NOTE.transcript ? [{ src: 'recording', text: NOTE.transcript, at: NOTE.date }] : []);
+        syncTranscript(); VISIT_DATE = NOTE.date || today();
+        // Everything already in a saved note counts as reviewed: the scribe only fills fields that are still empty.
+        Object.keys(S).forEach(k => { if (S[k] && typeof S[k] === 'string') TOUCHED[k] = true; });
+        Object.keys(S.vitals).forEach(k => { if (S.vitals[k]) TOUCHED['v_' + k] = true; });
+        CODES = (read(K.codes, {})[NOTE.id] || []);
+        CODE.lastText = CODES.length ? [noteText(S), S.durationMinutes || null, S.encounterType, S.isNewPatient, S.isCriticalCare].join('|') : '';
+      }
+      document.title = 'Althais | ' + displayName(P.name);
+    }
+    renderHeader(); renderRail(); renderTab(); renderCodes(); renderSignoffLink();
+    if (P && NOTE && !isSigned() && !CODES.length) scheduleCoding(true);
+    else if (P && !isSigned()) codeState(CODES.length ? 'Up to date' : 'Waiting for the note', CODES.length ? 'ok' : '');
+    else if (isSigned()) codeState('Signed', 'ok');
+    const fit = () => { const g = document.querySelector('.enc'); document.documentElement.style.setProperty('--enc-top', Math.max(0, g.getBoundingClientRect().top + window.scrollY) + 'px'); };
+    fit(); window.addEventListener('resize', fit);
+  })();
+})();
+</script>
+</body>
+</html>

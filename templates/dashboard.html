@@ -6007,11 +6007,49 @@
       // NOTE: openSoap is defined later in this same script, so we can't check
       // `typeof openSoap === 'function'` at bind time (it's not defined yet):
       // resolve it at click time instead, which always works.
+      // "New Claim" asks which patient first, then opens that patient's encounter workspace
+      // (/emr/encounter: note, coding and claim side by side).
+      function openNewClaimPicker() {
+        let wrap = document.getElementById('nc-picker');
+        if (!wrap) {
+          wrap = document.createElement('div');
+          wrap.id = 'nc-picker';
+          wrap.style.cssText = 'position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px 16px;background:rgba(15,17,22,.45)';
+          wrap.innerHTML =
+            '<div class="bg-panel border border-line rounded-md" style="width:min(460px,100%);box-shadow:0 24px 60px rgba(15,17,22,.25);overflow:hidden">' +
+              '<div class="flex items-center justify-between px-4 py-3 border-b border-line"><div><div class="text-[14px] font-semibold text-ink-900">New claim</div><div class="text-[11.5px] text-ink-500">Choose the patient for this visit</div></div>' +
+              '<button type="button" data-nc-close class="text-ink-500 hover:text-ink-900 text-[18px] leading-none px-1" aria-label="Close">&times;</button></div>' +
+              '<div class="p-3"><input id="nc-q" class="w-full rounded-sm border border-line bg-white px-3 py-2 text-[13px] outline-none focus:border-med-500" placeholder="Search by name or MRN" autocomplete="off"></div>' +
+              '<div id="nc-list" style="max-height:320px;overflow-y:auto" class="px-2 pb-2"></div>' +
+              '<div class="px-4 py-2.5 border-t border-line text-[11.5px] text-ink-500">Not listed? <button type="button" id="nc-new" class="text-med-600 font-semibold hover:underline">Add a new patient</button></div>' +
+            '</div>';
+          document.body.appendChild(wrap);
+          const close = () => { wrap.style.display = 'none'; };
+          wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('[data-nc-close]')) close(); });
+          document.addEventListener('keydown', e => { if (e.key === 'Escape' && wrap.style.display !== 'none') close(); });
+          const render = () => {
+            const q = document.getElementById('nc-q').value.trim().toLowerCase();
+            const list = PATIENTS.filter(p => !q || ((p.name || '') + ' ' + (p.mrn || '')).toLowerCase().includes(q)).slice(0, 60);
+            document.getElementById('nc-list').innerHTML = list.length ? list.map(p =>
+              '<a href="/emr/encounter?mrn=' + encodeURIComponent(p.mrn) + '&new=1" class="flex items-center gap-2.5 px-2 py-2 rounded-sm hover:bg-shell">' +
+                '<span class="flex h-7 w-7 items-center justify-center rounded-sm bg-med-100 text-med-700 text-[11px] font-semibold flex-shrink-0">' + escapeHtml(initialsOf(p.name)) + '</span>' +
+                '<span class="min-w-0"><span class="block text-[13px] font-semibold text-ink-900">' + escapeHtml(p.name || '-') + '</span>' +
+                '<span class="block text-[11px] text-ink-500 mono">' + escapeHtml(p.mrn || '') + (p.insPrimary && p.insPrimary !== '-' ? ' · ' + escapeHtml(p.insPrimary) : '') + '</span></span></a>').join('')
+              : '<div class="px-2 py-6 text-center text-[12.5px] text-ink-500">' + (PATIENTS.length ? 'No patients match.' : 'No patients yet.') + '</div>';
+          };
+          document.getElementById('nc-q').addEventListener('input', render);
+          document.getElementById('nc-q').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = document.querySelector('#nc-list a'); if (a) location.href = a.href; } });
+          document.getElementById('nc-new').addEventListener('click', () => { close(); const b = document.getElementById('open-new-patient'); if (b) b.click(); });
+          wrap._render = render;
+        }
+        wrap.style.display = 'flex';
+        document.getElementById('nc-q').value = '';
+        wrap._render();
+        setTimeout(() => document.getElementById('nc-q').focus(), 0);
+      }
       ['open-new-claim', 'open-new-claim-quick'].forEach(id => {
         const b = document.getElementById(id);
-        if (b) b.addEventListener('click', () => {
-          if (typeof openSoap === 'function') openSoap();
-        });
+        if (b) b.addEventListener('click', openNewClaimPicker);
       });
       function setStatus(text) { if (statusEl) statusEl.textContent = text; }
 

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Althais | Sign-Off</title>
+  {# End-of-day sign-off: every visit a doctor saved with "Save for end-of-day sign-off" in the encounter workspace.
+     They review the list, sign the notes in one go and send the claims. Each claim is built from the note and codes as
+     they are now (static/js/althais-claims.js), so edits made after a visit was saved are included. #}
+  <script>
+    var __ALTHAIS_USER__ = {{ user_json|safe }};
+    var __ALTHAIS_NS__ = (function () {
+      var base = (__ALTHAIS_USER__.organization || __ALTHAIS_USER__.email || 'unknown').trim().toLowerCase();
+      return 'org_' + base.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    })();
+  </script>
+  <style>
+    .so-row td { vertical-align: top; }
+    .so-row.off { opacity: .6; }
+    .so-row.open td { border-bottom: 0; }
+    .so-code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: #f1f2f4; color: #2c313b; display: inline-block; margin: 0 3px 3px 0; }
+    .so-code.cpt { background: var(--brand-50, #eef4fe); color: var(--brand-text-strong, #0d5bd7); }
+    .so-pill { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+    .so-pill.ok { background: #e7f6ee; color: #137a4a; } .so-pill.warn { background: #fff4e0; color: #a35c00; } .so-pill.stop { background: #fdecec; color: #b42323; } .so-pill.info { background: #f1f2f4; color: #4a505c; }
+    .so-pill.sent { background: #1f9d63; color: #fff; }
+    .so-detail td { background: #fafbfc; padding: 12px 16px 16px; }
+    .so-w { font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 5px; margin-bottom: 5px; }
+    .so-w.stop { background: #fdecec; color: #9b1c1c; } .so-w.warn { background: #fff4e0; color: #8a4b00; } .so-w.info { background: #f1f2f4; color: #4a505c; }
+    .so-sec { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-text-strong, #0d5bd7); font-weight: 700; margin: 10px 0 3px; }
+    .so-txt { font-size: 12.5px; line-height: 1.55; color: #1b1e25; white-space: pre-wrap; }
+    .so-bar { position: sticky; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid #e4e6eb; box-shadow: 0 -10px 30px rgba(15,17,22,.06); }
+    .so-attest { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; color: #2c313b; cursor: pointer; }
+    .so-attest input { margin-top: 2px; }
+    .so-x { cursor: pointer; color: #6b7280; font-size: 11.5px; }
+    html[data-theme-resolved="dark"] .so-bar { background: #1a1d24; border-color: #2c313b; }
+    html[data-theme-resolved="dark"] .so-detail td { background: #14181f; }
+    html[data-theme-resolved="dark"] .so-txt, html[data-theme-resolved="dark"] .so-attest { color: #c7ccd6; }
+    html[data-theme-resolved="dark"] .so-code { background: #20242c; color: #e7eaf2; }
+    @media (min-width: 961px) { html body #althea-fab { bottom: 96px; } }
+  </style>
+</head>
+<body class="bg-shell">
+  {% include "_nav.html" %}
+  <script src="/static/js/althais-claims.js?v={{ asset_v }}"></script>
+
+  <main class="max-w-[1280px] mx-auto px-4 py-5">
+    <div class="flex items-end justify-between gap-4 flex-wrap mb-4">
+      <div>
+        <h1 class="text-[20px] font-semibold text-ink-900">Sign-Off</h1>
+        <p class="text-[12.5px] text-ink-500 mt-0.5">Visits saved for end-of-day sign-off. Check them over, then sign the notes and send the claims together.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="who" class="hidden inline-flex rounded-sm border border-line bg-panel p-0.5 text-[12px]">
+          <button type="button" data-who="me" class="px-2.5 py-1 rounded-sm">My visits</button>
+          <button type="button" data-who="all" class="px-2.5 py-1 rounded-sm">All providers</button>
+        </div>
+        <a href="/emr" class="text-[12px] px-3 py-1.5 rounded-sm border border-line bg-panel text-ink-700 hover:bg-shell">Back to EMR</a>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
+      <div class="bg-panel border border-line rounded-md px-3.5 py-3"><div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold">Waiting</div><div id="k-n" class="text-[20px] font-semibold text-ink-900 mt-1">-</div></div>
+      <div class="bg-panel border border-line rounded-md px-3.5 py-3"><div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold">From today</div><div id="k-today" class="text-[20px] font-semibold text-ink-900 mt-1">-</div></div>
+      <div class="bg-panel border border-line rounded-md px-3.5 py-3"><div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold">Total charges</div><div id="k-amt" class="text-[20px] font-semibold text-ink-900 mt-1">-</div></div>
+      <div class="bg-panel border border-line rounded-md px-3.5 py-3"><div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold">Need a look</div><div id="k-warn" class="text-[20px] font-semibold text-ink-900 mt-1">-</div></div>
+    </div>
+
+    <div class="bg-panel border border-line rounded-md overflow-hidden">
+      <div style="overflow-x:auto" id="tbl">
+        <table class="w-full text-[12.5px]" style="border-collapse:collapse">
+          <thead><tr class="text-left text-[10.5px] uppercase tracking-wider text-ink-500">
+            <th class="px-3 py-2.5 border-b border-line w-8"><input type="checkbox" id="all" aria-label="Select all"></th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold">Patient</th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold">Visit</th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold">Codes</th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold">Payer</th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold text-right">Charge</th>
+            <th class="px-3 py-2.5 border-b border-line font-semibold">Check</th>
+            <th class="px-3 py-2.5 border-b border-line"></th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="hidden px-4 py-14 text-center text-[13px] text-ink-500">
+        <div style="width:44px;height:44px;margin:0 auto 12px;border-radius:12px;background:var(--brand-50,#eef4fe);color:var(--brand-text-strong,#0d5bd7);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg></div>
+        <div class="text-[14px] font-semibold text-ink-900">You’re all caught up</div>Nothing is waiting for sign-off.<br><span class="text-[12px]">In a visit, tap <b>Review claim</b>, then <b>Save for end-of-day sign-off</b>, and it shows up here.</span>
+        <div class="mt-4"><a href="/emr" class="text-[12.5px] px-3 py-1.5 rounded-sm bg-med-600 text-white">Back to EMR</a></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="so-bar" id="bar">
+    <div class="max-w-[1280px] mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
+      <label class="so-attest flex-1 min-w-[260px]"><input type="checkbox" id="attest"> <span id="attest-text">I reviewed each selected visit note and every code on its claim, and I’m signing these notes.</span></label>
+      <span id="sel" class="text-[12.5px] text-ink-500 whitespace-nowrap">0 selected</span>
+      <button type="button" id="go" class="text-[12.5px] font-semibold px-4 py-2 rounded-sm bg-med-600 text-white disabled:opacity-40" disabled>Sign and send</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const C = AlthaisClaims, NS = __ALTHAIS_NS__ + '::';
+  const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usDate = s => { if (!s) return ''; const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const displayName = n => { const m = String(n || '').match(/^([^,]+),\s*(.+)$/); return m ? m[2] + ' ' + m[1] : (n || ''); };
+  const ME = C.me(), norm = s => String(s || '').toLowerCase().replace(/^dr\.?\s*/, '').replace(/[^a-z]/g, '');
+  let WHO = 'me', PTS = [], ITEMS = [], SEL = {}, OPEN = {}, RESULTS = {}, BUSY = false;
+
+  async function loadPatients() {
+    let list = C.read('patients', []);
+    try { const r = await fetch('/api/patients', { credentials: 'same-origin' }); if (r.ok) { const server = await r.json(); (Array.isArray(server) ? server : []).forEach(s => { if (!list.find(x => x.mrn === s.mrn)) list.push(s); }); } } catch (e) {}
+    PTS = list;
+  }
+  // Only the rendering provider signs their own notes (anyone may sign when the account has no provider name set)
+  const mine = it => !ME || !it.cl.provider || norm(it.cl.provider) === norm(ME);
+
+  function collect() {
+    const codes = C.read('encounter_codes', {});
+    ITEMS = C.queued().map(note => {
+      const P = PTS.find(p => p.mrn === note.mrn) || null;
+      const cl = C.build({ patient: P, note, structured: note.structured || {}, codes: codes[note.id] || [] });
+      return { note, P, cl, warns: C.warnings(cl) };
+    }).sort((a, b) => String(a.note.date || '').localeCompare(String(b.note.date || '')) || String(a.note.queuedAt || '').localeCompare(String(b.note.queuedAt || '')));
+    const others = ITEMS.some(it => !mine(it));
+    $('who').classList.toggle('hidden', !ME || !others);
+  }
+  const visible = () => ITEMS.filter(it => WHO === 'all' || mine(it) || RESULTS[it.note.id]);
+  const canSign = it => mine(it) && !it.warns.some(w => w[0] === 'stop') && !RESULTS[it.note.id];
+
+  function render() {
+    const list = visible();
+    document.querySelectorAll('[data-who]').forEach(b => { const on = b.dataset.who === WHO; b.style.background = on ? 'var(--brand)' : ''; b.style.color = on ? 'var(--brand-on,#fff)' : ''; });
+    const waiting = list.filter(it => !RESULTS[it.note.id]);
+    $('k-n').textContent = waiting.length;
+    $('k-today').textContent = waiting.filter(it => it.note.date === today()).length;
+    $('k-amt').textContent = money(waiting.reduce((s, it) => s + it.cl.amount, 0));
+    $('k-warn').textContent = waiting.filter(it => it.warns.some(w => w[0] !== 'info')).length;
+    $('empty').classList.toggle('hidden', list.length > 0);
+    $('tbl').classList.toggle('hidden', !list.length);
+    $('bar').classList.toggle('hidden', !list.length);
+    $('rows').innerHTML = list.map(it => {
+      const id = it.note.id, s = it.note.structured || {}, res = RESULTS[id];
+      const stops = it.warns.filter(w => w[0] === 'stop'), warns = it.warns.filter(w => w[0] === 'warn');
+      const check = res ? (res.status === 'sent' ? '<span class="so-pill sent">✓ Sent</span>' : res.status === 'held' ? '<span class="so-pill warn" title="' + esc(((res.blockers || [])[0] || {}).reason || '') + '">Signed · held</span>' : '<span class="so-pill stop" title="' + esc(res.message || '') + '">Signed · not sent</span>')
+        : !mine(it) ? '<span class="so-pill info">' + esc(it.cl.provider) + ' signs</span>'
+        : stops.length ? '<span class="so-pill stop">Can’t send</span>' : warns.length ? '<span class="so-pill warn">' + warns.length + ' to check</span>' : '<span class="so-pill ok">Ready</span>';
+      const row = '<tr class="so-row' + (OPEN[id] ? ' open' : '') + (!res && !canSign(it) ? ' off' : '') + '" data-id="' + esc(id) + '">' +
+        '<td class="px-3 py-2.5 border-b border-line"><input type="checkbox" data-sel="' + esc(id) + '"' + (SEL[id] && canSign(it) ? ' checked' : '') + (canSign(it) && !BUSY ? '' : ' disabled') + ' aria-label="Select"></td>' +
+        '<td class="px-3 py-2.5 border-b border-line"><div class="font-semibold text-ink-900">' + esc(displayName(it.P ? it.P.name : it.note.mrn)) + '</div><div class="text-[11px] text-ink-500 mono">' + esc(it.note.mrn) + '</div></td>' +
+        '<td class="px-3 py-2.5 border-b border-line"><div>' + esc(usDate(it.note.date)) + ' · ' + esc(it.note.type || 'Visit') + '</div><div class="text-[11px] text-ink-500">' + esc(s.cc || it.note.desc || '') + '</div><div class="text-[11px] text-ink-500">' + esc(it.cl.provider) + '</div></td>' +
+        '<td class="px-3 py-2.5 border-b border-line">' + it.cl.lines.map(l => '<span class="so-code cpt">' + esc(l.c.code) + (l.units > 1 ? ' ×' + l.units : '') + '</span>').join('') + it.cl.icds.map(c => '<span class="so-code">' + esc(c.code) + '</span>').join('') + (it.cl.lines.length || it.cl.icds.length ? '' : '<span class="text-ink-500">None accepted</span>') + '</td>' +
+        '<td class="px-3 py-2.5 border-b border-line">' + esc(it.P && C.hasInsurance(it.P) ? it.P.insPrimary : '-') + '</td>' +
+        '<td class="px-3 py-2.5 border-b border-line text-right mono">' + money(it.cl.amount) + '</td>' +
+        '<td class="px-3 py-2.5 border-b border-line">' + check + '</td>' +
+        '<td class="px-3 py-2.5 border-b border-line text-right whitespace-nowrap"><span class="so-x" data-open="' + esc(id) + '">' + (OPEN[id] ? 'Hide' : 'Details') + '</span>' + (res ? '' : ' · <a class="text-med-600 text-[11.5px]" href="/emr/encounter?mrn=' + encodeURIComponent(it.note.mrn) + '&note=' + encodeURIComponent(id) + '">Edit</a>') + '</td></tr>';
+      if (!OPEN[id]) return row;
+      const v = s.vitals || {};
+      const parts = [['Subjective', [s.cc && 'Chief complaint: ' + s.cc, s.hpi, s.ros].filter(Boolean).join('\n')],
+        ['Objective', [[v.bp && 'BP ' + v.bp, v.hr && 'HR ' + v.hr, v.temp && 'Temp ' + v.temp, v.spo2 && 'SpO2 ' + v.spo2 + '%'].filter(Boolean).join(', '), s.exam, s.labs].filter(Boolean).join('\n')],
+        ['Assessment', s.assessment], ['Plan', s.plan]].filter(x => x[1]);
+      const detail = '<tr class="so-detail"><td></td><td colspan="7"><div class="grid gap-5" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">' +
+        '<div>' + (parts.length ? parts.map(x => '<div class="so-sec">' + x[0] + '</div><div class="so-txt">' + esc(x[1]) + '</div>').join('') : '<div class="so-txt">The note is empty.</div>') + '</div>' +
+        '<div>' + (it.warns.length ? it.warns.map(w => '<div class="so-w ' + w[0] + '">' + esc(w[1]) + '</div>').join('') : '<div class="so-w info" style="background:#e7f6ee;color:#137a4a">No problems found.</div>') +
+          '<div class="so-sec">Claim</div><div class="so-txt">' + it.cl.lines.map(l => esc(l.c.code + (l.c.modifier ? '-' + l.c.modifier : '') + ' × ' + l.units + '  ' + (l.c.desc || '') + '  ' + money(l.charge))).join('\n') + '\n' + it.cl.icds.map((c, k) => esc((k < 4 ? String.fromCharCode(65 + k) + '. ' : '') + c.code + '  ' + (c.desc || ''))).join('\n') + '</div>' +
+          (res && res.blockers && res.blockers.length ? '<div class="so-sec">Held because</div>' + res.blockers.map(b => '<div class="so-w warn"><b>' + esc(b.title || '') + '</b> ' + esc(b.reason || '') + '</div>').join('') : '') +
+        '</div></div></td></tr>';
+      return row + detail;
+    }).join('');
+    $('rows').querySelectorAll('[data-sel]').forEach(el => el.onchange = () => { SEL[el.dataset.sel] = el.checked; paintBar(); });
+    $('rows').querySelectorAll('[data-open]').forEach(el => el.onclick = () => { OPEN[el.dataset.open] = !OPEN[el.dataset.open]; render(); });
+    const selectable = list.filter(canSign);
+    $('all').checked = selectable.length > 0 && selectable.every(it => SEL[it.note.id]);
+    $('all').disabled = !selectable.length || BUSY;
+    paintBar();
+  }
+  function selected() { return visible().filter(it => canSign(it) && SEL[it.note.id]); }
+  function paintBar() {
+    const sel = selected(), amt = sel.reduce((s, it) => s + it.cl.amount, 0);
+    $('sel').textContent = sel.length + ' selected · ' + money(amt);
+    $('go').textContent = BUSY ? 'Signing and sending…' : sel.length ? 'Sign and send ' + sel.length + ' claim' + (sel.length === 1 ? '' : 's') : 'Sign and send';
+    $('go').disabled = BUSY || !sel.length || !$('attest').checked;
+  }
+
+  $('all').onchange = e => { visible().filter(canSign).forEach(it => { SEL[it.note.id] = e.target.checked; }); render(); };
+  $('attest').onchange = paintBar;
+  document.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { WHO = b.dataset.who; render(); });
+  $('go').onclick = async () => {
+    const sel = selected(); if (!sel.length || !$('attest').checked) return;
+    BUSY = true; render();
+    // one at a time, each claim rebuilt from its note right now
+    for (const it of sel) {
+      const fresh = C.build({ patient: it.P, note: it.note, structured: it.note.structured || {}, codes: C.read('encounter_codes', {})[it.note.id] || [] });
+      if (C.warnings(fresh).some(w => w[0] === 'stop')) { RESULTS[it.note.id] = { status: 'error', message: 'Changed since you loaded this page. Open it and check.' }; continue; }
+      RESULTS[it.note.id] = await C.signAndSend(fresh, true);
+      SEL[it.note.id] = false; render();
+    }
+    BUSY = false; $('attest').checked = false; render();
+    const sent = sel.filter(it => RESULTS[it.note.id].status === 'sent').length, held = sel.filter(it => RESULTS[it.note.id].status === 'held').length;
+    const t = document.createElement('div');
+    t.className = 'fixed left-1/2 -translate-x-1/2 bottom-24 z-50 bg-ink-900 text-white text-[12.5px] px-4 py-2.5 rounded-md shadow-lg';
+    t.textContent = sel.length + ' note' + (sel.length === 1 ? '' : 's') + ' signed. ' + sent + ' claim' + (sent === 1 ? '' : 's') + ' sent' + (held ? ', ' + held + ' held (see Claims)' : '') + (sel.length - sent - held ? ', ' + (sel.length - sent - held) + ' not sent' : '') + '.';
+    document.body.appendChild(t); setTimeout(() => t.remove(), 6000);
+  };
+
+  (async function init() {
+    await loadPatients(); collect();
+    if (!ITEMS.some(mine)) WHO = 'all';
+    visible().filter(it => canSign(it) && !it.warns.some(w => w[0] === 'warn')).forEach(it => { SEL[it.note.id] = true; });   // visits with nothing to check start selected
+    render();
+  })();
+})();
+</script>
+</body>
+</html>

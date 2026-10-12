@@ -1,0 +1,418 @@
+/* v4 working preview, part 3: Claims, Denials, Payer rules, Team, Settings, and the page runner. */
+(function () {
+  var app = V.app, E = U.esc, M = U.money, S = D.S, q = V.q;
+  var CARCS = [['CO-4', 'Procedure inconsistent with modifier'], ['CO-5', 'Place of service'], ['CO-11', 'Dx/procedure mismatch'], ['CO-16', 'Missing information'], ['CO-18', 'Duplicate claim'], ['CO-22', 'Coordination of benefits'], ['CO-27', 'Coverage terminated'],
+    ['CO-29', 'Timely filing'], ['CO-50', 'Medical necessity'], ['CO-97', 'Bundled'], ['CO-109', 'Not covered by this payer'], ['CO-197', 'Prior auth absent'], ['PR-1', 'Deductible'], ['PR-2', 'Coinsurance']];
+  var PREVENT = { 'CO-197': 'Prior auth order check', 'CO-11': 'Diagnosis check while charting', 'CO-5': 'Telehealth location rule', 'CO-16': 'Missing-info edits before submission', 'CO-50': 'Note check while charting', 'CO-97': 'Bundling check', 'CO-29': 'Timely filing deadline edit', 'CO-4': 'Modifier review' };
+  var findClaim = function (id) { return D.claim(id); };
+  var lineCodes = function (c) { return c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : '') + (l.units > 1 ? ' ×' + l.units : ''); }).join(', '); };
+
+  /* ================= Claims ================= */
+  V.pages.claims = function () {
+    var Q = q.get('q') || 'edits', sel = q.get('claim') || '', tab = 'edits', CHK = {};
+    if (sel && findClaim(sel)) Q = findClaim(sel).stage;
+    var QS = { edits: function (c) { return c.stage === 'edits'; }, ready: function (c) { return c.stage === 'ready'; }, submitted: function (c) { return c.stage === 'submitted'; },
+      stale: function (c) { return c.stage === 'submitted' && D.daysBetween(c.submittedOn || D.today(), D.today()) >= 14; }, denied: function (c) { return c.stage === 'denied'; },
+      appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 30; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
+    var TITLES = { edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'No response, 14+ days', denied: 'Denied', appeal: 'Appeal due in 30 days', paid: 'Paid', all: 'All claims' };
+    function row(c) {
+      var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
+        : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
+      return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c))] };
+    }
+    var COLS = function (k) { return ['Claim #', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', 'CPT', 'Dx', k, ['Charges', 'num']]; };
+    function detail() {
+      var c = findClaim(sel);
+      if (!c) return U.pane('Claim detail', '', '', '<div class="blank">' + (S.claims.length ? 'Select a claim.' : 'No claims yet. Claims are created when a provider signs a visit note with an accepted CPT code, or with New claim.') + '</div>');
+      var p = D.pt(c.mrn) || {}, e = D.enc(c.encId), body = '', foot = '';
+      var lines = '<div class="dp-sec"><div class="dp-h">Charge lines' + (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<span class="end"><a href="#" id="addline">Add line</a></span>' : '') + '</div>' +
+        U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Units', 'num'], ['Amount', 'num'], ''], c.lines.map(function (l, i) {
+          var edit = ['edits', 'ready'].indexOf(c.stage) >= 0;
+          return { cells: [i + 1, edit ? '<input class="inl" data-lc="' + i + '" value="' + E(l.code) + '" style="width:62px">' : l.code, edit ? '<input class="inl" data-lm="' + i + '" value="' + E(l.mod || '') + '" style="width:40px">' : E(l.mod || '—'), c.dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(''),
+            edit ? '<input class="inl" type="number" min="1" data-lu="' + i + '" value="' + (l.units || 1) + '" style="width:44px">' : (l.units || 1), M(D.fee(l.code) * (l.units || 1)), edit ? '<button class="mini" data-ldel="' + i + '">×</button>' : ''] };
+        }), { tight: 1 }) + '<div class="mut" style="margin-top:5px">' + c.dx.map(function (d, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + d; }).join('  ') + '</div></div>';
+      if (tab === 'edits') {
+        if (c.stage === 'edits') {
+          body = c.edits.map(function (x, i) {
+            var hasLevel = c.lines.some(function (l) { return /^992(1[3-5]|0[3-5])$/.test(l.code); }), opts = [];
+            if (x.addendum) opts.push(['addendum', 'Send addendum to provider for signature', D.provName(c.prov) + ' signs, then the claim re-checks']);
+            if (/^BASIC-(INS|MEM)/.test(x.id)) opts.push(['patient', 'Fix the patient’s insurance', 'Opens the patient record']);
+            if (/^BASIC-(CPT|DX)/.test(x.id)) opts.push(['lines', 'Edit the codes', 'Use Charge lines or Diagnoses']);
+            if (/^BASIC-FEE/.test(x.id)) opts.push(['fees', 'Add the fee', 'Settings › Fee schedules']);
+            if (hasLevel && /UHC-EM|AET-DM/.test(x.id)) opts.push(['downcode', 'Change the visit level one step down', 'Est. charge drops by ' + M(D.fee(c.lines.filter(function (l) { return /^992/.test(l.code); })[0].code) - D.fee(String(+c.lines.filter(function (l) { return /^992/.test(l.code); })[0].code - 1)))]);
+            if (!x.addendum && e && !/^BASIC/.test(x.id)) opts.push(['ask', 'Ask the provider to document it', 'Adds a task for ' + D.provName(c.prov)]);
+            opts.push(['override', 'Override and submit', 'Reason logged on the claim']);
+            return '<div class="dp-sec"><div class="edit' + (x.lvl === 'amb' ? ' amb' : '') + '"><div class="edit-h">' + U.mark(x.lvl) + E(x.id) + ' ' + E(x.label) + '</div><div class="edit-b"><p>' + E(x.text) + '</p>' +
+              (x.evidence ? '<div class="b" style="margin:2px 0">Found in ' + E(x.evidence.kind.toLowerCase()) + ' <span class="mut" style="font-weight:400">' + E(x.evidence.when || '') + ', not in note</span></div><div class="box"><div class="box-h"><span>' + E(x.evidence.kind) + '</span></div><div class="box-b">"' + E(x.evidence.quote) + '"</div></div>' : '') +
+              (x.addendum ? '<div class="box"><div class="box-h"><span>Proposed note addendum</span></div><div class="box-b prop" data-addtext="' + i + '" contenteditable="true">' + E(x.addendum) + '</div></div><div class="mut" style="font-size:12px">Nothing is added to the note until the provider signs.</div>' : '') +
+              '<div class="b" style="margin-top:8px">Resolution</div>' + opts.map(function (o, k) { return '<label class="opt' + (k === 0 ? ' on' : '') + '"><input type="radio" name="res' + i + '" value="' + o[0] + '"' + (k === 0 ? ' checked' : '') + '><span>' + E(o[1]) + '<small>' + E(o[2]) + '</small></span></label>'; }).join('') +
+              '<div style="text-align:right;margin-top:6px"><button class="btn sm pri" data-resolve="' + i + '">Apply resolution</button></div></div></div></div>';
+          }).join('') + (c.waitingOn ? '<div class="dp-sec"><div class="edit amb"><div class="edit-h" style="border:0">' + U.warn + 'Waiting on ' + D.provName(c.prov) + ' to sign the addendum<span class="end">' + V.link('Open note', V.encHref(c.encId)) + '</span></div></div></div>' : '') + lines;
+        } else {
+          var pass = ['Eligibility: payer and member ID on file', 'Diagnosis present for every line', 'Fee on file for every code'].concat(D.allRules().map(function (r) { return r.id + ' checked'; }));
+          body = '<div class="dp-sec"><div class="dp-h">' + (c.stage === 'denied' ? 'Denial' : c.stage === 'paid' ? 'Payment' : 'Edits passed') + '</div>' +
+            (c.stage === 'paid' ? U.kv([['Paid', M(c.paid) + ' on ' + D.us(c.paidOn)], ['Adjustment', M(D.charge(c) - c.paid)], ['Check / EFT', E(c.ref || '-')]]) :
+             c.stage === 'denied' ? U.kv([['CARC', c.carc], ['Reason', E(c.reason)], ['Appeal by', D.us(c.appealBy)], ['Status', E(c.dstatus)]]) + '<div style="margin-top:6px">' + V.link('Open in Denials', '/v4/revenue/denials?claim=' + c.id) + '</div>' :
+             '<div class="ok-list">' + pass.map(function (x) { return '<div>' + E(x) + '</div>'; }).join('') + Object.keys(c.resolved || {}).map(function (k) { return '<div class="w">' + E(k) + ' overridden: ' + E(c.resolved[k]) + '</div>'; }).join('') + '</div>') + '</div>' + lines;
+        }
+      } else if (tab === 'charges') body = lines;
+      else if (tab === 'dx') body = '<div class="dp-sec">' + U.grid(['Ptr', 'Code', ''], c.dx.map(function (d, k) { return { cells: [k < 4 ? String.fromCharCode(65 + k) : '', d, ['edits', 'ready'].indexOf(c.stage) >= 0 ? '<button class="mini" data-dxdel="' + k + '">Remove</button>' : ''] }; }), { tight: 1 }) +
+        (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div style="display:flex;gap:5px;margin-top:6px"><input class="inl" id="dxadd" placeholder="ICD-10, e.g. E11.9"><button class="mini" id="dxaddb">Add</button></div>' : '') + '</div>';
+      else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
+      else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
+      if (c.stage === 'ready') foot = '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
+      else if (c.stage === 'submitted') foot = '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
+      else if (c.stage === 'edits') foot = '<button class="btn" id="rescrub1">Re-check</button>' + (c.encId ? '' : '<button class="btn" id="delclaim">Delete</button>');
+      else if (c.stage === 'denied') foot = '<a class="btn pri" style="display:inline-flex;align-items:center" href="/v4/revenue/denials?claim=' + c.id + '">Work denial</a>';
+      return '<section class="pane"><div class="ph">Claim detail<span class="end">' + (c.encId ? V.link('Open encounter', V.encHref(c.encId)) : '') + '</span></div>' +
+        '<div class="dp-sec"><div class="dp-title">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12.5px">' + E(p.sex || '') + ', ' + D.age(p.dob) + ', DOB ' + D.us(p.dob) + '</span></div>' +
+        U.kv3([['Claim #', c.id], ['DOS', D.us(c.dos)], ['Charges', M(D.charge(c))], ['Payer', E(D.payer(c))], ['Rendering', E(D.provName(c.prov))], ['POS', E(c.pos || '11 Office')]]) + '</div>' +
+        U.tabs([['edits', c.stage === 'edits' ? 'Edits' : 'Status', c.stage === 'edits' ? c.edits.length : ''], ['charges', 'Charges'], ['dx', 'Diagnoses'], ['note', 'Encounter note'], ['hist', 'History']], tab) +
+        '<div class="pbody">' + body + '</div>' + (foot ? '<div class="dp-f">' + foot + '</div>' : '') + '</section>';
+    }
+    function draw() {
+      var list = S.claims.filter(QS[Q]).sort(function (a, b) { return (b.dos || '').localeCompare(a.dos || ''); }), n = function (k) { return S.claims.filter(QS[k]).length; }, t = D.totals();
+      if (!sel || !findClaim(sel)) sel = list[0] ? list[0].id : (S.claims[0] || {}).id || '';
+      var picked = S.claims.filter(function (c) { return CHK[c.id]; });
+      var recent = S.claims.filter(function (c) { return c.submittedOn && D.daysBetween(c.submittedOn, D.today()) <= 7; });
+      var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + list.length + ' claims, ' + M(D.sum(list, D.charge)) + '</span></div><div class="pbody">' +
+        U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.') + '</tbody>') +
+        (Q === 'edits' ? U.sect('Ready to submit', n('ready') + ' claims, ' + M(t.ready.amt), U.grid(COLS('Edits'), D.stage('ready').map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, 'None.') + '</tbody>')) : '') +
+        ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, 'None.') + '</tbody>')) : '') +
+        '</div><div class="pf"><span id="nsel">' + picked.length + ' selected</span><span id="ssel">Selected charges <b>' + M(D.sum(picked, D.charge)) + '</b></span><span class="end">Showing ' + list.length + ' of ' + S.claims.length + '</span></div>';
+      app.innerHTML = U.header('claims') +
+        U.toolbar('Claims', [['Submit selected', 'send', { pri: 1, id: 'subsel' }], ['New claim', 'plus', { id: 'newclaim' }], ['Re-scrub', 'check', { id: 'rescrub' }], '|', ['Print', 'print', { id: 'print' }], ['Export', 'download', { id: 'export' }], ['Import 837', 'upload', { id: 'imp' }]],
+          (S.integrations.filter(function (i) { return i.name === 'Availity'; })[0] || {}).on ? '<span class="dot grn"></span>Clearinghouse marked connected (preview: claims are not transmitted)' : '<span class="dot" style="background:var(--m)"></span>No clearinghouse: submitting is recorded here only') +
+        '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
+          U.pane('Work queues', '', '', U.queue([
+            { h: 'Before submission', items: [{ key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }] },
+            { h: 'With payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'No response, 14+ days', n: n('stale'), color: null, indent: 1 }] },
+            { h: 'After adjudication', items: [{ key: 'denied', label: 'Denied', n: n('denied'), color: 'red' }, { key: 'appeal', label: 'Appeal due in 30 days', n: n('appeal'), color: null, indent: 1 }, { key: 'paid', label: 'Paid', n: n('paid'), color: 'grn' }] },
+            { h: 'All', items: [{ key: 'all', label: 'All claims', n: S.claims.length, color: null }] },
+          ], Q), { after: U.sum([['Billed this month', M(t.billed)], ['Collected this month', M(t.collected)], ['First-pass rate', t.r90 ? U.pct(t.firstPass) : '-'], ['Avg days to pay', t.avgPay == null ? '-' : t.avgPay.toFixed(1)]]) }) +
+          '<section class="pane">' + mid + '</section>' + detail() + '</div>';
+      U.fit(); U.search();
+    }
+    V.redraw = draw; draw();
+    var C = function () { return findClaim(sel); };
+    var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
+    U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });
+    U.on(app, 'tr[data-claim]', 'click', function (tr, e) {
+      if (e.target.matches('input[type=checkbox]')) { CHK[tr.dataset.claim] = e.target.checked; var pk = S.claims.filter(function (c) { return CHK[c.id]; }); document.getElementById('nsel').textContent = pk.length + ' selected'; document.getElementById('ssel').innerHTML = 'Selected charges <b>' + M(D.sum(pk, D.charge)) + '</b>'; return; }
+      e.preventDefault(); sel = tr.dataset.claim; tab = 'edits'; draw();
+    });
+    U.on(app, '[data-tab]', 'click', function (b) { tab = b.dataset.tab; draw(); });
+    U.on(app, '.opt', 'click', function (l) { l.parentNode.querySelectorAll('.opt').forEach(function (o) { o.classList.toggle('on', o === l); }); });
+    // line edits
+    var lineChange = function (attr, fn) { U.on(app, '[' + attr + ']', 'change', function (i) { var c = C(); fn(c, +i.getAttribute(attr), i.value.trim()); D.scrub(c); after(c, 'Charge lines edited'); }); };
+    lineChange('data-lc', function (c, i, v) { c.lines[i].code = v.toUpperCase(); }); lineChange('data-lm', function (c, i, v) { c.lines[i].mod = v.toUpperCase(); }); lineChange('data-lu', function (c, i, v) { c.lines[i].units = Math.max(1, parseInt(v, 10) || 1); });
+    U.on(app, '[data-ldel]', 'click', function (b) { var c = C(); c.lines.splice(+b.dataset.ldel, 1); D.scrub(c); after(c, 'Charge line removed'); });
+    U.on(app, '#addline', 'click', function (a, e) { e.preventDefault(); var code = prompt('CPT code'); if (!code) return; var c = C(); c.lines.push({ code: code.trim().toUpperCase(), mod: '', units: 1 }); D.scrub(c); after(c, 'Charge line added ' + code); });
+    U.on(app, '[data-dxdel]', 'click', function (b) { var c = C(); c.dx.splice(+b.dataset.dxdel, 1); D.scrub(c); after(c, 'Diagnosis removed'); });
+    U.on(app, '#dxaddb', 'click', function () { var v = document.getElementById('dxadd').value.trim().toUpperCase(); if (!/^[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$/.test(v)) return U.toast('Enter an ICD-10 code like E11.9.'); var c = C(); c.dx.push(v); D.scrub(c); after(c, 'Diagnosis added ' + v); });
+    // resolutions
+    U.on(app, '[data-resolve]', 'click', function (b) {
+      var c = C(), i = +b.dataset.resolve, x = c.edits[i], v = (app.querySelector('input[name=res' + i + ']:checked') || {}).value, e = D.enc(c.encId);
+      if (v === 'addendum') {
+        var text = (app.querySelector('[data-addtext="' + i + '"]') || {}).textContent || x.addendum;
+        e.addenda = e.addenda || []; e.addenda.push({ text: text.trim(), from: 'Billing (' + x.id + ')', signed: false }); c.resolved = c.resolved || {}; c.resolved[x.id] = 'Addendum sent for signature'; c.waitingOn = x.id; c.stage = 'edits';
+        c.edits = c.edits.filter(function (y) { return y.id !== x.id; }); return after(c, 'Addendum for ' + x.id + ' sent to ' + D.provName(c.prov));
+      }
+      if (v === 'patient') return location.href = V.chartHref(c.mrn);
+      if (v === 'lines') { tab = /DX/.test(x.id) ? 'dx' : 'charges'; return draw(); }
+      if (v === 'fees') return location.href = '/v4/settings?s=fs';
+      if (v === 'downcode') { var l = c.lines.filter(function (y) { return /^992/.test(y.code); })[0]; var old = l.code; l.code = String(+l.code - 1); D.scrub(c); return after(c, 'Level changed ' + old + ' to ' + l.code); }
+      if (v === 'ask') { e.addenda = e.addenda || []; e.addenda.push({ text: 'Please document: ' + x.text, from: 'Billing (' + x.id + ')', signed: false }); c.waitingOn = x.id; c.resolved = c.resolved || {}; c.resolved[x.id] = 'Asked provider'; c.edits = c.edits.filter(function (y) { return y.id !== x.id; }); return after(c, 'Asked ' + D.provName(c.prov) + ' to document ' + x.id); }
+      var r = prompt('Override reason (kept on the claim):'); if (!r) return; c.resolved = c.resolved || {}; c.resolved[x.id] = r; D.scrub(c); after(c, 'Override ' + x.id + ': ' + r);
+    });
+    var submit = function (list) {
+      list.forEach(function (c) { D.scrub(c); if (c.stage !== 'ready') return; c.stage = 'submitted'; c.status = 'Submitted ' + D.us(D.today(), 1).slice(0, 5); c.submittedOn = D.today(); D.history(c, 'Submitted'); CHK[c.id] = false; });
+      var n = list.filter(function (c) { return c.stage === 'submitted' && c.submittedOn === D.today(); }).length; D.log('Submitted ' + n + ' claim' + (n === 1 ? '' : 's')); D.save(); draw();
+      U.toast(n + ' submitted. (Recorded in this preview only; nothing was sent to a clearinghouse.)' + (list.length > n ? ' ' + (list.length - n) + ' skipped: not ready.' : ''));
+    };
+    U.on(app, '#subsel', 'click', function () { var l = S.claims.filter(function (c) { return CHK[c.id]; }); if (!l.length) l = Q === 'ready' ? D.stage('ready') : []; if (!l.length) return U.toast('Check claims in Ready to submit first.'); submit(l); });
+    U.on(app, '#submit1', 'click', function () { submit([C()]); });
+    U.on(app, '#back-edits, #rescrub1', 'click', function () { var c = C(); D.scrub(c); after(c, 'Re-checked: ' + (c.stage === 'ready' ? 'ready' : c.edits.length + ' edit(s)')); });
+    U.on(app, '#rescrub', 'click', function () { var l = S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }); l.forEach(D.scrub); D.log('Re-scrubbed ' + l.length + ' claims'); D.save(); draw(); U.toast('Re-checked ' + l.length + ' claims against ' + (D.allRules().length + 5) + ' checks.'); });
+    U.on(app, '#delclaim', 'click', function () { if (!confirm('Delete this claim?')) return; S.claims.splice(S.claims.indexOf(C()), 1); D.save(); sel = ''; draw(); });
+    U.on(app, '#ack', 'click', function () { var c = C(); c.status = 'Accepted 277CA'; after(c, 'Accepted by clearinghouse (277CA)'); });
+    U.on(app, '#pay', 'click', function () {
+      var c = C(); U.form('Post payment, ' + c.id, [{ k: 'paid', label: 'Paid amount', type: 'number', step: '0.01', req: 1, def: (D.charge(c) * .78).toFixed(2) }, { k: 'date', label: 'Paid on', type: 'date', req: 1, def: D.today() }, { k: 'ref', label: 'Check / EFT #' }, { k: 'pr', label: 'Patient responsibility', type: 'number', step: '0.01', def: '0.00' }], {}, function (v) {
+        c.stage = 'paid'; c.paid = +v.paid; c.paidOn = v.date; c.ref = v.ref; var p = D.pt(c.mrn); if (p && +v.pr > 0) p.balance = +(p.balance + +v.pr).toFixed(2); after(c, 'Payment posted ' + M(c.paid));
+      }, { save: 'Post payment' });
+    });
+    U.on(app, '#deny', 'click', function () {
+      var c = C(); U.form('Record denial, ' + c.id, [{ k: 'carc', label: 'CARC', type: 'select', options: CARCS.map(function (x) { return [x[0], x[0] + ' ' + x[1]]; }), span: 2 }, { k: 'date', label: 'Denied on', type: 'date', def: D.today() }, { k: 'days', label: 'Appeal window (days)', type: 'number', def: 60 }, { k: 'note', label: 'Payer remark', span: 4 }], {}, function (v) {
+        var k = CARCS.filter(function (x) { return x[0] === v.carc; })[0]; c.stage = 'denied'; c.carc = v.carc; c.reason = k[1]; c.remark = v.note; c.deniedOn = v.date; c.appealBy = D.addDays(v.date, +v.days || 60); c.dstatus = 'Needs review'; c.everDenied = true; after(c, 'Denied ' + v.carc);
+      }, { save: 'Record denial' });
+    });
+    U.on(app, '#newclaim', 'click', function () {
+      if (!S.patients.length || !D.providers().length) return U.toast('Add a patient and a provider first.');
+      U.form('New claim', [{ k: 'mrn', label: 'Patient', type: 'select', options: V.ptOptions(), req: 1, span: 2 }, { k: 'dos', label: 'Date of service', type: 'date', req: 1, def: D.today() }, { k: 'prov', label: 'Rendering provider', type: 'select', options: V.provOptions(), req: 1 },
+        { k: 'cpt', label: 'CPT codes (comma separated)', req: 1, span: 2, ph: '99213, 36415' }, { k: 'dx', label: 'Diagnoses (comma separated)', req: 1, span: 2, ph: 'E11.9, I10' }], {}, function (v) {
+        var c = { id: D.nextClaimId(), encId: '', mrn: v.mrn, dos: v.dos, prov: v.prov, payer: (D.pt(v.mrn) || {}).payer, lines: v.cpt.split(/[\s,]+/).filter(Boolean).map(function (x) { return { code: x.toUpperCase(), mod: '', units: 1 }; }), dx: v.dx.split(/[\s,]+/).filter(Boolean).map(function (x) { return x.toUpperCase(); }), stage: 'edits', resolved: {}, created: new Date().toISOString() };
+        D.scrub(c); c.hadEdits = c.stage === 'edits'; S.claims.push(c); sel = c.id; Q = c.stage; D.history(c, 'Entered by hand'); D.log('Claim entered: ' + c.id); D.save(); draw();
+      }, { save: 'Create claim', wide: 1 });
+    });
+    U.on(app, '#export', 'click', function () { U.download('claims-' + D.today() + '.csv', U.csv([['Claim', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', 'CPT', 'Dx', 'Stage', 'Status', 'Charges', 'Paid']].concat(S.claims.map(function (c) { return [c.id, D.ptName(c.mrn), c.mrn, c.dos, D.provName(c.prov), D.payer(c), lineCodes(c), c.dx.join(' '), c.stage, c.status || c.dstatus || '', D.charge(c).toFixed(2), (c.paid || 0).toFixed(2)]; })))); });
+    U.on(app, '#imp', 'click', function () {
+      U.pickFile('.837,.txt,.edi,.x12', false, function (f) {
+        U.readFile(f[0], true).then(function (txt) {
+          var segs = txt.split(/~\s*/), made = 0, name = '', dob = '';
+          segs.forEach(function (s) {
+            var el = s.split('*');
+            if (el[0] === 'NM1' && (el[1] === 'IL' || el[1] === 'QC')) name = (el[3] || '') + ', ' + (el[4] || '');
+            if (el[0] === 'DMG') dob = (el[2] || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+            if (el[0] === 'CLM') {
+              var p = S.patients.filter(function (x) { return x.name.toLowerCase() === name.toLowerCase(); })[0];
+              if (!p && name.trim() !== ',') { p = { mrn: D.nextMrn(name), name: name, dob: dob || '1900-01-01', sex: 'X', payer: 'Self-pay', member: '', pcp: '', balance: 0, status: 'New', created: D.today() }; S.patients.push(p); }
+              var c = { id: D.nextClaimId(), encId: '', mrn: p ? p.mrn : '', dos: D.today(), prov: (D.providers()[0] || {}).id || '', lines: [], dx: [], stage: 'edits', resolved: {}, ext: el[1] };
+              var j = segs.indexOf(s) + 1;
+              for (; j < segs.length && segs[j].indexOf('CLM*') !== 0; j++) { var e2 = segs[j].split('*'); if (e2[0] === 'SV1') c.lines.push({ code: (e2[1] || '').split(':')[1] || '', mod: (e2[1] || '').split(':')[2] || '', units: +e2[4] || 1 }); if (e2[0] === 'HI') e2.slice(1).forEach(function (h) { var d = (h.split(':')[1] || ''); if (d) c.dx.push(d.length > 3 ? d.slice(0, 3) + '.' + d.slice(3) : d); }); if (e2[0] === 'DTP' && e2[1] === '472') c.dos = (e2[3] || '').replace(/^(\d{4})(\d{2})(\d{2}).*$/, '$1-$2-$3'); }
+              D.scrub(c); D.history(c, 'Imported from 837, patient control # ' + el[1]); S.claims.push(c); made++;
+            }
+          });
+          D.log('Imported ' + made + ' claims from 837'); D.save(); Q = 'all'; draw(); U.toast(made ? made + ' claim' + (made === 1 ? '' : 's') + ' imported and checked.' : 'No CLM segments found in that file.');
+        });
+      });
+    });
+  };
+
+  /* ================= Denials ================= */
+  V.pages.denials = function () {
+    var Q = 'open', sel = q.get('claim') || '';
+    var openL = function () { return S.claims.filter(function (c) { return c.stage === 'denied'; }); };
+    var match = function (c) { return Q === 'open' || (Q === 'review' && c.dstatus === 'Needs review') || (Q === 'drafted' && c.dstatus === 'Appeal drafted') || (Q === 'appealed' && c.dstatus === 'Appealed') || Q === c.carc; };
+    var letterFor = function (c) { var p = D.pt(c.mrn) || {}, prov = D.staff(c.prov) || {}; return 'To ' + D.payer(c) + ' Appeals,\n\nWe request reconsideration of claim ' + c.id + ' for ' + (p.name || '').split(', ').reverse().join(' ') + ', DOS ' + D.us(c.dos) + ', denied ' + c.carc + ' (' + c.reason + ').\n\n[State why the service should be paid and what is enclosed.]\n\nSincerely,\n' + (prov.name ? prov.name.split(', ').reverse().join(' ') + (prov.cred ? ', ' + prov.cred : '') : S.clinic.user) + '\n' + (S.clinic.name || ''); };
+    function right() {
+      var c = findClaim(sel);
+      if (!c || c.stage !== 'denied' && !c.appealOutcome) return U.pane('Appeal', '', '', '<div class="blank">' + (openL().length ? 'Select a denial.' : 'No open denials. Record a denial on a submitted claim in Claims (Record denial).') + '</div>');
+      var p = D.pt(c.mrn) || {}, docs = S.docs.filter(function (d) { return d.mrn === c.mrn; }), ro = c.dstatus === 'Appealed' || c.appealOutcome;
+      return '<section class="pane"><div class="ph">Appeal <span class="sub">' + c.id + '</span><span class="end">' + V.link('Open claim', V.claimHref(c.id)) + '</span></div><div class="pbody">' +
+        '<div class="dp-sec"><div class="dp-title">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12.5px">' + E(p.sex || '') + ', ' + D.age(p.dob) + ', MRN ' + c.mrn + '</span></div>' +
+          U.kv3([['Payer', E(D.payer(c))], ['CPT', lineCodes(c)], ['Billed', M(D.charge(c))], ['Denied', c.carc], ['Appeal by', D.us(c.appealBy), D.daysBetween(D.today(), c.appealBy) <= 14 ? 'amb' : ''], ['Status', E(c.appealOutcome || c.dstatus)]]) + (c.remark ? '<div class="mut" style="margin-top:6px">Payer remark: ' + E(c.remark) + '</div>' : '') + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Basis for appeal</div><textarea class="ed" id="basis" rows="3" placeholder="Why this should be paid, one point per line"' + (ro ? ' readonly' : '') + '>' + E(c.basis || '') + '</textarea></div>' +
+        '<div class="dp-sec"><div class="dp-h">Letter draft <span class="sub">edit before sending</span></div><textarea class="ed" id="letter" rows="11"' + (ro ? ' readonly' : '') + '>' + E(c.letter || letterFor(c)) + '</textarea></div>' +
+        '<div class="dp-sec"><div class="dp-h">Attachments <span class="end">' + (ro ? '' : '<a href="#" id="attach">Upload</a>') + '</span></div>' + (c.encId ? '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-att="note"' + ((c.attach || ['note']).indexOf('note') >= 0 ? ' checked' : '') + (ro ? ' disabled' : '') + '> Visit note, ' + D.us(c.dos) + '</label><br>' : '') +
+          docs.map(function (d) { return '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-att="' + d.id + '"' + ((c.attach || []).indexOf(d.id) >= 0 ? ' checked' : '') + (ro ? ' disabled' : '') + '> ' + E(d.name) + '</label><br>'; }).join('') + (!docs.length && !c.encId ? '<span class="mut">No documents for this patient.</span>' : '') + '</div>' +
+        '</div><div class="dp-f">' + (c.appealOutcome ? '' : c.dstatus === 'Appealed' ? '<button class="btn" id="upheld">Upheld, write off</button><button class="btn pri" id="overturn">Overturned, post payment</button>' : '<button class="btn" id="resub">Correct and resubmit</button><button class="btn" id="savedraft">Save draft</button><button class="btn pri" id="send">Send appeal</button>') + '</div></section>';
+    }
+    function draw() {
+      var all = openL(), list = all.filter(match), t = D.totals(), carcs = [];
+      if (!sel || !findClaim(sel)) sel = list[0] ? list[0].id : '';
+      all.forEach(function (c) { if (carcs.indexOf(c.carc) < 0) carcs.push(c.carc); });
+      var resolved = S.claims.filter(function (c) { return c.appealOutcome; }), ever = S.claims.filter(function (c) { return c.everDenied; }), byR = {};
+      ever.forEach(function (c) { (byR[c.carc] = byR[c.carc] || []).push(c); });
+      var due = all.filter(function (c) { return c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 30; });
+      app.innerHTML = U.header('denials') +
+        U.toolbar('Denials', [['Send appeal', 'send', { pri: 1, id: 'send2' }], ['Edit appeal', 'pencil', { id: 'editl' }], ['Correct and resubmit', 'refresh', { id: 'resub2' }], '|', ['Print', 'print', { id: 'printl' }], ['Export', 'download', { id: 'export' }]], all.length + ' open') +
+        U.strip([['Open denials', all.length, M(D.sum(all, D.charge)), all.length ? 'red' : ''], ['Needs review', all.filter(function (c) { return c.dstatus === 'Needs review'; }).length, ''], ['Appeal due in 30 days', due.length, due.length ? 'next ' + due.map(function (c) { return D.us(c.appealBy, 1).slice(0, 5); }).sort()[0] : '', due.length ? 'amb' : ''],
+          ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90], ['Overturn rate', t.decided ? U.pct(t.overturned / t.decided, 0) : '-', t.overturned + ' of ' + t.decided + ' decided']]) +
+        '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
+          U.pane('Denial queues', '', '', U.queue([
+            { h: 'Open', items: [{ key: 'open', label: 'All open', n: all.length, color: 'red' }, { key: 'review', label: 'Needs review', n: all.filter(function (c) { return c.dstatus === 'Needs review'; }).length, color: 'amb' }, { key: 'drafted', label: 'Appeal drafted', n: all.filter(function (c) { return c.dstatus === 'Appeal drafted'; }).length, color: 'blue' }, { key: 'appealed', label: 'Appeal sent', n: all.filter(function (c) { return c.dstatus === 'Appealed'; }).length, color: 'gray' }] },
+            { h: 'By reason (CARC)', items: carcs.map(function (k) { var l = all.filter(function (c) { return c.carc === k; }); return { key: k, label: k + ' ' + l[0].reason, n: l.length, color: null }; }) },
+            { h: 'Closed', items: [{ key: 'x', label: 'Overturned', n: resolved.filter(function (c) { return c.appealOutcome === 'Overturned'; }).length, color: 'grn' }, { key: 'y', label: 'Written off', n: resolved.filter(function (c) { return c.appealOutcome === 'Written off'; }).length, color: 'gray' }] },
+          ], Q)) +
+          '<section class="pane"><div class="ph">' + (Q === 'open' ? 'All open' : 'Filtered') + ' <span class="sub">' + list.length + ' claims, ' + M(D.sum(list, D.charge)) + '</span></div><div class="pbody">' +
+            U.grid(['Claim #', 'Patient', 'Payer', 'DOS', 'CARC', 'Reason', ['Amount', 'num'], 'Appeal by', 'Status'], list.map(function (c) {
+              return { sel: c.id === sel, attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), E(D.payer(c)), D.us(c.dos, 1), c.carc, E(c.reason), M(D.charge(c)), '<span class="' + (D.daysBetween(D.today(), c.appealBy) <= 14 ? 's-amb' : '') + '">' + D.us(c.appealBy, 1) + '</span>', '<span class="s-' + ({ 'Needs review': 'amb', 'Appeal drafted': 'blue', Appealed: 'mut' }[c.dstatus] || 'none') + '">' + E(c.dstatus === 'Appealed' ? 'Appeal sent ' + D.us(c.appealSent, 1).slice(0, 5) : c.dstatus) + '</span>'] };
+            }), { cb: 1, click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(10, 'No open denials.') + '</tbody>') +
+            U.sect('Recently resolved', '', U.grid(['Claim #', 'Patient', 'Payer', 'CARC', 'Outcome', ['Recovered', 'num']], resolved.map(function (c) { return { attrs: ' data-claim="' + c.id + '"', cells: [c.id, E(D.ptName(c.mrn)), E(D.payer(c)), c.carc, '<span class="s-' + (c.appealOutcome === 'Overturned' ? 'grn' : 'mut') + '">' + c.appealOutcome + '</span>', M(c.paid || 0)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'None yet.') + '</tbody>')) +
+            U.sect('Denials by reason', ever.length + ' claims ever denied', U.grid(['Reason', ['Claims', 'num'], ['Amount', 'num'], 'Prevention now in place'], Object.keys(byR).map(function (k) { return { cells: [k + ' ' + E(byR[k][0].reason), byR[k].length, M(D.sum(byR[k], D.charge)), E(PREVENT[k] || 'Review with billing')] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'None yet.') + '</tbody>')) +
+          '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + list.length + ' of ' + all.length + '</span></div></section>' + right() + '</div>';
+      U.fit(); U.search();
+    }
+    V.redraw = draw; draw();
+    var C = function () { return findClaim(sel); };
+    var keep = function () { var c = C(); if (!c) return; var l = document.getElementById('letter'), b = document.getElementById('basis'); if (l && !l.readOnly) { c.letter = l.value; c.basis = b.value; c.attach = [].slice.call(app.querySelectorAll('[data-att]:checked')).map(function (x) { return x.dataset.att; }); } };
+    U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'x' || el.dataset.q === 'y') return; Q = el.dataset.q; sel = ''; draw(); });
+    U.on(app, 'tr[data-claim]', 'click', function (tr, e) { e.preventDefault(); keep(); D.save(); sel = tr.dataset.claim; draw(); });
+    U.on(app, '#savedraft', 'click', function () { keep(); var c = C(); c.dstatus = 'Appeal drafted'; D.history(c, 'Appeal drafted'); D.save(); draw(); U.toast('Draft saved.'); });
+    var send = function () { var c = C(); if (!c || c.stage !== 'denied') return U.toast('Select a denial.'); if (c.dstatus === 'Appealed') return U.toast('Already sent.'); keep(); if (/\[State why/.test(c.letter || '')) return U.toast('Finish the letter first: replace the bracketed line.'); c.dstatus = 'Appealed'; c.appealSent = D.today(); D.history(c, 'Appeal sent with ' + (c.attach || []).length + ' attachment(s)'); D.log('Appeal sent: ' + c.id); D.save(); draw(); U.toast('Appeal recorded as sent. (This preview doesn’t transmit to payers.) Record the outcome when the payer answers.'); };
+    U.on(app, '#send', 'click', send); U.on(app, '#send2', 'click', send);
+    U.on(app, '#editl', 'click', function () { var l = document.getElementById('letter'); if (l) l.focus(); });
+    U.on(app, '#printl', 'click', function () { var c = C(); if (!c) return window.print(); keep(); var w = window.open(''); w.document.write('<pre style="font:14px/1.6 Georgia,serif;white-space:pre-wrap;max-width:680px;margin:40px auto">' + E(c.letter || letterFor(c)) + '</pre>'); setTimeout(function () { w.print(); }, 300); });
+    var resub = function () { var c = C(); if (!c || c.stage !== 'denied') return U.toast('Select a denial.'); if (!confirm('Move ' + c.id + ' back to claims so it can be corrected and resubmitted?')) return; c.stage = 'edits'; c.dstatus = 'Resubmitted'; D.scrub(c); D.history(c, 'Sent back for correction after ' + c.carc); D.log('Correcting ' + c.id); D.save(); location.href = V.claimHref(c.id); };
+    U.on(app, '#resub', 'click', resub); U.on(app, '#resub2', 'click', resub);
+    U.on(app, '#attach', 'click', function (a, e) { e.preventDefault(); keep(); var c = C(); V.upload(c.mrn, function (d) { c.attach = (c.attach || []).concat([d.id]); D.save(); draw(); }); });
+    U.on(app, '#overturn', 'click', function () { var c = C(); U.form('Appeal overturned', [{ k: 'paid', label: 'Paid amount', type: 'number', step: '0.01', req: 1, def: (D.charge(c) * .78).toFixed(2) }, { k: 'date', label: 'Paid on', type: 'date', def: D.today() }], {}, function (v) { c.stage = 'paid'; c.paid = +v.paid; c.paidOn = v.date; c.appealOutcome = 'Overturned'; D.history(c, 'Appeal overturned, paid ' + M(c.paid)); D.log('Appeal overturned: ' + c.id); D.save(); draw(); }, { save: 'Post payment' }); });
+    U.on(app, '#upheld', 'click', function () { var c = C(); if (!confirm('Write off ' + M(D.charge(c)) + '?')) return; c.stage = 'paid'; c.paid = 0; c.paidOn = D.today(); c.appealOutcome = 'Written off'; D.history(c, 'Appeal upheld, written off'); D.save(); draw(); });
+    U.on(app, '#export', 'click', function () { U.download('denials-' + D.today() + '.csv', U.csv([['Claim', 'Patient', 'Payer', 'DOS', 'CARC', 'Reason', 'Amount', 'Appeal by', 'Status']].concat(S.claims.filter(function (c) { return c.everDenied; }).map(function (c) { return [c.id, D.ptName(c.mrn), D.payer(c), c.dos, c.carc, c.reason, D.charge(c).toFixed(2), c.appealBy, c.appealOutcome || c.dstatus]; })))); });
+  };
+
+  /* ================= Payer rules ================= */
+  V.pages.rules = function () {
+    var Q = 'all', sel = '';
+    var stats = function (r) { var hit = S.claims.filter(function (c) { return (c.ruleHits || {})[r.id]; }); return { hit: hit.length, open: hit.filter(function (c) { return c.stage === 'edits' && c.edits.some(function (x) { return x.id === r.id; }); }), fixed: hit.filter(function (c) { return !(c.stage === 'edits' && c.edits.some(function (x) { return x.id === r.id; })); }) }; };
+    function draw() {
+      var R = D.allRules(), list = R.filter(function (r) { return Q === 'all' || r.payer === Q || r.as === Q || (Q === 'local' && r.local); }), payers = [], types = [];
+      if (!sel || !R.some(function (r) { return r.id === sel; })) sel = (list[0] || R[0]).id;
+      R.forEach(function (r) { if (payers.indexOf(r.payer) < 0) payers.push(r.payer); if (types.indexOf(r.as) < 0) types.push(r.as); });
+      var r = R.filter(function (x) { return x.id === sel; })[0], st = stats(r), today = S.claims.filter(function (c) { return c.dos === D.today(); });
+      var allStats = R.map(stats), stopped = D.sum(allStats, function (s) { return s.hit; }), prevented = D.sum(allStats, function (s) { return D.sum(s.fixed, D.charge); });
+      app.innerHTML = U.header('rules') +
+        U.toolbar('Payer rules', [['Check for updates', 'refresh', { pri: 1, id: 'upd' }], ['Add local rule', 'plus', { id: 'addrule' }], '|', ['Export', 'download', { id: 'export' }]], 'Rule library v2026.10, ' + D.RULES.length + ' rules') +
+        U.strip([['Active rules', R.length, payers.length + ' payers'], ['Claims stopped before submission', stopped, 'by these rules'], ['Charges fixed before submission', M(prevented), '', prevented ? 'grn' : ''], ['Local rules', S.localRules.length]]) +
+        '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
+          U.pane('Payers', '', '', U.queue([{ items: [{ key: 'all', label: 'All payers', n: R.length, color: 'blue' }].concat(payers.map(function (p) { return { key: p, label: p, n: R.filter(function (x) { return x.payer === p; }).length, color: null }; })) },
+            { h: 'Rule type', items: types.map(function (t) { return { key: t, label: t, n: R.filter(function (x) { return x.as === t; }).length, color: null }; }).concat([{ key: 'local', label: 'Local rules', n: S.localRules.length, color: null }]) }], Q)) +
+          '<section class="pane"><div class="ph">' + (Q === 'all' ? 'All payers' : E(Q)) + ' <span class="sub">' + list.length + ' rules</span></div><div class="pbody">' +
+            U.grid(['Rule ID', 'Payer', 'Effective', ['Requirement', 'wrap'], 'Applied as', ['Today', 'num'], ['Stopped', 'num']], list.map(function (x) {
+              var s = stats(x); return { sel: x.id === sel, attrs: ' data-rule="' + x.id + '"', cells: ['<span class="mono">' + x.id + '</span>', E(x.payer), x.eff ? D.us(x.eff, 1) : 'Now', E(x.req), E(x.as), today.filter(function (c) { return (c.ruleHits || {})[x.id]; }).length, s.hit] };
+            }), { cb: 1, click: 1 }) +
+          '</div><div class="pf"><span>1 selected</span><span class="end">Showing ' + list.length + ' of ' + R.length + '</span></div></section>' +
+          '<section class="pane"><div class="ph">Rule detail <span class="sub mono">' + r.id + '</span></div><div class="pbody">' +
+            '<div class="dp-sec"><div class="dp-title">' + E(r.title) + '</div>' + U.kv3([['Payer', E(r.payer)], ['Effective', r.eff ? D.us(r.eff) : 'Now'], ['Applies to', E(r.applies)]]) + '</div>' +
+            '<div class="dp-sec"><div class="dp-h">Requirement</div><div>' + E(r.text) + '</div></div>' +
+            '<div class="dp-sec"><div class="dp-h">How Althais applies it</div><div class="lst">' + r.how.map(function (h) { return '<div>' + E(h) + '</div>'; }).join('') + '</div></div>' +
+            '<div class="dp-sec"><div class="dp-h">Source</div>' + E(r.src) + '</div>' +
+            '<div class="dp-sec"><div class="dp-h">Claims affected <span class="sub">' + st.hit + '</span></div>' + U.grid(['Result', ['Claims', 'num'], ['Amount', 'num']], [{ cells: ['<span class="s-grn">Fixed before submission</span>', st.fixed.length, M(D.sum(st.fixed, D.charge))] }, { cells: [U.st('Held, open', 'red'), st.open.length, M(D.sum(st.open, D.charge))] }], { tight: 1 }) + '</div>' +
+          '</div>' + (r.local ? '<div class="dp-f"><button class="btn" id="delrule">Delete rule</button><button class="btn pri" id="editrule">Edit</button></div>' : '') + '</section></div>';
+      U.fit(); U.search();
+    }
+    V.redraw = draw; draw();
+    U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; draw(); });
+    U.on(app, 'tr[data-rule]', 'click', function (tr) { sel = tr.dataset.rule; draw(); });
+    U.on(app, '#upd', 'click', function () { U.toast('The rule library is current (' + D.RULES.length + ' rules). This preview has no bulletin feed; add your own with Add local rule.'); });
+    var ruleForm = function (r) {
+      var isNew = !r; r = r || { payer: 'Aetna' };
+      U.form(isNew ? 'Add local rule' : 'Edit ' + r.id, [{ k: 'payer', label: 'Payer starts with', req: 1, ph: 'Aetna' }, { k: 'title', label: 'Rule name', req: 1, span: 3, ph: 'Smoking status on preventive visits' }, { k: 'cpt', label: 'CPT starts with', ph: '9939 (blank = any)' },
+        { k: 'must', label: 'Note must mention', req: 1, span: 3, ph: 'tobacco' }, { k: 'text', label: 'Message to show', type: 'textarea', rows: 2, span: 4, ph: 'Document tobacco use status on preventive visits.' }], r, function (v) {
+        Object.assign(r, v, { as: 'Note check', local: true, req: v.title, applies: v.cpt ? v.cpt + '*' : 'All CPT', how: ['Checks every claim for ' + v.payer + (v.cpt ? ' with CPT ' + v.cpt + '*' : ''), 'Holds the claim if the note doesn’t mention "' + v.must + '"'], src: 'Local rule, added by ' + S.clinic.user, eff: r.eff || D.today(), pub: r.pub || D.today() });
+        if (isNew) { r.id = 'LOCAL-' + String(S.localRules.length + 1).padStart(3, '0'); S.localRules.push(r); }
+        S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }).forEach(D.scrub); D.log((isNew ? 'Local rule added: ' : 'Local rule edited: ') + r.id); D.save(); sel = r.id; draw();
+      }, { wide: 1, save: isNew ? 'Add rule' : 'Save' });
+    };
+    U.on(app, '#addrule', 'click', function () { ruleForm(); });
+    U.on(app, '#editrule', 'click', function () { ruleForm(S.localRules.filter(function (x) { return x.id === sel; })[0]); });
+    U.on(app, '#delrule', 'click', function () { if (!confirm('Delete ' + sel + '?')) return; S.localRules = S.localRules.filter(function (x) { return x.id !== sel; }); D.S.localRules = S.localRules; S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }).forEach(D.scrub); D.save(); sel = ''; draw(); });
+    U.on(app, '#export', 'click', function () { U.download('payer-rules.csv', U.csv([['Rule ID', 'Payer', 'Effective', 'Requirement', 'Applied as', 'Source']].concat(D.allRules().map(function (r) { return [r.id, r.payer, r.eff, r.req, r.as, r.src]; })))); });
+  };
+
+  /* ================= Team ================= */
+  V.pages.team = function () {
+    var Q = 'team', sel = q.get('staff') || '';
+    var role = function (x) { return x.provider ? 'Providers' : x.access === 'Billing' ? 'Billing' : x.access === 'Front desk' ? 'Front desk' : 'Clinical'; };
+    var nextExp = function (s) { return (s.creds || []).filter(function (c) { return c.exp; }).sort(function (a, b) { return a.exp.localeCompare(b.exp); })[0]; };
+    var comp = function (s) { if (s.status === 'Invited') return ['Onboarding', 'mut']; var n = nextExp(s); if (!n) return ['No credentials', 'amb']; var d = D.daysBetween(D.today(), n.exp); return d < 0 ? ['Expired', 'red'] : d <= 30 ? ['Expiring', 'amb'] : ['Compliant', 'grn']; };
+    function person(s) {
+      if (!s) return U.pane('Member', '', '', '<div class="blank">' + (S.staff.length ? 'Select a team member.' : 'No team members yet. Use Invite member or Add existing staff. Add yourself first; you sign notes as that person.') + '</div>');
+      var steps = s.steps || [];
+      return '<section class="pane"><div class="ph">' + E(s.name) + ' ' + E(s.cred || '') + '<span class="end"><a href="#" id="editstaff">Edit</a></span></div><div class="pbody">' +
+        '<div class="dp-sec">' + U.kv3([['Role', E(s.spec || s.access)], ['Location', E(s.loc || '-')], ['Start date', D.us(s.hired)], ['Email', E(s.email || '-')], ['NPI', '<span class="mono">' + E(s.npi || '-') + '</span>'], ['Status', E(s.status)]]) + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Credentials <span class="end"><a href="#" id="addcred">Add</a></span></div>' + U.grid(['Credential', 'Number', 'Expires', 'Status', ''], (s.creds || []).map(function (c, i) { var d = c.exp ? D.daysBetween(D.today(), c.exp) : 999; return { cells: [E(c.name), '<span class="mono">' + E(c.num || '') + '</span>', '<span class="' + (d <= 30 ? 's-amb' : '') + '">' + D.us(c.exp) + '</span>', d < 0 ? '<span class="s-red">Expired</span>' : d <= 30 ? '<span class="s-amb">' + d + ' days</span>' : '<span class="s-grn">Current</span>', '<button class="mini" data-delcred="' + i + '">×</button>'] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'None on file.') + '</tbody>') + '</div>' +
+        (steps.length ? '<div class="dp-sec"><div class="dp-h">Onboarding <span class="sub">' + steps.filter(function (x) { return x[1]; }).length + ' of ' + steps.length + '</span></div>' + steps.map(function (x, i) { return '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-step="' + i + '"' + (x[1] ? ' checked' : '') + '> ' + E(x[0]) + '</label><br>'; }).join('') + '</div>' : '') +
+        '<div class="dp-sec"><div class="dp-h">Reminders</div><div class="lst">' + ((s.reminders || []).map(function (r) { return '<div>' + E(r) + '</div>'; }).join('') || '<span class="mut">None sent</span>') + '</div></div>' +
+        '<div class="dp-sec"><div class="dp-h">Althais access</div>' + U.kv([['Role', E(s.access)], ['Can sign notes', s.provider ? 'Yes' : 'No'], ['Can view billing', /Admin|Billing/.test(s.access) ? 'Yes' : 'No'], ['Signs as you', S.clinic.userStaff === s.id ? 'Yes' : '<a href="#" id="makeme">Make this me</a>']]) + '</div>' +
+        '</div><div class="dp-f"><button class="btn" id="deact">' + (s.status === 'Inactive' ? 'Reactivate' : 'Deactivate') + '</button><button class="btn" id="card">Upload new card</button><button class="btn pri" id="remind">Send reminder</button></div></section>';
+    }
+    function draw() {
+      var list = S.staff.filter(function (x) { return Q === 'team' ? x.status !== 'Inactive' : Q === 'onb' ? x.status === 'Invited' : Q === 'inactive' ? x.status === 'Inactive' : Q === 'exp' ? ['Expiring', 'Expired'].indexOf(comp(x)[0]) >= 0 : role(x) === Q; });
+      if (!sel || !D.staff(sel)) sel = (list[0] || {}).id || '';
+      var exp = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (c) { var d = c.exp ? D.daysBetween(D.today(), c.exp) : 999; if (d <= 120) exp.push([s, c, d]); }); }); exp.sort(function (a, b) { return a[2] - b[2]; });
+      var inv = S.staff.filter(function (s) { return s.status === 'Invited'; });
+      app.innerHTML = U.header('team') +
+        U.toolbar('Team', [['Invite member', 'user', { pri: 1, id: 'invite' }], ['Add existing staff', 'plus', { id: 'addstaff' }], ['Send reminders', 'mail', { id: 'remindall' }], '|', ['Export CSV', 'download', { id: 'export' }]], S.staff.length + ' members') +
+        '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 400px">' +
+          U.pane('Staff', '', '', U.queue([{ items: [{ key: 'team', label: 'Team', n: S.staff.filter(function (x) { return x.status !== 'Inactive'; }).length, color: 'blue' }, { key: 'onb', label: 'Onboarding', n: inv.length, color: 'gray' }, { key: 'exp', label: 'Expiring or expired', n: S.staff.filter(function (x) { return ['Expiring', 'Expired'].indexOf(comp(x)[0]) >= 0; }).length, color: 'amb' }, { key: 'inactive', label: 'Inactive', n: S.staff.filter(function (x) { return x.status === 'Inactive'; }).length, color: null }] },
+            { h: 'Filter by role', items: ['Providers', 'Clinical', 'Billing', 'Front desk'].map(function (r) { return { key: r, label: r, n: S.staff.filter(function (x) { return role(x) === r; }).length, color: null }; }) }], Q),
+            { after: U.sum([['Fully compliant', S.staff.filter(function (x) { return comp(x)[0] === 'Compliant'; }).length + ' of ' + S.staff.length], ['Expiring in 30 days', exp.filter(function (x) { return x[2] <= 30; }).length], ['Onboarding', inv.length]]) }) +
+          '<section class="pane"><div class="ph">Team <span class="sub">' + list.length + ' members</span></div><div class="pbody">' +
+            U.grid(['Name', 'Cred.', 'Specialty / dept.', 'Location', 'Access', 'Compliance', 'Next expiring', 'Expires', 'Status'], list.map(function (x) { var c = comp(x), n = nextExp(x); return { sel: x.id === sel, attrs: ' data-staff="' + x.id + '"', cells: [E(x.name), E(x.cred || ''), E(x.spec || ''), E(x.loc || ''), E(x.access), '<span class="s-' + c[1] + '">' + c[0] + '</span>', E(n ? n.name : ''), n ? D.us(n.exp) : '', '<span class="s-' + (x.status === 'Active' ? 'grn' : 'mut') + '">' + x.status + '</span>'] }; }), { cb: 1, click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(10, 'No team members.') + '</tbody>') +
+            U.sect('Expiring in the next 120 days', exp.length + ' credentials', U.grid(['Name', 'Credential', 'Expires', ['Days left', 'num'], 'Last reminder'], exp.map(function (x) { return { attrs: ' data-staff="' + x[0].id + '"', cells: [E(x[0].name), E(x[1].name), D.us(x[1].exp), '<span class="' + (x[2] <= 30 ? 's-amb' : '') + '">' + x[2] + '</span>', E((x[0].reminders || [])[0] || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'None.') + '</tbody>')) +
+            U.sect('Onboarding', inv.length + ' in progress', U.grid(['Name', 'Steps done', 'Next step'], inv.map(function (x) { var st = x.steps || []; var nx = st.filter(function (y) { return !y[1]; })[0]; return { attrs: ' data-staff="' + x.id + '"', cells: [E(x.name), st.filter(function (y) { return y[1]; }).length + ' of ' + st.length, E(nx ? nx[0] : 'Ready to activate')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(3, 'None.') + '</tbody>')) +
+          '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + list.length + ' of ' + S.staff.length + '</span></div></section>' + person(D.staff(sel)) + '</div>';
+      U.fit(); U.search();
+    }
+    V.redraw = draw; draw();
+    if (q.get('add') === 'provider') V.staffForm(null, function (s) { sel = s.id; draw(); }, true);
+    var P = function () { return D.staff(sel); };
+    U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; draw(); });
+    U.on(app, 'tr[data-staff]', 'click', function (tr) { sel = tr.dataset.staff; draw(); });
+    U.on(app, '#invite', 'click', function () { V.staffForm(null, function (s) { sel = s.id; draw(); }, false, true); });
+    U.on(app, '#addstaff', 'click', function () { V.staffForm(null, function (s) { sel = s.id; draw(); }); });
+    U.on(app, '#editstaff', 'click', function (a, e) { e.preventDefault(); V.staffForm(P(), function () { draw(); }); });
+    U.on(app, '#makeme', 'click', function (a, e) { e.preventDefault(); var s = P(); S.clinic.userStaff = s.id; S.clinic.user = s.name.split(', ').reverse().join(' ') + (s.cred ? ', ' + s.cred : ''); D.save(); draw(); U.toast('You now sign as ' + S.clinic.user + '.'); });
+    U.on(app, '#addcred', 'click', function (a, e) { e.preventDefault(); U.form('Add credential', [{ k: 'name', label: 'Credential', req: 1, span: 2, ph: 'BLS, DEA, State license' }, { k: 'num', label: 'Number' }, { k: 'exp', label: 'Expires', type: 'date', req: 1 }], {}, function (v) { var s = P(); s.creds = s.creds || []; s.creds.push(v); D.log('Credential added: ' + s.name + ', ' + v.name); D.save(); draw(); }); });
+    U.on(app, '[data-delcred]', 'click', function (b) { var s = P(); s.creds.splice(+b.dataset.delcred, 1); D.save(); draw(); });
+    U.on(app, '[data-step]', 'change', function (c) { var s = P(); s.steps[+c.dataset.step][1] = c.checked; if (s.steps.every(function (x) { return x[1]; }) && confirm('All onboarding steps are done. Activate ' + s.name + '?')) s.status = 'Active'; D.save(); draw(); });
+    var remind = function (s) { (s.reminders = s.reminders || []).unshift(D.us(D.today(), 1).slice(0, 5) + '  Reminder sent by email'); D.log('Reminder sent: ' + s.name); };
+    U.on(app, '#remind', 'click', function () { remind(P()); D.save(); draw(); U.toast('Reminder recorded. (This preview does not send email.)'); });
+    U.on(app, '#remindall', 'click', function () { var l = S.staff.filter(function (s) { return (s.creds || []).some(function (c) { return c.exp && D.daysBetween(D.today(), c.exp) <= 30; }); }); l.forEach(remind); D.save(); draw(); U.toast(l.length ? 'Reminders recorded for ' + l.length + ' member' + (l.length === 1 ? '' : 's') + '.' : 'No credentials expire in the next 30 days.'); });
+    U.on(app, '#deact', 'click', function () { var s = P(); s.status = s.status === 'Inactive' ? 'Active' : 'Inactive'; D.log(s.name + ' ' + s.status.toLowerCase()); D.save(); draw(); });
+    U.on(app, '#card', 'click', function () { var s = P(); U.pickFile('image/*,.pdf', false, function (f) { var rec = { id: D.id('DOC'), mrn: '', name: s.name + ' credential card', file: f[0].name, type: 'Other', src: 'Upload', rec: D.today(), size: U.size(f[0].size), mime: f[0].type, status: 'Filed to chart' }; var fin = function () { S.docs.unshift(rec); D.log('Card uploaded: ' + s.name); D.save(); U.toast('Card saved to Documents.'); }; if (f[0].size <= 2097152) U.readFile(f[0]).then(function (d) { rec.data = d; fin(); }); else fin(); }); });
+    U.on(app, '#export', 'click', function () { U.download('team-' + D.today() + '.csv', U.csv([['Name', 'Credentials', 'Specialty', 'Location', 'Access', 'Email', 'NPI', 'Status', 'Next expiring', 'Expires']].concat(S.staff.map(function (s) { var n = nextExp(s); return [s.name, s.cred, s.spec, s.loc, s.access, s.email, s.npi, s.status, n ? n.name : '', n ? n.exp : '']; })))); });
+  };
+
+  /* ================= Settings ================= */
+  V.pages.settings = function () {
+    var sec = q.get('s') || 'pd', dirty = false;
+    var NAV = [{ h: 'Practice', items: [['pd', 'Practice details'], ['loc', 'Locations', S.locations.length], ['prov', 'Providers', D.providers().length], ['users', 'Users and roles', S.staff.length]] },
+      { h: 'Clinical', items: [['vs', 'Virtual SOAP'], ['nt', 'Note templates', S.templates.length], ['os', 'Order sets', S.ordersets.length]] },
+      { h: 'Billing', items: [['ch', 'Clearinghouse'], ['fs', 'Fee schedules', S.fees.length], ['cr', 'Claim rules', D.allRules().length]] },
+      { h: 'Workspace', items: [['int', 'Integrations', S.integrations.filter(function (i) { return i.on; }).length], ['nf', 'Notifications'], ['sec', 'Security and data']] }];
+    function middle() {
+      if (sec === 'pd') return U.sect('Practice details', 'used on claims, statements, and patient messages', '<div class="form" id="pdform">' + U.fields([
+        { k: 'name', label: 'Practice name', span: 2 }, { k: 'specialty', label: 'Specialty', span: 2 }, { k: 'npi', label: 'Group NPI', ph: '10 digits' }, { k: 'ein', label: 'Tax ID (EIN)', ph: '12-3456789' }, { k: 'taxonomy', label: 'Taxonomy', ph: '207Q00000X' }, { k: 'ptan', label: 'Medicare PTAN' },
+        { k: 'addr', label: 'Billing address', span: 2 }, { k: 'city', label: 'City, state, ZIP' }, { k: 'phone', label: 'Phone' }, { k: 'payto', label: 'Pay-to address', span: 2 }, { k: 'fax', label: 'Fax' },
+        { k: 'tz', label: 'Time zone', type: 'select', options: ['Eastern (America/New_York)', 'Central (America/Chicago)', 'Mountain (America/Denver)', 'Pacific (America/Los_Angeles)'] }, { k: 'user', label: 'Your name, as it appears when you sign', span: 2 }], S.clinic).replace('<div class="form" style="padding:0">', '').replace(/<\/div>$/, '') + '</div>');
+      if (sec === 'loc') return U.sect('Locations', S.locations.length, U.grid(['Name', 'Address', 'POS', 'Phone', 'Hours', ''], S.locations.map(function (l, i) { return { cells: [E(l.name), E(l.addr), E(l.pos), E(l.phone), E(l.hours), '<button class="mini" data-dloc="' + i + '">Remove</button>'] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'No locations yet.') + '</tbody>'), '<a href="#" id="addloc">Add location</a>');
+      if (sec === 'prov' || sec === 'users') { var l = sec === 'prov' ? D.providers() : S.staff; return U.sect(sec === 'prov' ? 'Providers' : 'Users and roles', l.length, U.grid(['Name', 'Cred.', 'Individual NPI', 'Specialty', 'Access', 'Status', ''], l.map(function (s) { return { cells: [E(s.name), E(s.cred || ''), '<span class="mono">' + E(s.npi || '') + '</span>', E(s.spec || ''), sec === 'users' ? '<select class="inl" data-acc="' + s.id + '">' + ['Admin', 'Provider', 'Clinical', 'Billing', 'Front desk'].map(function (a) { return '<option' + (a === s.access ? ' selected' : '') + '>' + a + '</option>'; }).join('') + '</select>' : E(s.access), '<span class="s-' + (s.status === 'Active' ? 'grn' : 'mut') + '">' + s.status + '</span>', '<button class="mini" data-estaff="' + s.id + '">Edit</button>'] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(7, 'None yet.') + '</tbody>'), '<a href="#" id="addprov">' + (sec === 'prov' ? 'Add provider' : 'Add user') + '</a>'); }
+      if (sec === 'vs') return U.sect('Virtual SOAP', '', '<div class="form" id="vsform">' + U.fields([{ k: 'consent', label: 'Patient consent', type: 'select', options: ['Required each visit', 'Once per year'] }, { k: 'retention', label: 'Audio retention', type: 'select', options: ['Not kept', '30 days', '90 days'] }, { k: 'style', label: 'Note style', type: 'select', options: ['SOAP, concise', 'SOAP, detailed'] }, { k: 'coding', label: 'Coding suggestions', type: 'select', options: ['On', 'Off'] }], S.soap).replace('<div class="form" style="padding:0">', '').replace(/<\/div>$/, '') + '</div>');
+      if (sec === 'nt' || sec === 'os') { var arr = sec === 'nt' ? S.templates : S.ordersets; return U.sect(sec === 'nt' ? 'Note templates' : 'Order sets', arr.length, U.grid(['Name', ''], arr.map(function (x, i) { return { cells: [E(x), '<button class="mini" data-dlist="' + i + '">Remove</button>'] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(2, 'None.') + '</tbody>'), '<a href="#" id="addlist">Add</a>'); }
+      if (sec === 'ch') { var av = S.integrations.filter(function (i) { return i.name === 'Availity'; })[0]; return U.sect('Clearinghouse', '', '<div class="dp-sec">' + U.kv([['Clearinghouse', 'Availity'], ['Status', av.on ? 'Marked connected' : 'Not connected', av.on ? 'grn' : ''], ['Mode', 'Preview: claims are recorded here and never transmitted']]) + '<div style="margin-top:8px"><button class="btn sm" data-int="0">' + (av.on ? 'Mark disconnected' : 'Mark connected') + '</button></div></div>'); }
+      if (sec === 'fs') return U.sect('Fee schedule', S.fees.length + ' codes, billed charge per unit', U.grid(['CPT', 'Description', ['Rate', 'num'], ''], S.fees.map(function (f, i) { return { cells: ['<input class="inl" data-fc="' + i + '" value="' + E(f.code) + '" style="width:70px">', '<input class="inl" data-fd="' + i + '" value="' + E(f.desc) + '">', '<input class="inl" type="number" step="0.01" data-fr="' + i + '" value="' + f.rate + '" style="width:90px;text-align:right">', '<button class="mini" data-fdel="' + i + '">×</button>'] }; })), '<a href="#" id="addfee">Add code</a>');
+      if (sec === 'cr') return U.sect('Claim rules', D.allRules().length, U.grid(['Rule ID', 'Payer', 'Requirement'], D.allRules().map(function (r) { return { cells: ['<span class="mono">' + r.id + '</span>', E(r.payer), E(r.req)] }; })), '<a href="/v4/revenue/payer-rules">Manage</a>');
+      if (sec === 'int') return U.sect('Integrations', S.integrations.filter(function (i) { return i.on; }).length + ' marked connected', U.grid(['Service', 'Used for', 'Status', 'Since', ''], S.integrations.map(function (x, i) { return { cells: [E(x.name), E(x.use), '<span class="s-' + (x.on ? 'grn' : 'mut') + '">' + (x.on ? 'Connected' : 'Not connected') + '</span>', E(x.sync || ''), '<button class="mini" data-int="' + i + '">' + (x.on ? 'Disconnect' : 'Connect') + '</button>'] }; })) + '<div class="blank mut">In this preview, connecting only records the setting. No data is exchanged.</div>');
+      if (sec === 'nf') return U.sect('Notifications', '', '<div class="dp-sec">' + [['email', 'Email me a daily summary'], ['sms', 'Text me when a claim is denied'], ['denials', 'Show denial alerts on Overview'], ['creds', 'Remind staff 30 days before a credential expires']].map(function (n) { return '<label class="chk" style="margin:0 0 6px"><input type="checkbox" data-nf="' + n[0] + '"' + (S.notify[n[0]] ? ' checked' : '') + '> ' + n[1] + '</label><br>'; }).join('') + '</div>');
+      return U.sect('Security and data', '', '<div class="form" id="secform">' + U.fields([{ k: 'twofa', label: 'Two-factor login', type: 'select', options: ['Required', 'Optional'] }, { k: 'timeout', label: 'Session timeout', type: 'select', options: ['15 minutes', '30 minutes', '60 minutes'] }, { k: 'audit', label: 'Audit log retention', type: 'select', options: ['7 years', '10 years'] }, { k: 'baa', label: 'BAA', type: 'select', options: ['Not signed', 'Signed'] }], S.security).replace('<div class="form" style="padding:0">', '').replace(/<\/div>$/, '') + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Data in this browser</div><p style="margin:0 0 8px">Everything in this preview is stored in this browser only (about ' + Math.round(JSON.stringify(S).length / 1024) + ' KB).</p><button class="btn sm" id="backup">Download backup</button> <button class="btn sm" id="restore">Restore backup</button> <button class="btn sm" id="wipe" style="color:var(--red);border-color:var(--red-line)">Clear all data</button></div>');
+    }
+    function draw() {
+      var setup = [[!!S.clinic.npi && !!S.clinic.addr, 'Practice details', 'pd'], [D.providers().length > 0, 'At least one provider', 'prov'], [S.locations.length > 0, 'A location', 'loc'], [S.patients.length > 0, 'Patients added', ''], [S.integrations[0].on, 'Clearinghouse', 'ch'], [S.security.baa === 'Signed', 'BAA signed', 'sec']];
+      app.innerHTML = U.header('settings') + U.toolbar('Settings', [['Save changes', 'save', { pri: 1, id: 'save' }], ['Discard', 'refresh', { id: 'discard' }]], S.lastSaved ? 'Last saved ' + new Date(S.lastSaved).toLocaleString('en-US') : 'Not saved yet') +
+        '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
+          U.pane('Settings', '', '', U.queue(NAV.map(function (g) { return { h: g.h, items: g.items.map(function (i) { return { key: i[0], label: i[1], n: i[2], color: null }; }) }; }), sec)) +
+          '<section class="pane"><div class="pbody">' + middle() + '</div></section>' +
+          U.pane('Setup status', setup.filter(function (x) { return x[0]; }).length + ' of ' + setup.length, '', '<div class="dp-sec"><div class="ok-list">' + setup.map(function (x) { return '<div class="' + (x[0] ? '' : 'w') + '">' + (x[0] ? '' : U.warn) + (x[2] ? '<a href="#" data-go="' + x[2] + '" style="color:inherit">' + E(x[1]) + '</a>' : E(x[1])) + '</div>'; }).join('') + '</div></div>' +
+            '<div class="sect-h" style="border-top:1px solid var(--b)">Security</div><div class="dp-sec">' + U.kv([['Two-factor login', S.security.twofa], ['Session timeout', S.security.timeout], ['Audit log retention', S.security.audit], ['BAA', S.security.baa, S.security.baa === 'Signed' ? 'grn' : 'amb']]) + '</div>' +
+            '<div class="sect-h" style="border-top:1px solid var(--b)">Virtual SOAP</div><div class="dp-sec">' + U.kv([['Patient consent', S.soap.consent], ['Audio retention', S.soap.retention], ['Coding suggestions', S.soap.coding], ['Documentation changes', 'Provider approval required']]) + '</div>') + '</div>';
+      U.fit(); U.search();
+    }
+    V.redraw = draw; draw();
+    var commit = function () {
+      var pd = document.getElementById('pdform'), vs = document.getElementById('vsform'), sc = document.getElementById('secform');
+      if (pd) { var v = U.values(pd); if (v.npi && !/^\d{10}$/.test(v.npi)) { U.toast('Group NPI must be 10 digits.'); return false; } Object.assign(S.clinic, v); }
+      if (vs) Object.assign(S.soap, U.values(vs)); if (sc) Object.assign(S.security, U.values(sc));
+      S.lastSaved = new Date().toISOString(); D.log('Settings saved'); D.save(); dirty = false; return true;
+    };
+    app.addEventListener('input', function () { dirty = true; });
+    U.on(app, '[data-q], [data-go]', 'click', function (el, e) { e.preventDefault(); if (dirty && !confirm('Leave without saving these changes?')) return; dirty = false; sec = el.dataset.q || el.dataset.go; draw(); });
+    U.on(app, '#save', 'click', function () { if (commit()) { draw(); U.toast('Settings saved.'); } });
+    U.on(app, '#discard', 'click', function () { dirty = false; draw(); U.toast('Changes discarded.'); });
+    U.on(app, '#addloc', 'click', function (a, e) { e.preventDefault(); U.form('Add location', [{ k: 'name', label: 'Name', req: 1 }, { k: 'pos', label: 'Place of service', type: 'select', options: ['11 Office', '02 Telehealth', '22 Outpatient hospital'] }, { k: 'addr', label: 'Address', span: 2, req: 1 }, { k: 'phone', label: 'Phone' }, { k: 'hours', label: 'Hours', ph: 'Mon to Fri 8 to 5' }], {}, function (v) { S.locations.push(v); D.log('Location added: ' + v.name); D.save(); draw(); }); });
+    U.on(app, '[data-dloc]', 'click', function (b) { S.locations.splice(+b.dataset.dloc, 1); D.save(); draw(); });
+    U.on(app, '#addprov', 'click', function (a, e) { e.preventDefault(); V.staffForm(null, function () { draw(); }, sec === 'prov'); });
+    U.on(app, '[data-estaff]', 'click', function (b) { V.staffForm(D.staff(b.dataset.estaff), function () { draw(); }); });
+    U.on(app, '[data-acc]', 'change', function (s) { D.staff(s.dataset.acc).access = s.value; D.save(); });
+    U.on(app, '#addlist', 'click', function (a, e) { e.preventDefault(); var n = prompt('Name'); if (!n) return; (sec === 'nt' ? S.templates : S.ordersets).push(n); D.save(); draw(); });
+    U.on(app, '[data-dlist]', 'click', function (b) { (sec === 'nt' ? S.templates : S.ordersets).splice(+b.dataset.dlist, 1); D.save(); draw(); });
+    U.on(app, '[data-int]', 'click', function (b) { var x = S.integrations[+b.dataset.int]; x.on = !x.on; x.sync = x.on ? D.us(D.today()) : ''; D.log(x.name + (x.on ? ' marked connected' : ' disconnected')); D.save(); draw(); });
+    var feeEdit = function (attr, fn) { U.on(app, '[' + attr + ']', 'change', function (i) { fn(S.fees[+i.getAttribute(attr)], i.value.trim()); D.save(); }); };
+    feeEdit('data-fc', function (f, v) { f.code = v.toUpperCase(); }); feeEdit('data-fd', function (f, v) { f.desc = v; }); feeEdit('data-fr', function (f, v) { f.rate = Math.max(0, parseFloat(v) || 0); });
+    U.on(app, '[data-fdel]', 'click', function (b) { S.fees.splice(+b.dataset.fdel, 1); D.save(); draw(); });
+    U.on(app, '#addfee', 'click', function (a, e) { e.preventDefault(); U.form('Add fee', [{ k: 'code', label: 'CPT / HCPCS', req: 1 }, { k: 'rate', label: 'Rate', type: 'number', step: '0.01', req: 1 }, { k: 'desc', label: 'Description', span: 2 }], {}, function (v) { if (S.fees.some(function (f) { return f.code === v.code.toUpperCase(); })) return 'That code is already on the schedule.'; S.fees.push({ code: v.code.toUpperCase(), desc: v.desc, rate: +v.rate }); D.save(); draw(); }); });
+    U.on(app, '[data-nf]', 'change', function (c) { S.notify[c.dataset.nf] = c.checked; D.save(); });
+    U.on(app, '#backup', 'click', function () { U.download('althais-preview-backup-' + D.today() + '.json', JSON.stringify(S), 'application/json'); });
+    U.on(app, '#restore', 'click', function () { U.pickFile('.json,application/json', false, function (f) { U.readFile(f[0], true).then(function (t) { try { var x = JSON.parse(t); if (x.v !== 1 || !x.patients) throw 0; if (!confirm('Replace everything in this browser with this backup?')) return; localStorage.setItem(D.KEY, t); location.reload(); } catch (e) { U.toast('That file isn’t an Althais preview backup.'); } }); }); });
+    U.on(app, '#wipe', 'click', function () { if (prompt('This deletes every patient, visit, claim and setting in this browser. Type DELETE to confirm.') !== 'DELETE') return; D.reset(); location.href = '/v4/overview'; });
+    window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  };
+
+  /* ---------- run the page ---------- */
+  var page = app.dataset.page;
+  if (!V.pages[page]) app.innerHTML = U.header(page) + '<div class="blank">Unknown page.</div>';
+  else V.pages[page]();
+  U.on(document.body, '#print', 'click', function () { window.print(); });
+})();

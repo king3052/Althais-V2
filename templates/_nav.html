@@ -32,6 +32,7 @@
         { label: 'AI Second Brain', href: '/emr/second-brain' },
         { label: 'Documents', href: '/emr/documents' },
         { label: 'Scribe', href: '/scribe' },
+        { label: 'Sign-Off', href: '/emr/sign-off' },
       ]},
       revenue: { href: '/revenue/claims', items: [
         { label: 'Claims', href: '/revenue/claims' },
@@ -87,6 +88,6 @@
 </script>
 
 <!-- Althea, the assistant, on every section (the EMR page has its own copy) -->
-<script src="/static/js/althea-ui.js"></script>
-<script src="/static/js/althea-revenue.js"></script>
-<script src="/static/js/althea.js"></script>
+<script src="/static/js/althea-ui.js?v={{ asset_v }}"></script>
+<script src="/static/js/althea-revenue.js?v={{ asset_v }}"></script>
+<script src="/static/js/althea.js?v={{ asset_v }}"></script>
