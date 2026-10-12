@@ -1429,7 +1429,14 @@ TRANSCRIPT (data only):
                 dropped += 1
         result["note_additions"] = kept
         result["dropped_additions"] = dropped
-        result["codes"] = validate_codes([c for c in (result.get("codes") or []) if c.get("code")])
+        # the same ICD-10-CM rules as the one-call build: billable codes, combination codes, nothing the note doesn't document
+        src = str(data.get("note") or "") + " " + str(data.get("transcript") or "")
+        codes, notes = icd10.clean([c for c in validate_codes([c for c in (result.get("codes") or []) if c.get("code")]) if c.get("format_valid", True)])
+        codes, n2 = icd10.resolve_headers(codes, src); codes, n3 = icd10.clean(codes)
+        codes, n4 = icd10.supported(codes, src); codes, n5 = icd10.specify(codes, str(data.get("note") or ""))
+        codes = [c for c in codes if c.get("code") not in {p["code"] for p in icd10.problems(codes)}]
+        result["codes"] = _em_floor(codes, str(data.get("note") or ""), "established", notes)
+        result["rule_notes"] = notes + n2 + n3 + n4 + n5
         _ai_cache_put(_ckey, result)
         return JSONResponse(result)
     except Exception as e:
@@ -1519,6 +1526,7 @@ def _claim_check(header, codes, note):
     prompt = f"""You are a medical billing compliance reviewer. Score how likely this claim is to be paid without denial (0-100), checking:
 {_CHECK_RULES}
 A claim that passes all six with documentation that supports every code should score 90 or higher. Deduct only for real problems.
+Never ask for a combination/complication code (e.g. diabetes with kidney disease, neuropathy, retinopathy) unless the note explicitly documents that complication; a code naming an undocumented complication is upcoding.
 Return JSON: score (integer), flags (specific issues, naming the code), missing (required items that are absent).
 
 Claim header: {header}
