@@ -57,7 +57,7 @@
     var head = '<div class="dp-h">Claim check <span class="sub">likelihood of acceptance</span><span class="end"><button class="mini" data-runcheck="' + c.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Checking…' : k ? 'Re-check' : 'Run claim check') + '</button></span></div>';
     if (err && PERMANENT.test(err)) return '<div class="dp-sec">' + head + '<div class="s-red">' + E(err) + '</div></div>';
     if (err) busy = true;
-    if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Checking the claim…' : 'Runs on its own. Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
+    if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Checking the claim… it updates here by itself.' : 'Runs on its own. Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
     var col = V.scoreColor(k.score);
     return '<div class="dp-sec">' + head +
       '<div style="display:flex;align-items:center;gap:12px"><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b><div style="flex:1"><div style="height:6px;background:var(--b2)"><div style="height:6px;width:' + k.score + '%;background:var(--' + col + ')"></div></div>' +

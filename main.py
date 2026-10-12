@@ -1343,7 +1343,8 @@ Clinical note:
 
 
 @app.post("/api/validate-claim")
-async def validate_claim(request: Request, user=Depends(require_biller), db: Session = Depends(get_db)):
+# Providers too: the claim check runs live on the visit while the doctor charts. Sending still needs a biller or admin.
+async def validate_claim(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
     ensure_product(user, db, "coding", "insurance")
     ensure_area(user, "code_a_note", "coding_review", "claims")
     try:
