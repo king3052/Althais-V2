@@ -58,7 +58,7 @@
     U.form(isNew ? (invite ? 'Invite member' : provider ? 'Add provider' : 'Add staff') : 'Edit ' + s.name, [
       { k: 'name', label: 'Name (Last, First)', req: 1, span: 2 }, { k: 'cred', label: 'Credentials', ph: 'MD, DO, PA-C, RN, MA' }, { k: 'spec', label: 'Specialty / dept.', ph: 'Family medicine' },
       { k: 'email', label: 'Email', type: 'email', req: !!invite }, { k: 'phone', label: 'Phone' }, { k: 'loc', label: 'Location', ph: 'Main' }, { k: 'access', label: 'Access', type: 'select', options: ['Admin', 'Provider', 'Clinical', 'Billing', 'Front desk'] },
-      { k: 'npi', label: 'Individual NPI', ph: '10 digits' }, { k: 'hired', label: 'Start date', type: 'date' }, { k: 'provider', label: 'Rendering provider (signs notes, bills claims)', type: 'check', span: 2 },
+      { k: 'npi', label: 'Individual NPI', ph: '10 digits' }, { k: 'hired', label: 'Hired', type: 'date' }, { k: 'hours', label: 'Schedule this week', span: 2, ph: 'Mon to Thu 7:30 AM to 4:30 PM' }, { k: 'assigned', label: 'Assigned to', span: 2, ph: 'Test, D; Wu, E' }, { k: 'provider', label: 'Rendering provider (signs notes, bills claims)', type: 'check', span: 2 },
     ], s, function (v) {
       if (v.npi && !/^\d{10}$/.test(v.npi)) return 'NPI must be 10 digits.';
       v.name = V.splitName(v.name);
@@ -73,7 +73,7 @@
   };
   V.pickPatient = function (title, cb) {
     if (!S.patients.length) { U.toast('No patients yet. Add one first.'); return V.patientForm(null, function (p) { cb(p.mrn); }); }
-    var w = U.modal(title, '<div class="pick" style="padding:0"><input id="pk" placeholder="Search name, MRN or DOB"><div id="pkl" style="max-height:320px;overflow:auto"></div></div>', [['New patient', '', function () { V.patientForm(null, function (p) { cb(p.mrn); }); }], ['Cancel', '', function () {}]]);
+    var w = U.modal(title, '<div class="pick" style="padding:0"><input id="pk" placeholder="Search name, MRN or DOB"><div id="pkl" style="max-height:320px;overflow:auto"></div></div>', [['New Patient', '', function () { V.patientForm(null, function (p) { cb(p.mrn); }); }], ['Cancel', '', function () {}]]);
     var draw = function () {
       var s = w.querySelector('#pk').value.toLowerCase(), l = S.patients.filter(function (p) { return (p.name + p.mrn + (p.dob || '')).toLowerCase().indexOf(s) >= 0; }).slice(0, 40);
       w.querySelector('#pkl').innerHTML = '<table class="g tight"><tbody>' + (l.map(function (p) { return '<tr class="click" data-pk="' + p.mrn + '"><td>' + E(p.name) + '</td><td class="mono">' + p.mrn + '</td><td>' + D.us(p.dob) + '</td><td>' + E(p.payer || '') + '</td></tr>'; }).join('') || U.empty(4, 'No match')) + '</tbody></table>';
@@ -138,7 +138,7 @@
       var rulesNow = D.RULES.filter(function (r) { return Math.abs(D.daysBetween(today, r.eff)) <= 45; });
       var alerts = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (cr) { var d = cr.exp ? D.daysBetween(today, cr.exp) : 999; if (d <= 60) alerts.push([s.name, cr.name + (d < 0 ? ' expired ' : ' expires ') + D.us(cr.exp, 1), d < 0 ? 'red' : 'amb']); }); if (s.status === 'Invited') alerts.push([s.name, 'Onboarding ' + (s.steps || []).filter(function (x) { return x[1]; }).length + ' of ' + (s.steps || []).length + ' steps complete', '']); });
       app.innerHTML = U.header('overview') +
-        U.toolbar('Overview', [['Start visit', 'mic', { pri: 1, id: 'start' }], ['New patient', 'plus', { id: 'newpt' }], ['Submit claims', 'send', { href: '/v4/revenue/claims?q=ready' }], '|', ['Print', 'print', { id: 'print' }]], D.longDate(today)) +
+        U.toolbar('Overview', [['Start Visit', 'mic', { pri: 1, id: 'start' }], ['New Patient', 'plus', { id: 'newpt' }], ['Submit Claims', '', { href: '/v4/revenue/claims?q=ready' }], '|', ['Print', 'print', { id: 'print' }]], D.longDate(today)) +
         U.strip([['Patients today', seen + ' of ' + appts.length, (appts.length - seen) + ' remaining'], ['Unsigned notes', drafts.length, ''], ['Edits to resolve', t.edits.n, M(t.edits.amt) + ' held', t.edits.n ? 'red' : ''],
           ['Ready to submit', t.ready.n, M(t.ready.amt)], ['Collected MTD', M(t.collected), t.paidN + ' claims paid'], ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90]]) +
         '<div class="main" style="grid-template-columns:1.08fr 1.08fr .74fr"><div class="col">' +
@@ -153,14 +153,14 @@
           U.pane('My tasks', tasks.length + ' open', '', U.grid(['Type', 'Patient', 'Detail', ['Amount', 'num'], ''], tasks.map(function (k) {
             return { cells: [k[1] === 'red' || k[1] === 'amb' ? U.st(k[0], k[1]) : '<span class="s-' + (k[1] || 'none') + '">' + k[0] + '</span>', k[2] ? E(k[2]) : '<span class="s-mut">-</span>', '<span class="wrap">' + E(k[3]) + '</span>', k[4] == null ? '' : M(k[4]), V.link(k[5], k[6])] };
           })).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing open.') + '</tbody>'), {}) +
-          U.pane('Payments posted, last 14 days', M(D.sum(era)), V.link('Paid claims', '/v4/revenue/claims?q=paid'),
+          U.pane('Collections, last 14 days', M(D.sum(era)), V.link('Paid claims', '/v4/revenue/claims?q=paid'),
             '<div class="bars">' + era.map(function (v, i) { return '<i title="' + D.us(days14[i]) + ': ' + M(v) + '" class="' + (i === 13 ? 'last' : '') + '" style="height:' + Math.max(1, v / max * 100) + '%"></i>'; }).join('') + '</div>' +
             '<div class="bars-x"><span>' + D.us(days14[0]).slice(0, 5) + '</span><span>' + D.us(days14[7]).slice(0, 5) + '</span><span>' + D.us(today).slice(0, 5) + '</span></div>', {}) +
           U.pane('Collections by payer', 'this month', '', U.grid(['Payer', ['Claims paid', 'num'], ['Collected', 'num'], ['Avg days to pay', 'num']], Object.keys(byPayer).map(function (p) {
             var l = byPayer[p]; return { cells: [E(p), l.length, M(D.sum(l, function (c) { return c.paid; })), (D.sum(l, function (c) { return c.submittedOn ? D.daysBetween(c.submittedOn, c.paidOn) : 0; }) / l.length).toFixed(1)] };
           })).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'No payments posted this month.') + '</tbody>'), { cls: 'grow' }) +
         '</div><div class="col">' +
-          U.pane('Payer rule changes', 'within 45 days', V.link('All rules', '/v4/revenue/payer-rules'), rulesNow.map(function (r) {
+          U.pane('Payer rule changes', 'affecting today', V.link('All rules', '/v4/revenue/payer-rules'), rulesNow.map(function (r) {
             var n = appts.filter(function (a) { var p = D.pt(a.mrn); return p && (p.payer || '').indexOf(r.payer) === 0; }).length;
             return '<div class="dp-sec"><div class="dp-h">' + E(r.payer) + '<span class="end mut">eff. ' + D.us(r.eff, 1) + '</span></div><div>' + E(r.req) + '</div>' + (n ? '<div class="mut">' + n + ' patient' + (n === 1 ? '' : 's') + ' today</div>' : '') + '</div>';
           }).join('') || '<div class="blank">No changes in this window.</div>', {}) +
@@ -240,7 +240,7 @@
         }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing booked.') + '</tbody>')) +
         '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + rows.length + ' of ' + all.length + '</span></div></section>';
       app.innerHTML = U.header('schedule') +
-        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }]], S.appts.length + ' appointments on file') +
+        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }]], S.appts.length + ' appointments on file') +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Providers', '', '', U.queue([
             { h: 'Day, ' + D.us(V.day).slice(0, 5), items: [{ key: 'all', label: 'All providers', n: all.length, color: 'blue' }].concat(provs.map(function (id) { return { key: 'p:' + id, label: D.provName(id), n: cnt(function (a) { return a.prov === id; }), color: 'lblue' }; })) },
@@ -281,7 +281,7 @@
 
   /* ================= Patients ================= */
   V.pages.patients = function () {
-    var Q = 'all', filt = '', sel = {};
+    var Q = q.get('list') || 'all', filt = '', sel = {}, F = { payer: '', pcp: '', status: q.get('list') ? '' : 'Active' };
     var weekAgo = D.addDays(D.today(), -7), month = D.today().slice(0, 7);
     var lastVisit = function (p) { var e = S.encs.filter(function (x) { return x.mrn === p.mrn; }).map(function (x) { return x.date; }).sort().pop(); return e || ''; };
     var nextVisit = function (p) { return S.appts.filter(function (a) { return a.mrn === p.mrn && a.date >= D.today() && ['Scheduled', 'Checked in'].indexOf(a.visit) >= 0; }).map(function (a) { return a.date; }).sort()[0] || ''; };
@@ -290,24 +290,25 @@
       new: function (p) { return (p.created || '').slice(0, 7) === month; }, balance: function (p) { return p.balance > 0; }, coverage: function (p) { return !p.payer || (p.payer !== 'Self-pay' && !p.member); },
       elig: function (p) { return p.payer && p.payer !== 'Self-pay' && !p.eligChecked; }, inactive: function (p) { return p.status === 'Inactive'; },
     };
-    var f = function (p) { return (L[Q] ? L[Q](p) : p.pcp === Q.slice(2)) && (!filt || (p.name + p.mrn + D.us(p.dob) + (p.phone || '')).toLowerCase().indexOf(filt) >= 0); };
+    var f = function (p) { var st = V.ptStatus(p)[0], inact = p.status === 'Inactive'; return (L[Q] ? (Q === 'inactive' ? L[Q](p) : inact ? false : L[Q](p)) : p.pcp === Q.slice(2)) && (!filt || (p.name + p.mrn + D.us(p.dob) + (p.phone || '')).toLowerCase().indexOf(filt) >= 0)
+      && (!F.payer || p.payer === F.payer) && (!F.pcp || p.pcp === F.pcp) && (!F.status || Q === 'inactive' || (F.status === 'Active' ? !inact : st === F.status)); };
     function draw() {
       var rows = S.patients.filter(f).sort(function (a, b) { return a.name.localeCompare(b.name); }), n = function (k) { return S.patients.filter(L[k]).length; };
       var nsel = Object.keys(sel).filter(function (k) { return sel[k]; }).length;
       app.innerHTML = U.header('patients') +
-        U.toolbar('Patients', [['New patient', 'user', { pri: 1, id: 'newpt' }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]], n('all') + ' active patients') +
+        U.toolbar('Patients', [['New Patient', 'user', { pri: 1, id: 'newpt' }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]], n('all') + ' active patients') +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr)">' +
           U.pane('Patient lists', '', '', U.queue([
             { items: [{ key: 'all', label: 'All active', n: n('all'), color: 'blue' }, { key: 'week', label: 'Seen this week', n: n('week') }, { key: 'today', label: 'Scheduled today', n: n('today') }, { key: 'new', label: 'New this month', n: n('new') }] },
             { h: 'Needs attention', items: [{ key: 'balance', label: 'Balance due', n: n('balance'), color: 'amb' }, { key: 'coverage', label: 'Coverage issues', n: n('coverage'), color: 'red' }, { key: 'elig', label: 'Eligibility not checked', n: n('elig'), color: 'amb' }, { key: 'inactive', label: 'Inactive', n: n('inactive') }] },
             { h: 'By PCP', items: D.providers().map(function (s) { return { key: 'p:' + s.id, label: D.short(s), n: S.patients.filter(function (p) { return p.pcp === s.id; }).length, color: null }; }) },
-          ], Q), { after: U.sum([['Active patients', n('all')], ['Patient balances', M(D.sum(S.patients, function (p) { return p.balance; }))], ['Eligibility checked', n('all') ? Math.round(S.patients.filter(function (p) { return p.eligChecked; }).length / n('all') * 100) + '%' : '-']]) }) +
+          ], Q), { after: U.sum([['Active patients', n('all')], ['Outstanding A/R', M(D.sum(S.patients, function (p) { return p.balance; }))], ['Eligibility checked', n('all') ? Math.round(S.patients.filter(function (p) { return p.eligChecked; }).length / n('all') * 100) + '%' : '-']]) }) +
           '<section class="pane"><div class="ph">' + ({ all: 'All active patients' }[Q] || 'Filtered list') + ' <span class="sub">' + rows.length + '</span></div>' +
-            '<div class="fl"><input class="chipf" id="pq" placeholder="Search name, MRN, DOB, phone" value="' + E(filt) + '"><a class="end" href="#" id="clr">Clear filters</a></div>' +
-            '<div class="pbody">' + U.grid(['Patient', 'MRN', 'DOB', 'Age', 'Sex', 'Primary ins.', 'Member ID', 'PCP', 'Last visit', 'Next visit', 'Status', ['Balance', 'num'], ''], rows.map(function (p) {
+            '<div class="fl"><input class="chipf" id="pq" placeholder="Search name, MRN, or DOB" value="' + E(filt) + '">' + U.chip('Payer', 'payer', U.uniq(S.patients.map(function (p) { return p.payer; })), F.payer) + U.chip('PCP', 'pcp', D.providers().map(function (s) { return [s.id, D.short(s)]; }), F.pcp) + U.chip('Status', 'status', ['Active', 'New', 'Balance due', 'Coverage check', 'Self-pay'], F.status) + '<a class="end" href="#" id="clr">Clear filters</a></div>' +
+            '<div class="pbody">' + U.grid(['Patient', 'MRN', 'DOB', 'Age', 'Sex', 'Primary ins.', 'PCP', 'Last visit', 'Next visit', 'Status', ['Balance', 'num']], rows.map(function (p) {
               var st = V.ptStatus(p); if (p.status === 'Inactive') st = ['Inactive', 'mut'];
-              return { checked: sel[p.mrn], attrs: ' data-mrn="' + p.mrn + '"', cells: [V.link(p.name, V.chartHref(p.mrn)), '<span class="mono">' + p.mrn + '</span>', D.us(p.dob), D.age(p.dob), p.sex, E(p.payer || ''), '<span class="mono">' + E(p.member || '') + '</span>', E(D.provName(p.pcp)), D.us(lastVisit(p), 1), D.us(nextVisit(p), 1), '<span class="s-' + st[1] + '">' + st[0] + '</span>', M(p.balance), '<button class="mini" data-edit="' + p.mrn + '">Edit</button>'] };
-            }), { cb: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(13, S.patients.length ? 'No patients match.' : 'No patients yet. Use New patient or Import CSV.') + '</tbody>') +
+              return { checked: sel[p.mrn], attrs: ' data-mrn="' + p.mrn + '"', cells: [V.link(p.name, V.chartHref(p.mrn)), '<span class="mono">' + p.mrn + '</span>', D.us(p.dob), D.age(p.dob), p.sex, E(p.payer || ''), E(D.provName(p.pcp)), D.us(lastVisit(p), 1), D.us(nextVisit(p), 1), '<span class="s-' + st[1] + '">' + st[0] + '</span>', M(p.balance)] };
+            }), { cb: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(12, S.patients.length ? 'No patients match.' : 'No patients yet. Use New patient or Import CSV.') + '</tbody>') +
             '</div><div class="pf"><span>' + nsel + ' selected' + (nsel ? ' · <a href="#" id="deact">Mark inactive</a> · <a href="#" id="react">Mark active</a>' : '') + '</span><span class="end">Showing ' + rows.length + ' of ' + S.patients.length + '</span></div></section></div>';
       U.fit(); U.search();
       var inp = document.getElementById('pq'); inp.oninput = function () { filt = inp.value.toLowerCase(); var pos = inp.selectionStart; draw(); var n2 = document.getElementById('pq'); n2.focus(); n2.setSelectionRange(pos, pos); };
@@ -316,7 +317,9 @@
     U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; draw(); });
     U.on(app, 'tr[data-mrn] input[type=checkbox]', 'change', function (cb) { sel[cb.closest('tr').dataset.mrn] = cb.checked; draw(); });
     U.on(app, '[data-edit]', 'click', function (b) { V.patientForm(D.pt(b.dataset.edit)); });
-    U.on(app, '#clr', 'click', function (a, e) { e.preventDefault(); Q = 'all'; filt = ''; draw(); });
+    U.on(app, '#clr', 'click', function (a, e) { e.preventDefault(); Q = 'all'; filt = ''; F = { payer: '', pcp: '', status: 'Active' }; draw(); });
+    U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
+    U.on(app, 'tr[data-mrn]', 'dblclick', function (tr) { location.href = V.chartHref(tr.dataset.mrn); });
     U.on(app, '#newpt', 'click', function () { V.patientForm(); });
     U.on(app, '#deact', 'click', function (a, e) { e.preventDefault(); Object.keys(sel).forEach(function (k) { if (sel[k]) D.pt(k).status = 'Inactive'; }); sel = {}; D.save(); draw(); });
     U.on(app, '#react', 'click', function (a, e) { e.preventDefault(); Object.keys(sel).forEach(function (k) { if (sel[k]) D.pt(k).status = 'Active'; }); sel = {}; D.save(); draw(); });
@@ -357,7 +360,7 @@
   V.pages.chart = function () {
     var mrn = q.get('mrn');
     if (!D.pt(mrn)) {
-      app.innerHTML = U.header('chart') + U.toolbar('Patient chart', [['New patient', 'user', { pri: 1, id: 'newpt' }]], '') + '<div class="main" style="grid-template-columns:minmax(0,1fr)">' + U.pane('Choose a patient', '', '', '<div class="pick"><input id="pk" placeholder="Search name, MRN or DOB" autofocus><div id="pkl"></div></div>') + '</div>';
+      app.innerHTML = U.header('chart') + U.toolbar('Patient chart', [['New Patient', 'user', { pri: 1, id: 'newpt' }]], '') + '<div class="main" style="grid-template-columns:minmax(0,1fr)">' + U.pane('Choose a patient', '', '', '<div class="pick"><input id="pk" placeholder="Search name, MRN or DOB" autofocus><div id="pkl"></div></div>') + '</div>';
       U.fit(); U.search();
       var dr = function () { var s = (document.getElementById('pk').value || '').toLowerCase(); document.getElementById('pkl').innerHTML = U.grid(['Patient', 'MRN', 'DOB', 'Payer'], S.patients.filter(function (p) { return (p.name + p.mrn + p.dob).toLowerCase().indexOf(s) >= 0; }).map(function (p) { return { attrs: ' data-href="' + V.chartHref(p.mrn) + '"', cells: [E(p.name), p.mrn, D.us(p.dob), E(p.payer || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, S.patients.length ? 'No match' : 'No patients yet.') + '</tbody>'); };
       dr(); document.getElementById('pk').oninput = dr;
@@ -371,7 +374,7 @@
       encs.forEach(function (e) { (e.orders || []).forEach(function (o) { orders.push([e, o]); }); });
       var docs = S.docs.filter(function (d) { return d.mrn === mrn; }), up = S.appts.filter(function (a) { return a.mrn === mrn && a.date >= D.today() && ['Scheduled', 'Checked in'].indexOf(a.visit) >= 0; }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
       var sec = function (id, title, sub, cols, rows, empty, end) { return '<div id="' + id + '">' + U.sect(title, sub, U.grid(cols, rows, { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(cols.length, empty) + '</tbody>'), end) + '</div>'; };
-      app.innerHTML = U.header('chart') + V.banner(mrn, '<button class="btn" id="msg">Message</button><button class="btn" id="switch">Switch patient</button><button class="btn pri" id="visit" style="display:inline-flex;align-items:center;gap:5px">' + I.mic + 'Start visit</button>') +
+      app.innerHTML = U.header('chart') + V.banner(mrn, '<button class="btn" id="msg">Message</button><button class="btn" id="switch">Switch patient</button><button class="btn pri" id="visit" style="display:inline-flex;align-items:center;gap:5px">' + I.mic + 'Start Visit</button>') +
         U.toolbar('Patient chart', [['New note', 'pencil', { id: 'note' }], ['Orders', 'clip', { id: 'orders' }], ['Upload document', 'upload', { id: 'upload' }], '|', ['Print', 'print', { id: 'print' }], ['Export record', 'download', { id: 'export' }]], 'Record ' + p.mrn) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Chart', '', '', U.queue([
@@ -381,7 +384,7 @@
             { h: 'Other', items: [{ key: 'docs', label: 'Documents', n: docs.length, color: null }, { key: 'msgs', label: 'Messages', n: S.messages.filter(function (m) { return m.mrn === mrn; }).length, color: null }] },
           ], 'notes')) +
           '<section class="pane"><div class="pbody">' +
-            sec('notes', 'Clinical notes', encs.length, ['Date', 'Author', 'Type', 'Summary', 'Status', 'CPT'], encs.map(function (e) { return { attrs: ' data-href="' + V.encHref(e.id) + '"', cells: [D.us(e.date), E(D.provName(e.prov)), E(e.visitType), E((e.a || e.reason || e.s || '').split('\n')[0].slice(0, 60)), '<span class="' + (e.status === 'Signed' ? 's-grn' : 's-amb') + '">' + e.status + '</span>', e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; }).map(function (c) { return c.code; }).join(', ')] }; }), 'No visits yet. Start one with Start visit.', '<a href="#" id="note2">New note</a>') +
+            sec('notes', 'Clinical notes', encs.length, ['Date', 'Author', 'Type', 'Summary', 'Status', 'CPT'], encs.map(function (e) { return { attrs: ' data-href="' + V.encHref(e.id) + '"', cells: [D.us(e.date), E(D.provName(e.prov)), E(e.visitType), E((e.a || e.reason || e.s || '').split('\n')[0].slice(0, 60)), '<span class="' + (e.status === 'Signed' ? 's-grn' : 's-amb') + '">' + e.status + '</span>', e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; }).map(function (c) { return c.code; }).join(', ')] }; }), 'No visits yet. Start one with Start Visit.', '<a href="#" id="note2">New note</a>') +
             sec('claims', 'Claims', claims.length + ', ' + M(D.sum(claims, function (c) { return c.paid || 0; })) + ' paid', ['Claim #', 'DOS', 'CPT', 'Dx', 'Payer', 'Status', ['Charges', 'num'], ['Paid', 'num']], claims.map(function (c) { return { attrs: ' data-href="' + V.claimHref(c.id) + '"', cells: [V.link(c.id, V.claimHref(c.id)), D.us(c.dos, 1), c.lines.map(function (l) { return l.code; }).join(', '), c.dx.join(', '), E(D.payer(c)), V.claimStatus(c), M(D.charge(c)), M(c.paid || 0)] }; }), 'No claims yet.') +
             sec('orders', 'Orders', orders.length, ['Date', 'Type', 'Order', 'Detail', 'Dx', 'Status'], orders.map(function (x) { return { attrs: ' data-href="' + V.encHref(x[0].id) + '"', cells: [D.us(x[0].date, 1), E(x[1].type), E(x[1].name), E(x[1].detail || ''), E(x[1].dx || ''), '<span class="' + (x[1].status === 'Signed' ? 's-grn' : 's-amb') + '">' + x[1].status + '</span>'] }; }), 'No orders yet.') +
             sec('meds', 'Medications', V.lines(p.meds).length + ' active', ['Medication'], V.lines(p.meds).map(function (m) { return { cells: [E(m)] }; }), 'None on file.', '<a href="#" id="editmeds">Edit</a>') +

@@ -250,3 +250,31 @@ input, select, textarea { font: inherit; color: var(--t); }
 #althea-fab .alt-panel button, #althea-fab .alt-panel input, #althea-fab .alt-panel [class*="chip"], #althea-fab .alt-panel [class*="bubble"], #althea-fab .alt-panel [class*="msg"] { border-radius: 3px !important; }
 #althea-fab .alt-launch:hover { transform: none !important; background: var(--hover) !important; }
 #althea-fab, #althea-fab * { font-family: "IBM Plex Sans", system-ui, sans-serif !important; }
+
+/* claim detail: room between edits, resolution choices and charge lines */
+.edit-b { padding: 10px 12px 12px; }
+.edit-b p { line-height: 1.5; }
+.edit .box { margin: 8px 0; }
+.opt { padding: 8px 10px; margin-top: 6px; }
+.dp-sec + .dp-sec .edit { margin-top: 2px; }
+.g td .s-mut { line-height: 1.3; }
+/* Althea: just her mark, clear of the footer buttons */
+html body #althea-fab { bottom: 56px; right: 18px; }
+html body #althea-fab .alt-launch { width: auto !important; padding: 8px !important; gap: 0 !important; }
+html body #althea-fab .alt-tx, html body #althea-fab .alt-go { display: none !important; }
+
+.chipf select { border: 0; background: transparent; font: inherit; color: var(--t); padding: 0 2px; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none; }
+label.chipf { cursor: pointer; }
+
+/* Althea lives in the toolbar's right corner, so she never covers a pane or its buttons; her panel opens downward */
+html body #althea-fab { top: var(--tb-top, 47px) !important; bottom: auto !important; right: 10px !important; z-index: 30; }
+html body #althea-fab .alt-launch { padding: 2px !important; height: 30px; width: 30px !important; justify-content: center; border-color: var(--b) !important; }
+html body #althea-fab .alt-launch .alt-mark { width: 22px !important; height: 22px !important; }
+html body #althea-fab .alt-launch .alt-mark svg { width: 22px; height: 22px; }
+html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
+.tb { padding-right: 52px; }
+.g td { white-space: nowrap; }
+
+.ql-i > span:not(.sq):not(.c) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.g td.wrap, .g th.wrap { white-space: normal; }
+.g td, .g th { padding-left: 6px; padding-right: 6px; }

@@ -15,8 +15,10 @@
     var save = function () { e.updated = new Date().toISOString(); D.save(); };
     var stamp = function () { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
     // the claim this note would produce, checked against every rule
+    // the codes the claim would carry: the accepted ones, or until any are accepted, the suggestions not rejected
+    function billable() { var acc = e.codes.filter(function (c) { return c.state === 'acc'; }); return acc.length ? acc : e.codes.filter(function (c) { return c.state !== 'rej'; }); }
     function preview() {
-      var acc = e.codes.filter(function (c) { return c.state === 'acc'; });
+      var acc = billable();
       return { encId: e.id, mrn: e.mrn, dos: e.date, prov: e.prov, lines: acc.filter(function (c) { return c.type === 'CPT'; }).map(function (c) { return { code: c.code, mod: c.mod || '', units: 1 }; }), dx: acc.filter(function (c) { return c.type !== 'CPT'; }).map(function (c) { return c.code; }), stage: 'edits', resolved: e.ignored || {} };
     }
     function edits() { var c = preview(); return D.checkClaim(c).filter(function (x) { return !(e.ignored || {})[x.id]; }); }
@@ -57,7 +59,7 @@
       return U.grid(['Name', 'Type', 'Received', 'Status'], S.docs.filter(function (d) { return d.mrn === e.mrn; }).map(function (d) { return { attrs: ' data-href="/v4/emr/documents?mrn=' + e.mrn + '"', cells: [E(d.name), E(d.type), D.us(d.rec), E(d.status)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'No documents for this patient.') + '</tbody>');
     }
     function right() {
-      var ed = edits(), acc = e.codes.filter(function (c) { return c.state === 'acc'; }), cpt = acc.filter(function (c) { return c.type === 'CPT'; }), dx = acc.filter(function (c) { return c.type !== 'CPT'; });
+      var ed = edits(), acc = billable(), suggested = !e.codes.some(function (c) { return c.state === 'acc'; }) && acc.length, cpt = acc.filter(function (c) { return c.type === 'CPT'; }), dx = acc.filter(function (c) { return c.type !== 'CPT'; });
       var claim = S.claims.filter(function (c) { return c.encId === e.id; })[0];
       var callouts = ed.filter(function (x) { return !/^BASIC/.test(x.id); }).map(function (x) {
         return '<div class="dp-sec"><div class="edit' + (x.lvl === 'amb' ? ' amb' : '') + '"><div class="edit-h">' + U.mark(x.lvl) + E(x.id) + ' ' + E(x.label) + '</div><div class="edit-b"><p>' + E(x.text) + '</p>' +
@@ -74,7 +76,7 @@
         }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, busy ? 'Reading the note…' : noteHasText() ? 'Codes will appear here in a moment.' : 'Start writing the note. Codes appear here as you go, or add one below.') + '</tbody>') +
         (signed() ? '' : '<div class="dp-sec" style="display:flex;gap:5px"><input class="inl" id="mcode" placeholder="Code (99213, E11.9)" style="width:120px"><input class="inl" id="mdesc" placeholder="Description"><button class="mini" id="addcode">Add</button></div>') +
         callouts +
-        '<div class="dp-sec"><div class="dp-h">Claim preview <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : 'drafts on signature') + '</span></div>' +
+        '<div class="dp-sec"><div class="dp-h">Claim preview <span class="sub">' + (claim ? V.link(claim.id, V.claimHref(claim.id)) : suggested ? 'from suggested codes, accept them to bill' : 'drafts on signature') + '</span></div>' +
           U.grid(['Ln', 'CPT', 'Mod', 'Dx ptr', ['Charge', 'num']], cpt.map(function (c, i) { return { cells: [i + 1, c.code, signed() ? E(c.mod || '') : '<input class="inl" data-mod="' + e.codes.indexOf(c) + '" value="' + E(c.mod || '') + '" style="width:44px">', dx.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join(', '), M(D.fee(c.code))] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Accept a CPT code.') + '</tbody>') +
           '<div class="mut" style="margin-top:5px">' + (dx.map(function (c, k) { return (k < 4 ? String.fromCharCode(65 + k) + ': ' : '') + c.code; }).join('  ') || 'No diagnosis accepted') + '</div></div>' +
         '<div class="dp-sec"><div class="dp-h">Checks run <span class="sub">' + E(p.payer || '') + '</span></div><div class="ok-list">' + (ed.map(function (x) { return '<div class="' + (x.lvl === 'red' ? 'e' : 'w') + '">' + U.mark(x.lvl) + E(x.label) + (/^BASIC/.test(x.id) ? ': ' + E(x.text) : '') + '</div>'; }).join('') || '<div>All ' + (6 + D.allRules().length) + ' checks passed</div>') +
@@ -243,6 +245,9 @@
     U.on(app, '#sign', 'click', function () {
       if (REC.on) app.querySelector('#rec').click();
       if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('The note is empty.');
+      if (!e.codes.some(function (c) { return c.state === 'acc'; }) && e.codes.some(function (c) { return c.state !== 'rej' && c.type === 'CPT'; })) {
+        if (confirm('Accept the suggested codes (' + e.codes.filter(function (c) { return c.state !== 'rej'; }).map(function (c) { return c.code; }).join(', ') + ') for this claim?\n\nCancel to sign without a claim, or review them first.')) e.codes.forEach(function (c) { if (c.state !== 'rej') c.state = 'acc'; });
+      }
       var ed = edits(), cpt = e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; });
       var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' +
         (cpt.length ? '\n\nA claim will be created' + (ed.length ? ' and held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve' : ' and checked') + '.' : '\n\nNo CPT code is accepted, so no claim will be created.');
@@ -263,9 +268,9 @@
   function chooser() {
     var today = S.appts.filter(function (a) { return a.date === D.today() && ['Cancelled', 'No show'].indexOf(a.visit) < 0; }).sort(function (a, b) { return a.time.localeCompare(b.time); });
     var drafts = S.encs.filter(function (x) { return x.status === 'Draft'; });
-    app.innerHTML = U.header('encounter') + U.toolbar('Encounter', [['Start visit', 'mic', { pri: 1, id: 'start' }], ['New patient', 'user', { id: 'newpt' }]], 'Choose a visit') +
+    app.innerHTML = U.header('encounter') + U.toolbar('Encounter', [['Start Visit', 'mic', { pri: 1, id: 'start' }], ['New Patient', 'user', { id: 'newpt' }]], 'Choose a visit') +
       '<div class="main" style="grid-template-columns:1fr 1fr">' +
-        U.pane('Today’s appointments', today.length, '', U.grid(['Time', 'Patient', 'Reason', 'Provider', 'Status'], today.map(function (a) { return { attrs: ' data-start="' + a.mrn + '" data-appt="' + a.id + '"', cells: [V.fmtT(a.time), E(D.ptName(a.mrn)), E(a.reason || ''), E(D.provName(a.prov)), V.apptStatus(a)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'No appointments today. Use Start visit to pick any patient.') + '</tbody>')) +
+        U.pane('Today’s appointments', today.length, '', U.grid(['Time', 'Patient', 'Reason', 'Provider', 'Status'], today.map(function (a) { return { attrs: ' data-start="' + a.mrn + '" data-appt="' + a.id + '"', cells: [V.fmtT(a.time), E(D.ptName(a.mrn)), E(a.reason || ''), E(D.provName(a.prov)), V.apptStatus(a)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'No appointments today. Use Start Visit to pick any patient.') + '</tbody>')) +
         U.pane('Open drafts', drafts.length, '', U.grid(['Date', 'Patient', 'Provider', 'Reason'], drafts.map(function (x) { return { attrs: ' data-href="' + V.encHref(x.id) + '"', cells: [D.us(x.date), E(D.ptName(x.mrn)), E(D.provName(x.prov)), E(x.reason || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'None.') + '</tbody>')) + '</div>';
     U.fit(); U.search();
     U.on(app, 'tr[data-start]', 'click', function (tr) { V.startVisit(tr.dataset.start, tr.dataset.appt); });

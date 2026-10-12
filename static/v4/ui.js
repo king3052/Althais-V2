@@ -99,6 +99,11 @@
   U.kv = function (rows) { return '<div class="kv">' + rows.map(function (r) { return '<div><span>' + U.esc(r[0]) + '</span><b class="' + (r[2] ? 's-' + r[2] : '') + '" style="font-weight:400">' + r[1] + '</b></div>'; }).join('') + '</div>'; };
   U.kv3 = function (rows) { return '<div class="kv3">' + rows.map(function (r) { return '<div><span>' + U.esc(r[0]) + '</span><b class="' + (r[2] ? 's-' + r[2] : '') + '">' + r[1] + '</b></div>'; }).join('') + '</div>'; };
   U.tabs = function (tabs, on) { return '<div class="st">' + tabs.map(function (t) { t = [].concat(t); return '<button type="button" data-tab="' + t[0] + '" class="' + (t[0] === on ? 'on' : '') + '">' + U.esc(t[1] || t[0]) + (t[2] ? '<span class="n">' + t[2] + '</span>' : '') + '</button>'; }).join('') + '</div>'; };
+  // filter chip: "Payer All ▾" as a real dropdown; opts [[value, label]]
+  U.chip = function (label, key, opts, val) {
+    return '<label class="chipf">' + U.esc(label) + ' <select data-f="' + key + '"><option value="">All</option>' + opts.map(function (o) { o = [].concat(o); return '<option value="' + U.esc(o[0]) + '"' + (String(o[0]) === String(val || '') ? ' selected' : '') + '>' + U.esc(o[1] == null ? o[0] : o[1]) + '</option>'; }).join('') + '</select></label>';
+  };
+  U.uniq = function (a) { var o = []; a.forEach(function (x) { if (x && o.indexOf(x) < 0) o.push(x); }); return o.sort(); };
   U.initials2 = function (n) { var p = String(n || '').replace(',', ' ').split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); };
   U.empty = function (n, text) { return '<tr><td colspan="' + n + '" class="s-mut" style="padding:9px 8px">' + U.esc(text) + '</td></tr>'; };
   U.download = function (name, text, mime) { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime || 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500); };
@@ -160,6 +165,7 @@
   U.toast = function (msg) { var d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 3200); };
   // sizes the pane area to the window under whatever chrome the page has (header, toolbar, banner, strip)
   U.fit = function () {
+    var tb = document.querySelector('.tb'); if (tb) document.documentElement.style.setProperty('--tb-top', Math.round(tb.getBoundingClientRect().top + window.scrollY + 4) + 'px');   // Althea sits in the toolbar
     var m = document.querySelector('.main'); if (!m) return;
     document.documentElement.style.setProperty('--chrome', Math.round(m.getBoundingClientRect().top + window.scrollY) + 'px');
   };

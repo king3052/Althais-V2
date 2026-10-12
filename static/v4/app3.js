@@ -9,18 +9,24 @@
 
   /* ================= Claims ================= */
   V.pages.claims = function () {
-    var Q = q.get('q') || 'edits', sel = q.get('claim') || '', tab = 'edits', CHK = {};
+    var Q = q.get('q') || 'edits', sel = q.get('claim') || '', tab = 'edits', CHK = {}, F = { dos: 'month', prov: '', payer: '', edit: '' };
     if (sel && findClaim(sel)) Q = findClaim(sel).stage;
     var QS = { edits: function (c) { return c.stage === 'edits'; }, ready: function (c) { return c.stage === 'ready'; }, submitted: function (c) { return c.stage === 'submitted'; },
-      stale: function (c) { return c.stage === 'submitted' && D.daysBetween(c.submittedOn || D.today(), D.today()) >= 14; }, denied: function (c) { return c.stage === 'denied'; },
-      appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 30; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
-    var TITLES = { edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'No response, 14+ days', denied: 'Denied', appeal: 'Appeal due in 30 days', paid: 'Paid', all: 'All claims' };
+      stale: function (c) { return c.stage === 'submitted' && D.daysBetween(c.submittedOn || D.today(), D.today()) > 30; }, rejected: function (c) { return c.stage === 'submitted' && /reject/i.test(c.status || ''); }, denied: function (c) { return c.stage === 'denied'; },
+      appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 7; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
+    var TITLES = { edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
-      return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c))] };
+      return { sel: c.id === sel, checked: CHK[c.id], attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), '<span class="mono s-mut">' + c.mrn + '</span>', D.us(c.dos, 1), E(D.provName(c.prov)), E(D.payer(c)), lineCodes(c), c.dx.join(', '), st, M(D.charge(c)), Math.max(0, D.daysBetween(c.dos || D.today(), D.today()))] };
     }
-    var COLS = function (k) { return ['Claim #', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', 'CPT', 'Dx', k, ['Charges', 'num']]; };
+    var COLS = function (k) { return ['Claim #', 'Patient', 'MRN', 'DOS', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], [k, 'wrap'], ['Charges', 'num'], ['Age', 'num']]; };
+    var fOK = function (c) {
+      var age = D.daysBetween(c.dos || D.today(), D.today());
+      return (F.dos === '' || (F.dos === 'month' ? (c.dos || '').slice(0, 7) === D.today().slice(0, 7) : F.dos === '30' ? age <= 30 : age <= 90) || ['edits', 'ready'].indexOf(c.stage) >= 0 && F.dos === 'month')
+        && (!F.prov || c.prov === F.prov) && (!F.payer || D.payer(c) === F.payer) && (!F.edit || (c.edits || []).some(function (x) { return x.label === F.edit; }));
+    };
+    var lag = function () { return S.encs.filter(function (e) { return e.status === 'Signed' && !e.imported && !S.claims.some(function (c) { return c.encId === e.id; }); }); };
     function detail() {
       var c = findClaim(sel);
       if (!c) return U.pane('Claim detail', '', '', '<div class="blank">' + (S.claims.length ? 'Select a claim.' : 'No claims yet. Claims are created when a provider signs a visit note with an accepted CPT code, or with New claim.') + '</div>');
@@ -71,32 +77,39 @@
         '<div class="pbody">' + body + '</div>' + (foot ? '<div class="dp-f">' + foot + '</div>' : '') + '</section>';
     }
     function draw() {
-      var list = S.claims.filter(QS[Q]).sort(function (a, b) { return (b.dos || '').localeCompare(a.dos || ''); }), n = function (k) { return S.claims.filter(QS[k]).length; }, t = D.totals();
+      var list = Q === 'lag' ? [] : S.claims.filter(QS[Q]).filter(fOK).sort(function (a, b) { return (b.dos || '').localeCompare(a.dos || ''); }), n = function (k) { return S.claims.filter(QS[k]).length; }, t = D.totals();
       if (!sel || !findClaim(sel)) sel = list[0] ? list[0].id : (S.claims[0] || {}).id || '';
       var picked = S.claims.filter(function (c) { return CHK[c.id]; });
       var recent = S.claims.filter(function (c) { return c.submittedOn && D.daysBetween(c.submittedOn, D.today()) <= 7; });
-      var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + list.length + ' claims, ' + M(D.sum(list, D.charge)) + '</span></div><div class="pbody">' +
-        U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.') + '</tbody>') +
-        (Q === 'edits' ? U.sect('Ready to submit', n('ready') + ' claims, ' + M(t.ready.amt), U.grid(COLS('Edits'), D.stage('ready').map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, 'None.') + '</tbody>')) : '') +
-        ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }).replace('<tbody></tbody>', '<tbody>' + U.empty(11, 'None.') + '</tbody>')) : '') +
+      var editTypes = U.uniq([].concat.apply([], D.stage('edits').map(function (c) { return (c.edits || []).map(function (x) { return x.label; }); })));
+      var chips = '<div class="fl">' + U.chip('DOS', 'dos', [['month', 'This month'], ['30', 'Last 30 days'], ['90', 'Last 90 days']], F.dos) + U.chip('Provider', 'prov', D.providers().map(function (s) { return [s.id, D.short(s)]; }), F.prov) +
+        U.chip('Payer', 'payer', U.uniq(S.claims.map(D.payer)), F.payer) + (Q === 'edits' ? U.chip('Edit type', 'edit', editTypes, F.edit) : '') + '<a class="end" href="#" id="clrf">Clear filters</a></div>';
+      var empty = function (txt) { return function (h) { return h.replace('<tbody></tbody>', '<tbody>' + U.empty(12, txt) + '</tbody>'); }; };
+      var body = Q === 'lag' ? U.grid(['DOS', 'Patient', 'MRN', 'Provider', 'Note', ''], lag().map(function (e) { return { cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), '<span class="mono s-mut">' + e.mrn + '</span>', E(D.provName(e.prov)), 'Signed, no CPT accepted', V.link('Open note', V.encHref(e.id))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'Every signed note has a claim.') + '</tbody>')
+        : empty(S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.')(U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }));
+      var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + (Q === 'lag' ? lag().length + ' signed notes' : list.length + ' claim' + (list.length === 1 ? '' : 's') + ', ' + M(D.sum(list, D.charge))) + '</span></div>' + (Q === 'lag' ? '' : chips) + '<div class="pbody">' + body +
+        (Q === 'edits' ? U.sect('Ready to submit', n('ready') + ' claims, ' + M(t.ready.amt) + ', passed all edits', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
+        ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', empty('Nothing submitted in the last 7 days.')(U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         '</div><div class="pf"><span id="nsel">' + picked.length + ' selected</span><span id="ssel">Selected charges <b>' + M(D.sum(picked, D.charge)) + '</b></span><span class="end">Showing ' + list.length + ' of ' + S.claims.length + '</span></div>';
       app.innerHTML = U.header('claims') +
         U.toolbar('Claims', [['Submit selected', 'send', { pri: 1, id: 'subsel' }], ['New claim', 'plus', { id: 'newclaim' }], ['Re-scrub', 'check', { id: 'rescrub' }], '|', ['Print', 'print', { id: 'print' }], ['Export', 'download', { id: 'export' }], ['Import 837', 'upload', { id: 'imp' }]],
           (S.integrations.filter(function (i) { return i.name === 'Availity'; })[0] || {}).on ? '<span class="dot grn"></span>Clearinghouse marked connected (preview: claims are not transmitted)' : '<span class="dot" style="background:var(--m)"></span>No clearinghouse: submitting is recorded here only') +
-        '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
+        '<div class="main" style="grid-template-columns:200px minmax(0,1fr) 400px">' +
           U.pane('Work queues', '', '', U.queue([
-            { h: 'Before submission', items: [{ key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }] },
-            { h: 'With payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'No response, 14+ days', n: n('stale'), color: null, indent: 1 }] },
-            { h: 'After adjudication', items: [{ key: 'denied', label: 'Denied', n: n('denied'), color: 'red' }, { key: 'appeal', label: 'Appeal due in 30 days', n: n('appeal'), color: null, indent: 1 }, { key: 'paid', label: 'Paid', n: n('paid'), color: 'grn' }] },
-            { h: 'All', items: [{ key: 'all', label: 'All claims', n: S.claims.length, color: null }] },
-          ], Q), { after: U.sum([['Billed this month', M(t.billed)], ['Collected this month', M(t.collected)], ['First-pass rate', t.r90 ? U.pct(t.firstPass) : '-'], ['Avg days to pay', t.avgPay == null ? '-' : t.avgPay.toFixed(1)]]) }) +
+            { h: 'Before submission', items: [{ key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
+            { h: 'With payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'Over 30 days', n: n('stale'), color: null, indent: 1 }, { key: 'rejected', label: 'Rejected by clearinghouse', n: n('rejected'), color: 'amb' }] },
+            { h: 'After adjudication', items: [{ key: 'denied', label: 'Denied', n: n('denied'), color: 'red' }, { key: 'appeal', label: 'Appeal due in 7 days', n: n('appeal'), color: null, indent: 1 }, { key: 'paid', label: 'Paid', n: n('paid'), color: 'grn' }, { key: 'balance', label: 'Patient balance', n: S.patients.filter(function (p) { return p.balance > 0; }).length, color: 'gray' }] },
+            { h: 'All', items: [{ key: 'all', label: 'All claims, ' + new Date().toLocaleDateString('en-US', { month: 'long' }), n: S.claims.length, color: null }] },
+          ], Q), { after: U.sum([['Billed MTD', M(t.billed)], ['Collected MTD', M(t.collected)], ['First-pass rate', t.r90 ? U.pct(t.firstPass) : '-'], ['Avg days to pay', t.avgPay == null ? '-' : t.avgPay.toFixed(1)]]) }) +
           '<section class="pane">' + mid + '</section>' + detail() + '</div>';
       U.fit(); U.search();
     }
     V.redraw = draw; draw();
     var C = function () { return findClaim(sel); };
     var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
-    U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });
+    U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'balance') { location.href = '/v4/emr/patients?list=balance'; return; } Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });
+    U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
+    U.on(app, '#clrf', 'click', function (a, e) { e.preventDefault(); F = { dos: '', prov: '', payer: '', edit: '' }; draw(); });
     U.on(app, 'tr[data-claim]', 'click', function (tr, e) {
       if (e.target.matches('input[type=checkbox]')) { CHK[tr.dataset.claim] = e.target.checked; var pk = S.claims.filter(function (c) { return CHK[c.id]; }); document.getElementById('nsel').textContent = pk.length + ' selected'; document.getElementById('ssel').innerHTML = 'Selected charges <b>' + M(D.sum(pk, D.charge)) + '</b>'; return; }
       e.preventDefault(); sel = tr.dataset.claim; tab = 'edits'; draw();
@@ -206,16 +219,16 @@
       var due = all.filter(function (c) { return c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 30; });
       app.innerHTML = U.header('denials') +
         U.toolbar('Denials', [['Send appeal', 'send', { pri: 1, id: 'send2' }], ['Edit appeal', 'pencil', { id: 'editl' }], ['Correct and resubmit', 'refresh', { id: 'resub2' }], '|', ['Print', 'print', { id: 'printl' }], ['Export', 'download', { id: 'export' }]], all.length + ' open') +
-        U.strip([['Open denials', all.length, M(D.sum(all, D.charge)), all.length ? 'red' : ''], ['Needs review', all.filter(function (c) { return c.dstatus === 'Needs review'; }).length, ''], ['Appeal due in 30 days', due.length, due.length ? 'next ' + due.map(function (c) { return D.us(c.appealBy, 1).slice(0, 5); }).sort()[0] : '', due.length ? 'amb' : ''],
-          ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90], ['Overturn rate', t.decided ? U.pct(t.overturned / t.decided, 0) : '-', t.overturned + ' of ' + t.decided + ' decided']]) +
+        U.strip([['Open denials', all.length, M(D.sum(all, D.charge)), all.length ? 'red' : ''], ['Appeals drafted', all.filter(function (c) { return c.dstatus === 'Appeal drafted'; }).length, 'ready to send'], ['Due in 7 days', due.filter(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }).length, M(D.sum(due.filter(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }), D.charge)), due.some(function (c) { return D.daysBetween(D.today(), c.appealBy) <= 7; }) ? 'amb' : ''],
+          ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90], ['Overturn rate', t.decided ? U.pct(t.overturned / t.decided, 0) : '-', 'last 90 days']]) +
         '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
           U.pane('Denial queues', '', '', U.queue([
             { h: 'Open', items: [{ key: 'open', label: 'All open', n: all.length, color: 'red' }, { key: 'review', label: 'Needs review', n: all.filter(function (c) { return c.dstatus === 'Needs review'; }).length, color: 'amb' }, { key: 'drafted', label: 'Appeal drafted', n: all.filter(function (c) { return c.dstatus === 'Appeal drafted'; }).length, color: 'blue' }, { key: 'appealed', label: 'Appeal sent', n: all.filter(function (c) { return c.dstatus === 'Appealed'; }).length, color: 'gray' }] },
-            { h: 'By reason (CARC)', items: carcs.map(function (k) { var l = all.filter(function (c) { return c.carc === k; }); return { key: k, label: k + ' ' + l[0].reason, n: l.length, color: null }; }) },
+            { h: 'By reason', items: carcs.map(function (k) { var l = all.filter(function (c) { return c.carc === k; }); return { key: k, label: k + ' ' + l[0].reason, n: l.length, color: null }; }) },
             { h: 'Closed', items: [{ key: 'x', label: 'Overturned', n: resolved.filter(function (c) { return c.appealOutcome === 'Overturned'; }).length, color: 'grn' }, { key: 'y', label: 'Written off', n: resolved.filter(function (c) { return c.appealOutcome === 'Written off'; }).length, color: 'gray' }] },
           ], Q)) +
           '<section class="pane"><div class="ph">' + (Q === 'open' ? 'All open' : 'Filtered') + ' <span class="sub">' + list.length + ' claims, ' + M(D.sum(list, D.charge)) + '</span></div><div class="pbody">' +
-            U.grid(['Claim #', 'Patient', 'Payer', 'DOS', 'CARC', 'Reason', ['Amount', 'num'], 'Appeal by', 'Status'], list.map(function (c) {
+            U.grid(['Claim #', 'Patient', 'Payer', 'DOS', 'CARC', ['Reason', 'wrap'], ['Amount', 'num'], 'Appeal by', 'Status'], list.map(function (c) {
               return { sel: c.id === sel, attrs: ' data-claim="' + c.id + '"', cells: ['<a href="#">' + c.id + '</a>', E(D.ptName(c.mrn)), E(D.payer(c)), D.us(c.dos, 1), c.carc, E(c.reason), M(D.charge(c)), '<span class="' + (D.daysBetween(D.today(), c.appealBy) <= 14 ? 's-amb' : '') + '">' + D.us(c.appealBy, 1) + '</span>', '<span class="s-' + ({ 'Needs review': 'amb', 'Appeal drafted': 'blue', Appealed: 'mut' }[c.dstatus] || 'none') + '">' + E(c.dstatus === 'Appealed' ? 'Appeal sent ' + D.us(c.appealSent, 1).slice(0, 5) : c.dstatus) + '</span>'] };
             }), { cb: 1, click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(10, 'No open denials.') + '</tbody>') +
             U.sect('Recently resolved', '', U.grid(['Claim #', 'Patient', 'Payer', 'CARC', 'Outcome', ['Recovered', 'num']], resolved.map(function (c) { return { attrs: ' data-claim="' + c.id + '"', cells: [c.id, E(D.ptName(c.mrn)), E(D.payer(c)), c.carc, '<span class="s-' + (c.appealOutcome === 'Overturned' ? 'grn' : 'mut') + '">' + c.appealOutcome + '</span>', M(c.paid || 0)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'None yet.') + '</tbody>')) +
@@ -253,14 +266,15 @@
       var allStats = R.map(stats), stopped = D.sum(allStats, function (s) { return s.hit; }), prevented = D.sum(allStats, function (s) { return D.sum(s.fixed, D.charge); });
       app.innerHTML = U.header('rules') +
         U.toolbar('Payer rules', [['Check for updates', 'refresh', { pri: 1, id: 'upd' }], ['Add local rule', 'plus', { id: 'addrule' }], '|', ['Export', 'download', { id: 'export' }]], 'Rule library v2026.10, ' + D.RULES.length + ' rules') +
-        U.strip([['Active rules', R.length, payers.length + ' payers'], ['Claims stopped before submission', stopped, 'by these rules'], ['Charges fixed before submission', M(prevented), '', prevented ? 'grn' : ''], ['Local rules', S.localRules.length]]) +
+        U.strip([['Active rules', R.length, payers.length + ' payers'], ['Claims stopped before submission', stopped, 'since 08/01'], ['Est. denials prevented', M(prevented), 'since 08/01', prevented ? 'grn' : ''], ['Local rules', S.localRules.length]]) +
         '<div class="main" style="grid-template-columns:205px minmax(0,1fr) 420px">' +
           U.pane('Payers', '', '', U.queue([{ items: [{ key: 'all', label: 'All payers', n: R.length, color: 'blue' }].concat(payers.map(function (p) { return { key: p, label: p, n: R.filter(function (x) { return x.payer === p; }).length, color: null }; })) },
             { h: 'Rule type', items: types.map(function (t) { return { key: t, label: t, n: R.filter(function (x) { return x.as === t; }).length, color: null }; }).concat([{ key: 'local', label: 'Local rules', n: S.localRules.length, color: null }]) }], Q)) +
           '<section class="pane"><div class="ph">' + (Q === 'all' ? 'All payers' : E(Q)) + ' <span class="sub">' + list.length + ' rules</span></div><div class="pbody">' +
-            U.grid(['Rule ID', 'Payer', 'Effective', ['Requirement', 'wrap'], 'Applied as', ['Today', 'num'], ['Stopped', 'num']], list.map(function (x) {
-              var s = stats(x); return { sel: x.id === sel, attrs: ' data-rule="' + x.id + '"', cells: ['<span class="mono">' + x.id + '</span>', E(x.payer), x.eff ? D.us(x.eff, 1) : 'Now', E(x.req), E(x.as), today.filter(function (c) { return (c.ruleHits || {})[x.id]; }).length, s.hit] };
+            U.grid(['Rule ID', 'Payer', 'Published', 'Effective', ['Requirement', 'wrap'], 'Applied as', ['Today', 'num'], ['Since eff.', 'num']], list.map(function (x) {
+              var s = stats(x); return { sel: x.id === sel, attrs: ' data-rule="' + x.id + '"', cells: ['<span class="mono">' + x.id + '</span>', E(x.payer), x.pub ? D.us(x.pub, 1) : '', x.eff ? D.us(x.eff, 1) : 'Now', E(x.req), E(x.as), today.filter(function (c) { return (c.ruleHits || {})[x.id]; }).length, s.hit] };
             }), { cb: 1, click: 1 }) +
+          U.sect('Bulletins reviewed, no action needed', 'last 30 days', U.grid(['Payer', 'Published', 'Bulletin', 'Why no rule'], (S.bulletins || []).map(function (b) { return { cells: [E(b.payer), D.us(b.pub, 1), E(b.title), E(b.why)] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(4, 'None logged. Use Check for updates to record a bulletin you reviewed.') + '</tbody>')) +
           '</div><div class="pf"><span>1 selected</span><span class="end">Showing ' + list.length + ' of ' + R.length + '</span></div></section>' +
           '<section class="pane"><div class="ph">Rule detail <span class="sub mono">' + r.id + '</span></div><div class="pbody">' +
             '<div class="dp-sec"><div class="dp-title">' + E(r.title) + '</div>' + U.kv3([['Payer', E(r.payer)], ['Effective', r.eff ? D.us(r.eff) : 'Now'], ['Applies to', E(r.applies)]]) + '</div>' +
@@ -274,7 +288,11 @@
     V.redraw = draw; draw();
     U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; draw(); });
     U.on(app, 'tr[data-rule]', 'click', function (tr) { sel = tr.dataset.rule; draw(); });
-    U.on(app, '#upd', 'click', function () { U.toast('The rule library is current (' + D.RULES.length + ' rules). This preview has no bulletin feed; add your own with Add local rule.'); });
+    U.on(app, '#upd', 'click', function () {
+      U.form('Log a payer bulletin', [{ k: 'payer', label: 'Payer', req: 1 }, { k: 'pub', label: 'Published', type: 'date', def: D.today() }, { k: 'title', label: 'Bulletin', req: 1, span: 2 }, { k: 'why', label: 'Why no rule is needed', span: 4, ph: 'e.g. not a service this clinic bills' }], {}, function (v) {
+        S.bulletins = S.bulletins || []; S.bulletins.unshift(v); D.log('Bulletin reviewed: ' + v.payer + ', ' + v.title); D.save(); draw();
+      }, { wide: 1, save: 'Log bulletin', intro: 'The rule library (' + D.RULES.length + ' rules) is current. Record any other payer bulletin you checked; if it needs a rule, use Add local rule.' });
+    });
     var ruleForm = function (r) {
       var isNew = !r; r = r || { payer: 'Aetna' };
       U.form(isNew ? 'Add local rule' : 'Edit ' + r.id, [{ k: 'payer', label: 'Payer starts with', req: 1, ph: 'Aetna' }, { k: 'title', label: 'Rule name', req: 1, span: 3, ph: 'Smoking status on preventive visits' }, { k: 'cpt', label: 'CPT starts with', ph: '9939 (blank = any)' },
@@ -293,42 +311,54 @@
   /* ================= Team ================= */
   V.pages.team = function () {
     var Q = 'team', sel = q.get('staff') || '';
+    var F = { q: '', role: '', loc: '', comp: '', status: 'Active' };
     var role = function (x) { return x.provider ? 'Providers' : x.access === 'Billing' ? 'Billing' : x.access === 'Front desk' ? 'Front desk' : 'Clinical'; };
     var nextExp = function (s) { return (s.creds || []).filter(function (c) { return c.exp; }).sort(function (a, b) { return a.exp.localeCompare(b.exp); })[0]; };
     var comp = function (s) { if (s.status === 'Invited') return ['Onboarding', 'mut']; var n = nextExp(s); if (!n) return ['No credentials', 'amb']; var d = D.daysBetween(D.today(), n.exp); return d < 0 ? ['Expired', 'red'] : d <= 30 ? ['Expiring', 'amb'] : ['Compliant', 'grn']; };
     function person(s) {
       if (!s) return U.pane('Member', '', '', '<div class="blank">' + (S.staff.length ? 'Select a team member.' : 'No team members yet. Use Invite member or Add existing staff. Add yourself first; you sign notes as that person.') + '</div>');
       var steps = s.steps || [];
-      return '<section class="pane"><div class="ph">' + E(s.name) + ' ' + E(s.cred || '') + '<span class="end"><a href="#" id="editstaff">Edit</a></span></div><div class="pbody">' +
-        '<div class="dp-sec">' + U.kv3([['Role', E(s.spec || s.access)], ['Location', E(s.loc || '-')], ['Start date', D.us(s.hired)], ['Email', E(s.email || '-')], ['NPI', '<span class="mono">' + E(s.npi || '-') + '</span>'], ['Status', E(s.status)]]) + '</div>' +
+      return '<section class="pane"><div class="ph">' + E(s.name) + ' ' + E(s.cred || '') + '<span class="end"><a href="#" id="editstaff">Open profile</a></span></div><div class="pbody">' +
+        '<div class="dp-sec">' + U.kv3([['Role', E(s.spec || s.access)], ['Location', E(s.loc || '-')], ['Hired', D.us(s.hired)]]) + '</div>' +
         '<div class="dp-sec"><div class="dp-h">Credentials <span class="end"><a href="#" id="addcred">Add</a></span></div>' + U.grid(['Credential', 'Number', 'Expires', 'Status', ''], (s.creds || []).map(function (c, i) { var d = c.exp ? D.daysBetween(D.today(), c.exp) : 999; return { cells: [E(c.name), '<span class="mono">' + E(c.num || '') + '</span>', '<span class="' + (d <= 30 ? 's-amb' : '') + '">' + D.us(c.exp) + '</span>', d < 0 ? '<span class="s-red">Expired</span>' : d <= 30 ? '<span class="s-amb">' + d + ' days</span>' : '<span class="s-grn">Current</span>', '<button class="mini" data-delcred="' + i + '">×</button>'] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'None on file.') + '</tbody>') + '</div>' +
         (steps.length ? '<div class="dp-sec"><div class="dp-h">Onboarding <span class="sub">' + steps.filter(function (x) { return x[1]; }).length + ' of ' + steps.length + '</span></div>' + steps.map(function (x, i) { return '<label class="chk" style="margin:0 0 4px"><input type="checkbox" data-step="' + i + '"' + (x[1] ? ' checked' : '') + '> ' + E(x[0]) + '</label><br>'; }).join('') + '</div>' : '') +
+        '<div class="dp-sec"><div class="dp-h">Training <span class="end"><a href="#" id="addtrain">Add</a></span></div>' + U.grid(['Course', 'Completed', 'Due'], (s.training || []).map(function (t) { return { cells: [E(t.name), D.us(t.done), D.us(t.due)] }; }), { tight: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(3, 'None recorded.') + '</tbody>') + '</div>' +
         '<div class="dp-sec"><div class="dp-h">Reminders</div><div class="lst">' + ((s.reminders || []).map(function (r) { return '<div>' + E(r) + '</div>'; }).join('') || '<span class="mut">None sent</span>') + '</div></div>' +
-        '<div class="dp-sec"><div class="dp-h">Althais access</div>' + U.kv([['Role', E(s.access)], ['Can sign notes', s.provider ? 'Yes' : 'No'], ['Can view billing', /Admin|Billing/.test(s.access) ? 'Yes' : 'No'], ['Signs as you', S.clinic.userStaff === s.id ? 'Yes' : '<a href="#" id="makeme">Make this me</a>']]) + '</div>' +
+        '<div class="dp-sec"><div class="dp-h">Althais access</div>' + U.kv([['Role', E(s.access)], ['Can sign notes', s.provider ? 'Yes' : 'No'], ['Can view billing', /Admin|Billing/.test(s.access) ? 'Yes' : 'No'], ['Last login', S.clinic.userStaff === s.id ? 'Now' : '-'], ['Signs as you', S.clinic.userStaff === s.id ? 'Yes' : '<a href="#" id="makeme">Make this me</a>']]) + '</div>' +
+        (s.hours || s.assigned ? '<div class="dp-sec"><div class="dp-h">Schedule this week</div>' + U.kv([['Hours', E(s.hours || '-')], ['Assigned to', E(s.assigned || '-')]]) + '</div>' : '') +
         '</div><div class="dp-f"><button class="btn" id="deact">' + (s.status === 'Inactive' ? 'Reactivate' : 'Deactivate') + '</button><button class="btn" id="card">Upload new card</button><button class="btn pri" id="remind">Send reminder</button></div></section>';
     }
     function draw() {
-      var list = S.staff.filter(function (x) { return Q === 'team' ? x.status !== 'Inactive' : Q === 'onb' ? x.status === 'Invited' : Q === 'inactive' ? x.status === 'Inactive' : Q === 'exp' ? ['Expiring', 'Expired'].indexOf(comp(x)[0]) >= 0 : role(x) === Q; });
+      var todo = function (x) { return ['Expiring', 'Expired', 'No credentials'].indexOf(comp(x)[0]) >= 0 || x.status === 'Invited'; };
+      var list = S.staff.filter(function (x) { return (Q === 'team' ? true : Q === 'onb' ? x.status === 'Invited' : Q === 'todo' ? todo(x) : Q === 'cred' ? (x.creds || []).length : Q === 'comp' ? comp(x)[0] !== 'Compliant' : Q === 'train' ? (x.training || []).length : role(x) === Q)
+        && (!F.q || (x.name + ' ' + (x.email || '')).toLowerCase().indexOf(F.q.toLowerCase()) >= 0) && (!F.role || role(x) === F.role) && (!F.loc || x.loc === F.loc) && (!F.comp || comp(x)[0] === F.comp)
+        && (!F.status || (F.status === 'Active' ? x.status !== 'Inactive' : x.status === F.status)); });
       if (!sel || !D.staff(sel)) sel = (list[0] || {}).id || '';
       var exp = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (c) { var d = c.exp ? D.daysBetween(D.today(), c.exp) : 999; if (d <= 120) exp.push([s, c, d]); }); }); exp.sort(function (a, b) { return a[2] - b[2]; });
       var inv = S.staff.filter(function (s) { return s.status === 'Invited'; });
       app.innerHTML = U.header('team') +
         U.toolbar('Team', [['Invite member', 'user', { pri: 1, id: 'invite' }], ['Add existing staff', 'plus', { id: 'addstaff' }], ['Send reminders', 'mail', { id: 'remindall' }], '|', ['Export CSV', 'download', { id: 'export' }]], S.staff.length + ' members') +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 400px">' +
-          U.pane('Staff', '', '', U.queue([{ items: [{ key: 'team', label: 'Team', n: S.staff.filter(function (x) { return x.status !== 'Inactive'; }).length, color: 'blue' }, { key: 'onb', label: 'Onboarding', n: inv.length, color: 'gray' }, { key: 'exp', label: 'Expiring or expired', n: S.staff.filter(function (x) { return ['Expiring', 'Expired'].indexOf(comp(x)[0]) >= 0; }).length, color: 'amb' }, { key: 'inactive', label: 'Inactive', n: S.staff.filter(function (x) { return x.status === 'Inactive'; }).length, color: null }] },
+          U.pane('Staff', '', '', U.queue([{ items: [{ key: 'todo', label: 'To-do', n: S.staff.filter(todo).length, color: 'amb' }, { key: 'team', label: 'Team', n: S.staff.filter(function (x) { return x.status !== 'Inactive'; }).length, color: 'blue' }, { key: 'onb', label: 'Onboarding', n: inv.length, color: 'gray' },
+              { key: 'cred', label: 'Credentials', n: D.sum(S.staff, function (x) { return (x.creds || []).length; }), color: null }, { key: 'comp', label: 'Compliance', color: null }, { key: 'train', label: 'Training', color: null }, { key: 'roles', label: 'Roles and access', color: null }] },
             { h: 'Filter by role', items: ['Providers', 'Clinical', 'Billing', 'Front desk'].map(function (r) { return { key: r, label: r, n: S.staff.filter(function (x) { return role(x) === r; }).length, color: null }; }) }], Q),
             { after: U.sum([['Fully compliant', S.staff.filter(function (x) { return comp(x)[0] === 'Compliant'; }).length + ' of ' + S.staff.length], ['Expiring in 30 days', exp.filter(function (x) { return x[2] <= 30; }).length], ['Onboarding', inv.length]]) }) +
-          '<section class="pane"><div class="ph">Team <span class="sub">' + list.length + ' members</span></div><div class="pbody">' +
+          '<section class="pane"><div class="ph">Team <span class="sub">' + list.length + ' members</span></div>' +
+            '<div class="fl"><input class="chipf" id="tq" placeholder="Search name or email" value="' + E(F.q) + '">' + U.chip('Role', 'role', ['Providers', 'Clinical', 'Billing', 'Front desk'], F.role) + U.chip('Location', 'loc', U.uniq(S.staff.map(function (x) { return x.loc; })), F.loc) +
+              U.chip('Compliance', 'comp', ['Compliant', 'Expiring', 'Expired', 'No credentials', 'Onboarding'], F.comp) + U.chip('Status', 'status', ['Active', 'Invited', 'Inactive'], F.status) + '</div><div class="pbody">' +
             U.grid(['Name', 'Cred.', 'Specialty / dept.', 'Location', 'Access', 'Compliance', 'Next expiring', 'Expires', 'Status'], list.map(function (x) { var c = comp(x), n = nextExp(x); return { sel: x.id === sel, attrs: ' data-staff="' + x.id + '"', cells: [E(x.name), E(x.cred || ''), E(x.spec || ''), E(x.loc || ''), E(x.access), '<span class="s-' + c[1] + '">' + c[0] + '</span>', E(n ? n.name : ''), n ? D.us(n.exp) : '', '<span class="s-' + (x.status === 'Active' ? 'grn' : 'mut') + '">' + x.status + '</span>'] }; }), { cb: 1, click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(10, 'No team members.') + '</tbody>') +
             U.sect('Expiring in the next 120 days', exp.length + ' credentials', U.grid(['Name', 'Credential', 'Expires', ['Days left', 'num'], 'Last reminder'], exp.map(function (x) { return { attrs: ' data-staff="' + x[0].id + '"', cells: [E(x[0].name), E(x[1].name), D.us(x[1].exp), '<span class="' + (x[2] <= 30 ? 's-amb' : '') + '">' + x[2] + '</span>', E((x[0].reminders || [])[0] || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'None.') + '</tbody>')) +
-            U.sect('Onboarding', inv.length + ' in progress', U.grid(['Name', 'Steps done', 'Next step'], inv.map(function (x) { var st = x.steps || []; var nx = st.filter(function (y) { return !y[1]; })[0]; return { attrs: ' data-staff="' + x.id + '"', cells: [E(x.name), st.filter(function (y) { return y[1]; }).length + ' of ' + st.length, E(nx ? nx[0] : 'Ready to activate')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(3, 'None.') + '</tbody>')) +
+            U.sect(inv.length === 1 ? 'Onboarding: ' + inv[0].name + (inv[0].cred ? ' ' + inv[0].cred : '') : 'Onboarding', inv.length === 1 ? (inv[0].steps || []).filter(function (y) { return y[1]; }).length + ' of ' + (inv[0].steps || []).length + ' steps' : inv.length + ' in progress', U.grid(['Name', 'Steps done', 'Next step'], inv.map(function (x) { var st = x.steps || []; var nx = st.filter(function (y) { return !y[1]; })[0]; return { attrs: ' data-staff="' + x.id + '"', cells: [E(x.name), st.filter(function (y) { return y[1]; }).length + ' of ' + st.length, E(nx ? nx[0] : 'Ready to activate')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(3, 'None.') + '</tbody>')) +
           '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + list.length + ' of ' + S.staff.length + '</span></div></section>' + person(D.staff(sel)) + '</div>';
       U.fit(); U.search();
     }
     V.redraw = draw; draw();
     if (q.get('add') === 'provider') V.staffForm(null, function (s) { sel = s.id; draw(); }, true);
     var P = function () { return D.staff(sel); };
-    U.on(app, '[data-q]', 'click', function (el) { Q = el.dataset.q; sel = ''; draw(); });
+    U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'roles') { location.href = '/v4/settings?s=users'; return; } Q = el.dataset.q; sel = ''; draw(); });
+    U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
+    U.on(app, '#tq', 'input', function (i) { F.q = i.value; var pos = i.selectionStart; draw(); var n = document.getElementById('tq'); n.focus(); n.setSelectionRange(pos, pos); });
+    U.on(app, '#addtrain', 'click', function (a, e) { e.preventDefault(); U.form('Add training', [{ k: 'name', label: 'Course', req: 1, span: 2, ph: 'HIPAA annual' }, { k: 'done', label: 'Completed', type: 'date' }, { k: 'due', label: 'Due', type: 'date' }], {}, function (v) { var s = P(); (s.training = s.training || []).push(v); D.save(); draw(); }); });
     U.on(app, 'tr[data-staff]', 'click', function (tr) { sel = tr.dataset.staff; draw(); });
     U.on(app, '#invite', 'click', function () { V.staffForm(null, function (s) { sel = s.id; draw(); }, false, true); });
     U.on(app, '#addstaff', 'click', function () { V.staffForm(null, function (s) { sel = s.id; draw(); }); });
@@ -350,7 +380,7 @@
     var sec = q.get('s') || 'pd', dirty = false;
     var NAV = [{ h: 'Practice', items: [['pd', 'Practice details'], ['loc', 'Locations', S.locations.length], ['prov', 'Providers', D.providers().length], ['users', 'Users and roles', S.staff.length]] },
       { h: 'Clinical', items: [['vs', 'Virtual SOAP'], ['nt', 'Note templates', S.templates.length], ['os', 'Order sets', S.ordersets.length]] },
-      { h: 'Billing', items: [['ch', 'Clearinghouse'], ['fs', 'Fee schedules', S.fees.length], ['cr', 'Claim rules', D.allRules().length]] },
+      { h: 'Billing', items: [['ch', 'Clearinghouse'], ['py', 'Payers', U.uniq(S.patients.map(function (p) { return p.payer; })).length], ['fs', 'Fee schedules', S.fees.length], ['cr', 'Claim rules', D.allRules().length]] },
       { h: 'Workspace', items: [['int', 'Integrations', S.integrations.filter(function (i) { return i.on; }).length], ['nf', 'Notifications'], ['sec', 'Security and data']] }];
     function middle() {
       if (sec === 'pd') return U.sect('Practice details', 'used on claims, statements, and patient messages', '<div class="form" id="pdform">' + U.fields([
@@ -363,6 +393,7 @@
       if (sec === 'nt' || sec === 'os') { var arr = sec === 'nt' ? S.templates : S.ordersets; return U.sect(sec === 'nt' ? 'Note templates' : 'Order sets', arr.length, U.grid(['Name', ''], arr.map(function (x, i) { return { cells: [E(x), '<button class="mini" data-dlist="' + i + '">Remove</button>'] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(2, 'None.') + '</tbody>'), '<a href="#" id="addlist">Add</a>'); }
       if (sec === 'ch') { var av = S.integrations.filter(function (i) { return i.name === 'Availity'; })[0]; return U.sect('Clearinghouse', '', '<div class="dp-sec">' + U.kv([['Clearinghouse', 'Availity'], ['Status', av.on ? 'Marked connected' : 'Not connected', av.on ? 'grn' : ''], ['Mode', 'Preview: claims are recorded here and never transmitted']]) + '<div style="margin-top:8px"><button class="btn sm" data-int="0">' + (av.on ? 'Mark disconnected' : 'Mark connected') + '</button></div></div>'); }
       if (sec === 'fs') return U.sect('Fee schedule', S.fees.length + ' codes, billed charge per unit', U.grid(['CPT', 'Description', ['Rate', 'num'], ''], S.fees.map(function (f, i) { return { cells: ['<input class="inl" data-fc="' + i + '" value="' + E(f.code) + '" style="width:70px">', '<input class="inl" data-fd="' + i + '" value="' + E(f.desc) + '">', '<input class="inl" type="number" step="0.01" data-fr="' + i + '" value="' + f.rate + '" style="width:90px;text-align:right">', '<button class="mini" data-fdel="' + i + '">×</button>'] }; })), '<a href="#" id="addfee">Add code</a>');
+      if (sec === 'py') { var pl = U.uniq(S.patients.map(function (p) { return p.payer; })); return U.sect('Payers', pl.length + ' billed by this clinic', U.grid(['Payer', ['Patients', 'num'], ['Claims', 'num'], ['Billed', 'num'], ['Paid', 'num']], pl.map(function (x) { var cl = S.claims.filter(function (c) { return D.payer(c) === x; }); return { cells: [E(x), S.patients.filter(function (p) { return p.payer === x; }).length, cl.length, M(D.sum(cl, D.charge)), M(D.sum(cl, function (c) { return c.paid || 0; }))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Payers appear as you add patients.') + '</tbody>')); }
       if (sec === 'cr') return U.sect('Claim rules', D.allRules().length, U.grid(['Rule ID', 'Payer', 'Requirement'], D.allRules().map(function (r) { return { cells: ['<span class="mono">' + r.id + '</span>', E(r.payer), E(r.req)] }; })), '<a href="/v4/revenue/payer-rules">Manage</a>');
       if (sec === 'int') return U.sect('Integrations', S.integrations.filter(function (i) { return i.on; }).length + ' marked connected', U.grid(['Service', 'Used for', 'Status', 'Since', ''], S.integrations.map(function (x, i) { return { cells: [E(x.name), E(x.use), '<span class="s-' + (x.on ? 'grn' : 'mut') + '">' + (x.on ? 'Connected' : 'Not connected') + '</span>', E(x.sync || ''), '<button class="mini" data-int="' + i + '">' + (x.on ? 'Disconnect' : 'Connect') + '</button>'] }; })) + '<div class="blank mut">In this preview, connecting only records the setting. No data is exchanged.</div>');
       if (sec === 'nf') return U.sect('Notifications', '', '<div class="dp-sec">' + [['email', 'Email me a daily summary'], ['sms', 'Text me when a claim is denied'], ['denials', 'Show denial alerts on Overview'], ['creds', 'Remind staff 30 days before a credential expires']].map(function (n) { return '<label class="chk" style="margin:0 0 6px"><input type="checkbox" data-nf="' + n[0] + '"' + (S.notify[n[0]] ? ' checked' : '') + '> ' + n[1] + '</label><br>'; }).join('') + '</div>');
