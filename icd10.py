@@ -228,7 +228,8 @@ _ABBR = {"ckd": "chronic kidney disease", "htn": "hypertension", "t2dm": "type 2
          "t1dm": "type 1 diabetes mellitus", "uri": "acute upper respiratory infection", "copd": "chronic obstructive pulmonary disease",
          "gerd": "gastro-esophageal reflux disease", "hld": "hyperlipidemia", "chf": "heart failure", "afib": "atrial fibrillation",
          "uti": "urinary tract infection", "oa": "osteoarthritis", "mdd": "major depressive disorder", "gad": "generalized anxiety disorder",
-         "strep": "streptococcal", "diabetes": "diabetes mellitus", "dm": "diabetes mellitus"}
+         "strep": "streptococcal", "diabetes": "diabetes mellitus", "dm": "diabetes mellitus", "lumbar": "lower back", "lbp": "low back pain",
+         "cp": "chest pain", "sob": "shortness of breath", "hld": "hyperlipidemia", "ha": "headache", "cad": "atherosclerotic heart disease", "bph": "benign prostatic hyperplasia", "osa": "obstructive sleep apnea"}
 _SHORT = {"w": "with", "chr": "chronic", "kdny": "kidney", "dis": "disease", "stg": "stage", "hyp": "hypertensive", "hrt": "heart",
           "unsp": "unspecified", "diab": "diabetes", "mellitus": "mellitus", "ckd": "chronic kidney disease", "esrd": "end stage renal disease"}
 
@@ -242,25 +243,35 @@ _INDEX = None
 # the usual code when a note names the condition plainly
 _COMMON = {"I10", "K219", "E785", "E119", "E109", "J069", "J029", "J209", "N390", "M179", "F411", "F32A", "E039", "E669", "I4891", "I509", "J45909", "J449", "M5450", "R059", "G43909", "E559", "D649", "F419", "J329", "J0190", "H6690", "L0390", "B349", "R509", "R519", "K5900", "F17210", "G4700", "E782", "E780"}
 
+_PLANNY = re.compile(r"\b\d+\s*(mg|mcg|ml|units?)\b|\b(start|add|begin|increase|decrease|continue|stop|refer|order|recheck|return|follow[- ]?up|supportive|care|fluids|rest|heat|ice|counsel|educat|advis|prn|bid|tid|qid|daily)\b", re.I)
+
 def from_assessment(note):
-    """Diagnosis codes read straight off the ASSESSMENT lines, for when the AI coder is unavailable. Each line maps to the
-    billable code whose description covers the most of its words (ties go to the least specific code)."""
-    m = re.search(r"assessment\s*:?(.*?)(?:\n\s*plan\b|$)", str(note or ""), re.I | re.S)
-    body = m.group(1) if m else ""
-    items = [x.strip() for x in re.split(r"\n|;|\.\s|\s\d+[.)]\s|^\s*\d+[.)]\s", body) if len(x.strip()) > 2]
+    """Diagnosis codes read straight off the note, for when the AI coder is unavailable. Uses the Assessment /
+    Impression / A/P / Diagnosis section when there is one, otherwise every sentence (strict matching). Each item maps
+    to the billable code whose description covers its words (ties go to the usual code for a plainly named condition)."""
+    text = str(note or "")
+    m = re.search(r"(?:^|\n|\.\s)\s*(?:assessment(?:\s*(?:and|&|/)\s*plan)?|a\s*/\s*p|impression|diagnos[ie]s|dx)\s*[:\-]?(.*?)(?:\n\s*(?:plan|p)\s*[:\-]|\n\s*(?:orders?|follow[- ]?up|disposition)\s*[:\-]|$)", text, re.I | re.S)
+    strict = not m
+    body = m.group(1) if m else text
+    items = [x.strip() for x in re.split(r"\n|;|,|\.\s|\s+-\s+|\s\d+[.)]\s|^\s*\d+[.)]\s", body) if len(x.strip()) > 2]
     global _INDEX
     if _INDEX is None:
         _INDEX = [(k, v[1], set(_toks(v[1], _SHORT))) for k, v in _CODES.items() if v[0]]
-    low = str(note or "").lower()
-    skip = tuple(ch for ch, words in (("P", "neonat|newborn|perinatal"), ("O", "pregnan|gestation|postpartum|trimester"), ("Q", "congenital"), ("V", "accident|collision"), ("W", "fall|struck"), ("X", "exposure"), ("Y", "place of"), ("S", "injur|fracture|sprain|laceration|wound"), ("T", "poison|burn|adverse|injur")) if not re.search(words, low))
+    low = text.lower()
+    skip = tuple(ch for ch, words in (("P", "neonat|newborn|perinatal"), ("O", "pregnan|gestation|postpartum|trimester"), ("Q", "congenital"), ("V", "accident|collision"), ("W", "fall|struck"), ("X", "exposure"), ("Y", "place of"), ("S", "injur|fracture|sprain|strain|laceration|wound|contusion"), ("T", "poison|burn|adverse|injur")) if not re.search(words, low))
     index = [x for x in _INDEX if not x[0].startswith(skip)]
-    out = []
+    out, seen = [], set()
     for it in items:
-        want = set(_toks(it, _ABBR)) - {"worsening", "uncontrolled", "stable", "controlled", "follow", "up", "agents", "two", "on", "new", "chronic"} | ({"chronic"} if "chronic" in it.lower() or "ckd" in it.lower() else set())
+        if _PLANNY.search(it) and not re.search(r"\b(diabetes|hypertension|htn|ckd|copd|asthma|pharyngitis|bronchitis|infection)\b", it, re.I):
+            continue   # a plan item (drug, dose, follow-up), not a diagnosis
+        want = set(_toks(it, _ABBR)) - {"worsening", "uncontrolled", "stable", "controlled", "follow", "up", "agents", "two", "on", "new", "chronic", "likely", "probable", "possible", "mild", "moderate", "severe", "patient", "pt", "here", "for", "after", "days", "day", "ago", "no", "red", "flags"} | ({"chronic"} if "chronic" in it.lower() or "ckd" in it.lower() else set())
         if not want:
             continue
-        best = max(((len(want & d), k in _COMMON, -len(d - want), k, desc) for k, desc, d in index if want & d), default=None)
-        best = best and (best[0], 0) + best[3:]
-        if best and best[0] >= max(1, len(want) // 2):
-            out.append({"code": dotted(best[2]), "type": "ICD-10", "description": best[3], "modifier": "", "units": 1, "reason": "From the assessment: " + it[:80]})
+        # injuries: the initial-encounter code (7th character A), not subsequent (D) or sequela (S)
+        best = max(((len(want & d), k in _COMMON, not (k[0] in "ST" and len(k) == 7 and k[-1] != "A"), -len(d - want), k, desc) for k, desc, d in index if want & d), default=None)
+        best = best and (best[0], 0) + best[4:]
+        need = len(want) if strict else max(1, -(-len(want) * 2 // 3))   # outside an Assessment section, every word must match
+        if best and best[0] >= need and best[2] not in seen:
+            seen.add(best[2])
+            out.append({"code": dotted(best[2]), "type": "ICD-10", "description": best[3], "modifier": "", "units": 1, "reason": "From the note: " + it[:80]})
     return out

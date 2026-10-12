@@ -11,7 +11,7 @@ import json
 from urllib.parse import urlencode
 from ncci_checker import check_claim_ncci_flags
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"), timeout=25, max_retries=1)   # a slow or stuck AI call can't hold a request open
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"), timeout=25, max_retries=0)   # a slow or stuck AI call can't hold a request open
 
 # llama-3.3-70b-versatile was deprecated by Groq (announced June 17, 2026):
 # this is Groq's own recommended replacement. Kept as a single constant
