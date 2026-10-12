@@ -157,6 +157,16 @@
     // codes
     // codes update by themselves a moment after the note changes (and on opening a note that has none yet)
     var lastCoded = '', codeTimer = null, fails = 0;
+    var checkTimer = null;
+    function scheduleCheck() {
+      clearTimeout(checkTimer); if (signed()) return;
+      checkTimer = setTimeout(function () {
+        var c = preview(); if (!c.lines.length || chk.busy) return; c.id = 'Visit ' + D.us(e.date);
+        var key = V.checkKey(c); if (e.check && e.checkKey === key) return;
+        chk.busy = true; chk.err = ''; redrawRight();
+        V.claimCheck(c).then(function (k) { e.check = k; e.checkKey = key; save(); }).catch(function (x) { chk.err = x.message; }).then(function () { chk.busy = false; redrawRight(); });
+      }, 1200);
+    }
     function codeKey() { return D.noteText(e) + '|' + e.visitType + '|' + (p.payer || ''); }
     function noteHasText() { return (e.s + e.o + e.a + e.p).replace(/Chief complaint:[^\n]*/i, '').trim().length >= 12; }
     function scheduleCodes(ms) { clearTimeout(codeTimer); if (signed() || !noteHasText()) return; codeTimer = setTimeout(function () { runCodes(false); }, ms == null ? 2000 : ms); }
@@ -173,7 +183,7 @@
           var keep = {}; e.codes.forEach(function (c) { keep[c.code] = c; });
           e.codes = (x.j.codes || []).map(function (c) { var old = keep[c.code]; return { code: c.code, desc: c.description || '', type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', conf: Number(c.confidence) || 0, why: c.justification || '', mod: c.modifier || '', state: old ? old.state : '' }; })
             .concat(e.codes.filter(function (c) { return !c.conf && !(x.j.codes || []).some(function (n) { return n.code === c.code; }); }));
-          codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; e.codedAt = new Date().toISOString(); save();
+          codeMsg = (x.j.codes || []).length ? '' : 'No codes suggested for this note yet.'; lastCoded = key; fails = 0; scheduleCheck(); e.codedAt = new Date().toISOString(); save();
         }).catch(function (err) {
           codeMsg = err.message; fails++;
           if (!/Log in|plan or role/.test(err.message) && fails < 6) { codeMsg += ' Trying again…'; scheduleCodes(Math.min(30000, 3000 * Math.pow(2, fails - 1))); }
@@ -185,17 +195,18 @@
       chk.busy = true; chk.err = ''; redrawRight();
       V.claimCheck(c).then(function (k) { e.check = k; save(); }).catch(function (x) { chk.err = x.message; }).then(function () { chk.busy = false; redrawRight(); });
     });
-    if (!signed() && !e.codes.some(function (c) { return c.conf; })) scheduleCodes(400);   // a note with no suggested codes yet
-    U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? '' : 'acc'; save(); redrawRight(); });
-    U.on(app, '[data-rej]', 'click', function (b) { var c = e.codes[+b.dataset.rej]; if (c.state === 'rej' || !c.conf) { if (!c.conf && c.state !== 'rej') { e.codes.splice(+b.dataset.rej, 1); } else c.state = ''; } else c.state = 'rej'; save(); redrawRight(); });
+    if (!signed() && !e.codes.some(function (c) { return c.conf; })) scheduleCodes(400);
+    else if (!signed()) scheduleCheck();   // codes already here: check them   // a note with no suggested codes yet
+    U.on(app, '[data-acc]', 'click', function (b) { var c = e.codes[+b.dataset.acc]; c.state = c.state === 'acc' ? '' : 'acc'; save(); redrawRight(); scheduleCheck(); });
+    U.on(app, '[data-rej]', 'click', function (b) { var c = e.codes[+b.dataset.rej]; if (c.state === 'rej' || !c.conf) { if (!c.conf && c.state !== 'rej') { e.codes.splice(+b.dataset.rej, 1); } else c.state = ''; } else c.state = 'rej'; save(); redrawRight(); scheduleCheck(); });
     U.on(app, '#addcode', 'click', function () {
       var code = document.getElementById('mcode').value.trim().toUpperCase(), desc = document.getElementById('mdesc').value.trim();
       if (!/^([0-9]{5}|[A-Z][0-9]{4}|[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?)$/.test(code)) return U.toast('Enter a CPT (5 digits, or a letter and 4 digits) or an ICD-10 code (E11.9).');
       var cpt = /^([0-9]{5}|[A-Z][0-9]{4})$/.test(code) && !/^[A-Z][0-9]{2}\./.test(code);
       if (!desc && cpt) desc = (S.fees.filter(function (f) { return f.code === code; })[0] || {}).desc || '';
-      e.codes.push({ code: code, desc: desc || code, type: cpt ? 'CPT' : 'ICD-10', conf: 0, why: 'Added by ' + S.clinic.user, state: 'acc' }); save(); redrawRight();
+      e.codes.push({ code: code, desc: desc || code, type: cpt ? 'CPT' : 'ICD-10', conf: 0, why: 'Added by ' + S.clinic.user, state: 'acc' }); save(); redrawRight(); scheduleCheck();
     });
-    U.on(app, '[data-mod]', 'change', function (i) { e.codes[+i.dataset.mod].mod = i.value.trim().toUpperCase(); save(); redrawRight(); });
+    U.on(app, '[data-mod]', 'change', function (i) { e.codes[+i.dataset.mod].mod = i.value.trim().toUpperCase(); save(); redrawRight(); scheduleCheck(); });
     // rule edits
     U.on(app, '[data-apply]', 'click', function (b) {
       var x = edits().filter(function (y) { return y.id === b.dataset.apply; })[0]; if (!x) return;

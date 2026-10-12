@@ -67,7 +67,7 @@
         (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div style="display:flex;gap:5px;margin-top:6px"><input class="inl" id="dxadd" placeholder="ICD-10, e.g. E11.9"><button class="mini" id="dxaddb">Add</button></div>' : '') + '</div>';
       else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
       else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
-      if (tab === 'edits') { var cs = V.checkState(c.id); body = V.checkHtml(c, cs.busy, cs.err) + body; }
+      if (tab === 'edits') { setTimeout(function () { V.autoCheck(c, draw); }, 0); var cs = V.checkState(c.id); body = V.checkHtml(c, cs.busy, cs.err) + body; }
       foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>';
       if (c.stage === 'ready') foot += '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
       else if (c.stage === 'submitted') foot += '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
@@ -108,6 +108,9 @@
       U.fit(); U.search();
     }
     V.redraw = draw; draw();
+    // background: check every claim before submission that hasn't been checked in its current form, one at a time
+    (function bg() { var c = S.claims.filter(function (x) { return ['edits', 'ready'].indexOf(x.stage) >= 0 && x.lines.length && (!x.check || x.checkKey !== V.checkKey(x)) && !V.checkState(x.id).err && !V.checkState(x.id).busy; })[0];
+      if (!c) { setTimeout(bg, 4000); return; } V.autoCheck(c, function () { draw(); setTimeout(bg, 800); }); })();
     var C = function () { return findClaim(sel); };
     var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
     U.on(app, '[data-q]', 'click', function (el) { if (el.dataset.q === 'balance') { location.href = '/v4/emr/patients?list=balance'; return; } Q = el.dataset.q; sel = ''; tab = 'edits'; draw(); });

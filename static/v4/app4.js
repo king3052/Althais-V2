@@ -37,7 +37,7 @@
     var k = c.check;
     var head = '<div class="dp-h">Claim check <span class="sub">likelihood of acceptance</span><span class="end"><button class="mini" data-runcheck="' + c.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Checking…' : k ? 'Re-check' : 'Run claim check') + '</button></span></div>';
     if (err) return '<div class="dp-sec">' + head + '<div class="s-red">' + E(err) + '</div></div>';
-    if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Reading the note and codes…' : 'Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
+    if (!k) return '<div class="dp-sec">' + head + '<div class="mut">' + (busy ? 'Checking the claim…' : 'Runs on its own. Checks medical necessity, E/M level support, modifiers, specificity, required fields and NCCI bundling before you send.') + '</div></div>';
     var col = V.scoreColor(k.score);
     return '<div class="dp-sec">' + head +
       '<div style="display:flex;align-items:center;gap:12px"><b class="s-' + col + '" style="font-size:22px;font-weight:600">' + k.score + '%</b><div style="flex:1"><div style="height:6px;background:var(--b2)"><div style="height:6px;width:' + k.score + '%;background:var(--' + col + ')"></div></div>' +
@@ -45,13 +45,22 @@
       (k.missing.length ? '<div class="ok-list" style="margin-top:6px">' + k.missing.map(function (m) { return '<div class="e">' + U.err + 'Missing: ' + E(m) + '</div>'; }).join('') + '</div>' : '') +
       (k.flags.length ? '<div class="ok-list">' + k.flags.map(function (f) { return '<div class="w">' + U.warn + E(f) + '</div>'; }).join('') + '</div>' : '') + '</div>';
   };
+  // the claim check runs by itself: once per version of a claim's codes and note (a re-run only when they change)
+  V.checkKey = function (c) { var e = D.enc(c.encId); return c.lines.map(function (l) { return l.code + (l.mod || '') + 'x' + (l.units || 1); }).join(',') + '|' + c.dx.join(',') + '|' + D.payer(c) + '|' + (e ? D.noteText(e) : c.note || '').length; };
+  V.autoCheck = function (c, after) {
+    if (!c || !c.lines.length || checking[c.id] || checkErr[c.id]) return;
+    if (['edits', 'ready'].indexOf(c.stage) < 0 && c.check) return;   // sent claims keep their last result
+    var key = V.checkKey(c); if (c.check && c.checkKey === key) return;
+    checking[c.id] = true;
+    V.claimCheck(c).then(function () { c.checkKey = key; D.save(); }).catch(function (e) { checkErr[c.id] = e.message; }).then(function () { delete checking[c.id]; (after || V.refresh)(); });
+  };
   // any page: buttons with data-runcheck run the check and redraw
   var checking = {}, checkErr = {};
   V.checkState = function (id) { return { busy: !!checking[id], err: checkErr[id] || '' }; };
   U.on(document.body, '[data-runcheck]', 'click', function (b) {
     var c = D.claim(b.dataset.runcheck); if (!c) return;
     checking[c.id] = true; delete checkErr[c.id]; V.refresh();
-    V.claimCheck(c).catch(function (e) { checkErr[c.id] = e.message; }).then(function () { delete checking[c.id]; V.refresh(); });
+    V.claimCheck(c).then(function () { c.checkKey = V.checkKey(c); D.save(); }).catch(function (e) { checkErr[c.id] = e.message; }).then(function () { delete checking[c.id]; V.refresh(); });
   });
 
   /* ---------- CMS-1500 ---------- */
