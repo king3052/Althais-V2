@@ -134,7 +134,7 @@
     var lineChange = function (attr, fn) { U.on(app, '[' + attr + ']', 'change', function (i) { var c = C(); fn(c, +i.getAttribute(attr), i.value.trim()); D.scrub(c); after(c, 'Charge lines edited'); }); };
     lineChange('data-lc', function (c, i, v) { c.lines[i].code = v.toUpperCase(); }); lineChange('data-lm', function (c, i, v) { c.lines[i].mod = v.toUpperCase(); }); lineChange('data-lu', function (c, i, v) { c.lines[i].units = Math.max(1, parseInt(v, 10) || 1); });
     U.on(app, '[data-ldel]', 'click', function (b) { var c = C(); c.lines.splice(+b.dataset.ldel, 1); D.scrub(c); after(c, 'Charge line removed'); });
-    U.on(app, '#addline', 'click', function (a, e) { e.preventDefault(); var code = prompt('CPT code'); if (!code) return; var c = C(); c.lines.push({ code: code.trim().toUpperCase(), mod: '', units: 1 }); D.scrub(c); after(c, 'Charge line added ' + code); });
+    U.on(app, '#addline', 'click', function (a, e) { e.preventDefault(); U.ask('Add Charge Line', 'CPT / HCPCS code', '', function (code) { var c = C(); c.lines.push({ code: code.trim().toUpperCase(), mod: '', units: 1 }); D.scrub(c); after(c, 'Charge line added ' + code); }, { ok: 'Add Line', ph: 'e.g. 36415' }); });
     U.on(app, '[data-dxdel]', 'click', function (b) { var c = C(); c.dx.splice(+b.dataset.dxdel, 1); D.scrub(c); after(c, 'Diagnosis removed'); });
     U.on(app, '#dxaddb', 'click', function () { var v = document.getElementById('dxadd').value.trim().toUpperCase(); if (!/^[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$/.test(v)) return U.toast('Enter an ICD-10 code like E11.9.'); var c = C(); c.dx.push(v); D.scrub(c); after(c, 'Diagnosis added ' + v); });
     // resolutions
@@ -150,7 +150,7 @@
       if (v === 'fees') return location.href = '/v4/settings?s=fs';
       if (v === 'downcode') { var l = c.lines.filter(function (y) { return /^992/.test(y.code); })[0]; var old = l.code; l.code = String(+l.code - 1); D.scrub(c); return after(c, 'Level changed ' + old + ' to ' + l.code); }
       if (v === 'ask') { e.addenda = e.addenda || []; e.addenda.push({ text: 'Please document: ' + x.text, from: 'Billing (' + x.id + ')', signed: false }); c.waitingOn = x.id; c.resolved = c.resolved || {}; c.resolved[x.id] = 'Asked provider'; c.edits = c.edits.filter(function (y) { return y.id !== x.id; }); return after(c, 'Asked ' + D.provName(c.prov) + ' to document ' + x.id); }
-      var r = prompt('Override reason (kept on the claim):'); if (!r) return; c.resolved = c.resolved || {}; c.resolved[x.id] = r; D.scrub(c); after(c, 'Override ' + x.id + ': ' + r);
+      U.ask('Override ' + x.id, 'Reason (kept on the claim)', '', function (r) { c.resolved = c.resolved || {}; c.resolved[x.id] = r; D.scrub(c); after(c, 'Override ' + x.id + ': ' + r); }, { ok: 'Override', html: '<p class="cf" style="margin-bottom:10px">' + E(x.text || '') + '</p>' });
     });
     var submit = function (list) {   // the 837P steps, then the server's claim gate decides sent or held
       V.transmit(list, function () { list.forEach(function (c) { CHK[c.id] = false; }); draw(); });
@@ -168,7 +168,7 @@
       (function next(i) { if (i >= todo.length) { draw(); var low = todo.filter(function (c) { return c.check && c.check.score < 65; }); if (todo.length) U.toast('Claim check done. ' + (low.length ? low.length + ' below 65%: ' + low.map(function (c) { return c.id; }).join(', ') : 'All look acceptable.')); return; }
         V.claimCheck(todo[i]).catch(function () {}).then(function () { draw(); next(i + 1); }); })(0);
     });
-    U.on(app, '#delclaim', 'click', function () { if (!confirm('Delete this claim?')) return; S.claims.splice(S.claims.indexOf(C()), 1); D.save(); sel = ''; draw(); });
+    U.on(app, '#delclaim', 'click', function () { var c = C(); U.confirm('Delete Claim', '<p class="cf">Delete ' + E(c.id) + '? This can’t be undone.</p>', 'Delete Claim', function () { S.claims.splice(S.claims.indexOf(c), 1); D.save(); sel = ''; draw(); }, { danger: 1 }); });
     U.on(app, '#ack', 'click', function () { var c = C(); c.status = 'Accepted 277CA'; after(c, 'Accepted by clearinghouse (277CA)'); });
     U.on(app, '#pay', 'click', function () {
       var c = C(); U.form('Post payment, ' + c.id, [{ k: 'paid', label: 'Paid amount', type: 'number', step: '0.01', req: 1, def: (D.charge(c) * .78).toFixed(2) }, { k: 'date', label: 'Paid on', type: 'date', req: 1, def: D.today() }, { k: 'ref', label: 'Check / EFT #' }, { k: 'pr', label: 'Patient responsibility', type: 'number', step: '0.01', def: '0.00' }], {}, function (v) {
@@ -272,11 +272,11 @@
     U.on(app, '#send', 'click', send); U.on(app, '#send2', 'click', send);
     U.on(app, '#editl', 'click', function () { var l = document.getElementById('letter'); if (l) l.focus(); });
     U.on(app, '#printl', 'click', function () { var c = C(); if (!c) return window.print(); keep(); var w = window.open(''); w.document.write('<pre style="font:14px/1.6 Georgia,serif;white-space:pre-wrap;max-width:680px;margin:40px auto">' + E(c.letter || letterFor(c)) + '</pre>'); setTimeout(function () { w.print(); }, 300); });
-    var resub = function () { var c = C(); if (!c || c.stage !== 'denied') return U.toast('Select a denial.'); if (!confirm('Move ' + c.id + ' back to claims so it can be corrected and resubmitted?')) return; c.stage = 'edits'; c.dstatus = 'Resubmitted'; D.scrub(c); D.history(c, 'Sent back for correction after ' + c.carc); D.log('Correcting ' + c.id); D.save(); location.href = V.claimHref(c.id); };
+    var resub = function () { var c = C(); if (!c || c.stage !== 'denied') return U.toast('Select a denial.'); U.confirm('Correct And Resubmit', '<p class="cf">Move ' + E(c.id) + ' back to claims so it can be corrected and resubmitted?</p>', 'Move To Claims', function () { c.stage = 'edits'; c.dstatus = 'Resubmitted'; D.scrub(c); D.history(c, 'Sent back for correction after ' + c.carc); D.log('Correcting ' + c.id); D.save(); location.href = V.claimHref(c.id); }); };
     U.on(app, '#resub', 'click', resub); U.on(app, '#resub2', 'click', resub);
     U.on(app, '#attach', 'click', function (a, e) { e.preventDefault(); keep(); var c = C(); V.upload(c.mrn, function (d) { c.attach = (c.attach || []).concat([d.id]); D.save(); draw(); }); });
     U.on(app, '#overturn', 'click', function () { var c = C(); U.form('Appeal overturned', [{ k: 'paid', label: 'Paid amount', type: 'number', step: '0.01', req: 1, def: (D.charge(c) * .78).toFixed(2) }, { k: 'date', label: 'Paid on', type: 'date', def: D.today() }], {}, function (v) { c.stage = 'paid'; c.paid = +v.paid; c.paidOn = v.date; c.appealOutcome = 'Overturned'; D.history(c, 'Appeal overturned, paid ' + M(c.paid)); D.log('Appeal overturned: ' + c.id); D.save(); draw(); }, { save: 'Post payment' }); });
-    U.on(app, '#upheld', 'click', function () { var c = C(); if (!confirm('Write off ' + M(D.charge(c)) + '?')) return; c.stage = 'paid'; c.paid = 0; c.paidOn = D.today(); c.appealOutcome = 'Written off'; D.history(c, 'Appeal upheld, written off'); D.save(); draw(); });
+    U.on(app, '#upheld', 'click', function () { var c = C(); U.confirm('Write Off', '<p class="cf">Write off ' + M(D.charge(c)) + ' on ' + E(c.id) + '? The appeal was upheld.</p>', 'Write Off', function () { c.stage = 'paid'; c.paid = 0; c.paidOn = D.today(); c.appealOutcome = 'Written off'; D.history(c, 'Appeal upheld, written off'); D.save(); draw(); }, { danger: 1 }); });
     U.on(app, '#export', 'click', function () { U.download('denials-' + D.today() + '.csv', U.csv([['Claim', 'Patient', 'Payer', 'DOS', 'CARC', 'Reason', 'Amount', 'Appeal by', 'Status']].concat(S.claims.filter(function (c) { return c.everDenied; }).map(function (c) { return [c.id, D.ptName(c.mrn), D.payer(c), c.dos, c.carc, c.reason, D.charge(c).toFixed(2), c.appealBy, c.appealOutcome || c.dstatus]; })))); });
   };
 
@@ -338,7 +338,7 @@
     };
     U.on(app, '#addrule', 'click', function () { ruleForm(); });
     U.on(app, '#editrule', 'click', function () { ruleForm(S.localRules.filter(function (x) { return x.id === sel; })[0]); });
-    U.on(app, '#delrule', 'click', function () { if (!confirm('Delete ' + sel + '?')) return; S.localRules = S.localRules.filter(function (x) { return x.id !== sel; }); D.S.localRules = S.localRules; S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }).forEach(D.scrub); D.save(); sel = ''; draw(); });
+    U.on(app, '#delrule', 'click', function () { U.confirm('Delete Rule', '<p class="cf">Delete rule ' + E(sel) + '? Open claims are re-checked without it.</p>', 'Delete Rule', function () { S.localRules = S.localRules.filter(function (x) { return x.id !== sel; }); D.S.localRules = S.localRules; S.claims.filter(function (c) { return c.stage === 'edits' || c.stage === 'ready'; }).forEach(D.scrub); D.save(); sel = ''; draw(); }, { danger: 1 }); });
     U.on(app, '#export', 'click', function () { U.download('payer-rules.csv', U.csv([['Rule ID', 'Payer', 'Effective', 'Requirement', 'Applied as', 'Source']].concat(D.allRules().map(function (r) { return [r.id, r.payer, r.eff, r.req, r.as, r.src]; })))); });
   };
 
@@ -400,7 +400,7 @@
     U.on(app, '#makeme', 'click', function (a, e) { e.preventDefault(); var s = P(); S.clinic.userStaff = s.id; S.clinic.user = s.name.split(', ').reverse().join(' ') + (s.cred ? ', ' + s.cred : ''); D.save(); draw(); U.toast('You now sign as ' + S.clinic.user + '.'); });
     U.on(app, '#addcred', 'click', function (a, e) { e.preventDefault(); U.form('Add credential', [{ k: 'name', label: 'Credential', req: 1, span: 2, ph: 'BLS, DEA, State license' }, { k: 'num', label: 'Number' }, { k: 'exp', label: 'Expires', type: 'date', req: 1 }], {}, function (v) { var s = P(); s.creds = s.creds || []; s.creds.push(v); D.log('Credential added: ' + s.name + ', ' + v.name); D.save(); draw(); }); });
     U.on(app, '[data-delcred]', 'click', function (b) { var s = P(); s.creds.splice(+b.dataset.delcred, 1); D.save(); draw(); });
-    U.on(app, '[data-step]', 'change', function (c) { var s = P(); s.steps[+c.dataset.step][1] = c.checked; if (s.steps.every(function (x) { return x[1]; }) && confirm('All onboarding steps are done. Activate ' + s.name + '?')) s.status = 'Active'; D.save(); draw(); });
+    U.on(app, '[data-step]', 'change', function (c) { var s = P(); s.steps[+c.dataset.step][1] = c.checked; D.save(); draw(); if (s.steps.every(function (x) { return x[1]; })) U.confirm('Activate', '<p class="cf">All onboarding steps are done. Activate ' + E(s.name) + '?</p>', 'Activate', function () { s.status = 'Active'; D.save(); draw(); }, { cancel: 'Not Yet' }); });
     var remind = function (s) { (s.reminders = s.reminders || []).unshift(D.us(D.today(), 1).slice(0, 5) + '  Reminder sent by email'); D.log('Reminder sent: ' + s.name); };
     U.on(app, '#remind', 'click', function () { remind(P()); D.save(); draw(); U.toast('Reminder recorded. (This preview does not send email.)'); });
     U.on(app, '#remindall', 'click', function () { var l = S.staff.filter(function (s) { return (s.creds || []).some(function (c) { return c.exp && D.daysBetween(D.today(), c.exp) <= 30; }); }); l.forEach(remind); D.save(); draw(); U.toast(l.length ? 'Reminders recorded for ' + l.length + ' member' + (l.length === 1 ? '' : 's') + '.' : 'No credentials expire in the next 30 days.'); });
@@ -455,7 +455,7 @@
       S.lastSaved = new Date().toISOString(); D.log('Settings saved'); D.save(); dirty = false; return true;
     };
     app.addEventListener('input', function () { dirty = true; });
-    U.on(app, '[data-q], [data-go]', 'click', function (el, e) { e.preventDefault(); if (dirty && !confirm('Leave without saving these changes?')) return; dirty = false; sec = el.dataset.q || el.dataset.go; draw(); });
+    U.on(app, '[data-q], [data-go]', 'click', function (el, e) { e.preventDefault(); var go = function () { dirty = false; sec = el.dataset.q || el.dataset.go; draw(); }; if (dirty) U.confirm('Unsaved Changes', '<p class="cf">Leave without saving these changes?</p>', 'Leave', go, { cancel: 'Stay' }); else go(); });
     U.on(app, '#save', 'click', function () { if (commit()) { draw(); U.toast('Settings saved.'); } });
     U.on(app, '#discard', 'click', function () { dirty = false; draw(); U.toast('Changes discarded.'); });
     U.on(app, '#addloc', 'click', function (a, e) { e.preventDefault(); U.form('Add location', [{ k: 'name', label: 'Name', req: 1 }, { k: 'pos', label: 'Place of service', type: 'select', options: ['11 Office', '02 Telehealth', '22 Outpatient hospital'] }, { k: 'addr', label: 'Address', span: 2, req: 1 }, { k: 'phone', label: 'Phone' }, { k: 'hours', label: 'Hours', ph: 'Mon to Fri 8 to 5' }], {}, function (v) { S.locations.push(v); D.log('Location added: ' + v.name); D.save(); draw(); }); });
@@ -463,7 +463,7 @@
     U.on(app, '#addprov', 'click', function (a, e) { e.preventDefault(); V.staffForm(null, function () { draw(); }, sec === 'prov'); });
     U.on(app, '[data-estaff]', 'click', function (b) { V.staffForm(D.staff(b.dataset.estaff), function () { draw(); }); });
     U.on(app, '[data-acc]', 'change', function (s) { D.staff(s.dataset.acc).access = s.value; D.save(); });
-    U.on(app, '#addlist', 'click', function (a, e) { e.preventDefault(); var n = prompt('Name'); if (!n) return; (sec === 'nt' ? S.templates : S.ordersets).push(n); D.save(); draw(); });
+    U.on(app, '#addlist', 'click', function (a, e) { e.preventDefault(); U.ask(sec === 'nt' ? 'New Note Template' : 'New Order Set', 'Name', '', function (n) { (sec === 'nt' ? S.templates : S.ordersets).push(n); D.save(); draw(); }, { ok: 'Add' }); });
     U.on(app, '[data-dlist]', 'click', function (b) { (sec === 'nt' ? S.templates : S.ordersets).splice(+b.dataset.dlist, 1); D.save(); draw(); });
     U.on(app, '[data-int]', 'click', function (b) { var x = S.integrations[+b.dataset.int]; x.on = !x.on; x.sync = x.on ? D.us(D.today()) : ''; D.log(x.name + (x.on ? ' marked connected' : ' disconnected')); D.save(); draw(); });
     var feeEdit = function (attr, fn) { U.on(app, '[' + attr + ']', 'change', function (i) { fn(S.fees[+i.getAttribute(attr)], i.value.trim()); D.save(); }); };
@@ -472,10 +472,10 @@
     U.on(app, '#addfee', 'click', function (a, e) { e.preventDefault(); U.form('Add fee', [{ k: 'code', label: 'CPT / HCPCS', req: 1 }, { k: 'rate', label: 'Rate', type: 'number', step: '0.01', req: 1 }, { k: 'desc', label: 'Description', span: 2 }], {}, function (v) { if (S.fees.some(function (f) { return f.code === v.code.toUpperCase(); })) return 'That code is already on the schedule.'; S.fees.push({ code: v.code.toUpperCase(), desc: v.desc, rate: +v.rate }); D.save(); draw(); }); });
     U.on(app, '[data-nf]', 'change', function (c) { S.notify[c.dataset.nf] = c.checked; D.save(); });
     U.on(app, '#loadsample', 'click', function () { V.loadSample(); });
-    U.on(app, '#clearsample', 'click', function () { if (confirm('Remove the sample patients, visits and claims?')) V.clearSample(); });
+    U.on(app, '#clearsample', 'click', function () { U.confirm('Remove Sample Data', '<p class="cf">Remove the sample patients, visits and claims? Your own records stay.</p>', 'Remove', function () { V.clearSample(); }, { danger: 1 }); });
     U.on(app, '#backup', 'click', function () { U.download('althais-preview-backup-' + D.today() + '.json', JSON.stringify(S), 'application/json'); });
-    U.on(app, '#restore', 'click', function () { U.pickFile('.json,application/json', false, function (f) { U.readFile(f[0], true).then(function (t) { try { var x = JSON.parse(t); if (x.v !== 1 || !x.patients) throw 0; if (!confirm('Replace everything in this browser with this backup?')) return; localStorage.setItem(D.KEY, t); location.reload(); } catch (e) { U.toast('That file isn’t an Althais preview backup.'); } }); }); });
-    U.on(app, '#wipe', 'click', function () { if (prompt('This deletes every patient, visit, claim and setting in this browser. Type DELETE to confirm.') !== 'DELETE') return; D.reset(); location.href = '/v4/overview'; });
+    U.on(app, '#restore', 'click', function () { U.pickFile('.json,application/json', false, function (f) { U.readFile(f[0], true).then(function (t) { try { var x = JSON.parse(t); if (x.v !== 1 || !x.patients) throw 0; U.confirm('Restore Backup', '<p class="cf">Replace everything in this browser with this backup?</p>', 'Restore', function () { localStorage.setItem(D.KEY, t); location.reload(); }, { danger: 1 }); } catch (e) { U.toast('That file isn’t an Althais preview backup.'); } }); }); });
+    U.on(app, '#wipe', 'click', function () { U.ask('Delete All Data', 'Type DELETE to confirm', '', function () { D.reset(); location.href = '/v4/overview'; }, { ok: 'Delete Everything', danger: 1, must: 'DELETE', html: '<p class="cf" style="margin-bottom:10px">This deletes every patient, visit, claim and setting in this browser.</p>' }); });
     window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
   };
 

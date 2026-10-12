@@ -511,8 +511,14 @@
   U.on(document.body, '[data-approvebuilt]', 'click', function (b) {
     var c = D.claim(b.dataset.approvebuilt), pr = c && c.proposal; if (!pr) return;
     var who = (D.staff(c.prov) || {}).name || S.clinic.user;
-    if (!confirm('Approve this claim as ' + who + '?\n\nCodes: ' + pr.codes.map(function (x) { return x.code; }).join(', ') + (pr.adds.length ? '\n' + pr.adds.length + ' addition(s) to the record, each quoting the visit.' : '') + '\nClaim check: ' + pr.score + '%. It is sent once approved.')) return;
+    var sc = V.scoreColor(pr.score);
+    U.modal('Approve Claim', '<div class="so"><div class="so-who">Approving as <b>' + E(who) + '</b> · ' + E(c.id) + ' · ' + E(D.payer(c) || '') + '</div>' +
+      '<div class="so-sec"><div class="so-h">Claim</div><div class="so-score"><b class="s-' + sc + '">' + pr.score + '%</b><div class="so-bar"><i style="width:' + pr.score + '%;background:var(--' + sc + ')"></i></div><span>likelihood of acceptance</span></div>' +
+      '<div class="so-codes">' + pr.codes.map(function (x) { return '<div class="so-code"><b>' + E(x.code) + (x.mod ? '-' + E(x.mod) : '') + '</b><span>' + E(x.desc || '') + '</span></div>'; }).join('') + '</div></div>' +
+      (pr.adds.length ? '<div class="so-sec"><div class="so-h">Added to the record<span>' + pr.adds.length + '</span></div><div class="so-adds">' + pr.adds.map(function (a) { return '<div class="so-add"><em>' + E(a.section || '') + '</em><div>' + E(a.text) + (a.source_quote ? '<small title="' + E(a.source_quote) + '">“' + E(a.source_quote) + '”</small>' : '') + '</div></div>'; }).join('') + '</div></div>' : '') +
+      '<div class="so-foot">The claim is sent once approved.</div></div>', [['Cancel', '', function () {}], ['Approve Claim', 'pri', function () {
     var ctx = { enc: D.enc(c.encId), claim: c, mrn: c.mrn, dos: c.dos, prov: c.prov, payer: D.payer(c), note: c.note || '' };
-    V.approveBuilt({ ctx: ctx, codes: pr.codes, adds: pr.adds, check: pr.check }, who, V.refresh);
+      V.approveBuilt({ ctx: ctx, codes: pr.codes, adds: pr.adds, check: pr.check }, who, V.refresh);
+    }]], { width: 540 });
   });
 })();

@@ -57,7 +57,7 @@
   try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
   if (!S || S.v !== 1) { S = blank(); if (me.organization) S.clinic.name = me.organization; }
   D.S = S; D.KEY = KEY;
-  D.save = function () { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { alert('This browser could not save. Storage may be full (large uploads).'); } };
+  D.save = function () { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { (window.U && U.toast ? U.toast : alert)('This browser could not save. Storage may be full (large uploads).'); } };
   D.reset = function () { localStorage.removeItem(KEY); };
   D.id = function (p) { S.seq.n++; D.save(); return p + S.seq.n; };
   D.log = function (text) { S.log.unshift({ at: new Date().toISOString(), text: text }); S.log = S.log.slice(0, 200); D.save(); };

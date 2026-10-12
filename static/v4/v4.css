@@ -212,7 +212,19 @@ input, select, textarea { font: inherit; color: var(--t); }
 .fax { margin: 12px; background: #fff; border: 1px solid var(--b); padding: 22px 24px; min-height: calc(100% - 24px); line-height: 1.55; }
 .fax-h { display: flex; justify-content: space-between; border-bottom: 2px solid var(--t); padding-bottom: 8px; margin-bottom: 12px; }
 .fax p { margin: 0 0 10px; }
-.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--t); color: #fff; padding: 8px 14px; border-radius: 2px; font-size: 12.5px; z-index: 50; }
+.toasts { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; width: 360px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid var(--b); border-left: 3px solid var(--blue); padding: 10px 8px 10px 12px; font-size: 12.5px; color: var(--t); cursor: pointer; animation: toast-in .18s ease-out; }
+.toast.t-ok { border-left-color: var(--grn); } .toast.t-warn { border-left-color: var(--amb); background: var(--amb-bg); } .toast.t-busy { border-left-color: var(--blue); background: var(--brand-50); }
+.toast.out { opacity: 0; transform: translateX(12px); transition: opacity .18s, transform .18s; }
+.toast-i { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; display: flex; }
+.toast-m { flex: 1; line-height: 1.45; }
+.toast-m small { display: block; color: var(--m); font-size: 11.5px; margin-top: 2px; }
+.toast-x { border: 0; background: none; padding: 2px; color: var(--m); cursor: pointer; flex-shrink: 0; line-height: 0; }
+.toast-x:hover { color: var(--t); }
+.toast-spin { width: 14px; height: 14px; margin: 1px; border: 2px solid var(--sel); border-top-color: var(--blue); border-radius: 50%; animation: toast-spin .7s linear infinite; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes toast-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .toast, .toast-spin { animation: none; } .toast.out { transition: none; } }
 
 /* ---- working preview additions ---- */
 .hd-user { color: #fff; } .hd-user:hover { text-decoration: none; }
@@ -220,7 +232,7 @@ input, select, textarea { font: inherit; color: var(--t); }
 .hd-res a { display: block; padding: 6px 10px; color: var(--t); font-size: 12.5px; }
 .hd-res a:hover { background: var(--hover); text-decoration: none; }
 .mdl-wrap { position: fixed; inset: 0; background: rgba(28,39,51,.35); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding-top: 9vh; }
-.mdl { width: 560px; max-width: calc(100vw - 32px); max-height: 82vh; background: #fff; border: 1px solid var(--b); display: flex; flex-direction: column; }
+.mdl { width: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 9vh - 16px); background: #fff; border: 1px solid var(--b); display: flex; flex-direction: column; }
 .mdl.wide { width: 760px; }
 .mdl-h { height: 34px; flex-shrink: 0; background: var(--ph); border-bottom: 1px solid var(--b); display: flex; align-items: center; padding: 0 6px 0 12px; font-weight: 600; font-size: 13px; }
 .mdl-x { margin-left: auto; border: 0; background: none; cursor: pointer; padding: 4px; color: var(--t2); }
@@ -300,3 +312,40 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 .st .n { background: var(--blue); }
 
 .codes-scroll { max-height: 210px; overflow-y: auto; border: 1px solid var(--b2); }
+
+/* in-app confirm / input dialogs (replace the browser's popups) */
+.btn.pri.danger { background: var(--red); border-color: var(--red); color: #fff; }
+.ask-l { display: block; font-size: 12px; color: var(--t2); margin-bottom: 4px; }
+.mdl #ask-v { height: 30px; border: 1px solid var(--b); padding: 0 8px; }
+.mdl #ask-v:focus { outline: 2px solid var(--sel); border-color: var(--blue); }
+.mdl-b p.cf { margin: 0; color: var(--t2); line-height: 1.5; }
+
+/* sign-off dialog: roomy but fits a laptop screen */
+.so { display: flex; flex-direction: column; gap: 12px; }
+.so-who { color: var(--t2); font-size: 12.5px; }
+.so-who b { color: var(--t); font-weight: 600; }
+.so-sec { border: 1px solid var(--b); }
+.so-h { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px; background: var(--ph); border-bottom: 1px solid var(--b2); font-weight: 600; font-size: 12px; text-transform: capitalize; }
+.so-h span { margin-left: auto; font-weight: 400; color: var(--m); text-transform: none; }
+.so-score { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--b2); }
+.so-score > b { font-size: 20px; font-weight: 600; min-width: 52px; }
+.so-score .so-bar { flex: 1; }
+.so-score span { color: var(--t2); font-size: 12px; white-space: nowrap; }
+.so-bar { height: 6px; background: var(--b2); }
+.so-bar i { display: block; height: 6px; }
+.so-codes { padding: 6px 0; }
+.so-code { display: flex; gap: 14px; padding: 4px 12px; align-items: baseline; }
+.so-code b { font-family: var(--mono); font-size: 12.5px; min-width: 60px; }
+.so-code span { color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.so-tot { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 12px; border-top: 1px solid var(--b2); background: var(--zebra); }
+.so-tot span { color: var(--t2); }
+.so-tot b { font-size: 15px; font-weight: 600; }
+.so-warn { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--amb-bg); color: var(--amb); border-top: 1px solid var(--amb-line); }
+.so-sec > .so-warn:first-child { border-top: 0; }
+.so-adds { max-height: 168px; overflow: auto; }
+.so-add { display: flex; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--b2); }
+.so-add:first-child { border-top: 0; }
+.so-add em { font-style: normal; font-size: 11.5px; color: var(--blue); text-transform: capitalize; min-width: 70px; padding-top: 1px; }
+.so-add div { min-width: 0; flex: 1; line-height: 1.45; }
+.so-add small { display: block; color: var(--m); font-size: 11.5px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.so-foot { color: var(--m); font-size: 11.5px; }

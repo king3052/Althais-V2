@@ -268,15 +268,15 @@
     U.on(app, '[data-act]', 'click', function (b) {
       var a = A(); if (!a) return; var act = b.dataset.act, p = D.pt(a.mrn);
       if (act === 'checkin') { a.visit = 'Checked in'; a.arrived = D.time(); D.log(p.name + ' checked in'); }
-      else if (act === 'room') { var r = prompt('Room', a.room || 'Exam 1'); if (!r) return; a.room = r; a.visit = 'In room'; D.log(p.name + ' roomed, ' + r); }
+      else if (act === 'room') return U.ask('Room Patient', 'Room for ' + p.name, a.room || 'Exam 1', function (r) { a.room = r; a.visit = 'In room'; D.log(p.name + ' roomed, ' + r); D.save(); draw(); }, { ok: 'Room Patient' });
       else if (act === 'visit') return V.startVisit(a.mrn, a.id);
       else if (act === 'checkout') { a.visit = 'Checked out'; D.log(p.name + ' checked out'); }
       else if (act === 'noshow') { a.visit = 'No show'; D.log(p.name + ' no show'); }
-      else if (act === 'cancel') { if (!confirm('Cancel this appointment?')) return; a.visit = 'Cancelled'; D.log('Appointment cancelled: ' + p.name); }
+      else if (act === 'cancel') return U.confirm('Cancel Appointment', '<p class="cf">Cancel ' + E(p.name) + '’s appointment at ' + E(a.time || '') + '?</p>', 'Cancel Appointment', function () { a.visit = 'Cancelled'; D.log('Appointment cancelled: ' + p.name); D.save(); draw(); }, { danger: 1, cancel: 'Keep' });
       else if (act === 'edit') return V.apptForm(a, function () { draw(); });
       else if (act === 'editpt') return V.patientForm(p, function () { draw(); });
       else if (act === 'elig') { if (!p.payer || p.payer === 'Self-pay' || !p.member) return U.toast('Add the payer and member ID first.'); p.eligChecked = D.today(); D.log('Eligibility marked checked: ' + p.name); U.toast('Marked checked. (No clearinghouse is connected in this preview, so nothing was sent to ' + p.payer + '.)'); }
-      else if (act === 'collect') { var amt = parseFloat(prompt('Payment received from patient', p.balance.toFixed(2))); if (!(amt > 0)) return; p.balance = Math.max(0, +(p.balance - amt).toFixed(2)); D.log('Patient payment ' + M(amt) + ': ' + p.name); }
+      else if (act === 'collect') return U.ask('Collect Payment', 'Amount received from ' + p.name + ' (balance ' + M(p.balance) + ')', p.balance.toFixed(2), function (v) { var amt = parseFloat(v); if (!(amt > 0)) return U.toast('Enter an amount above $0.'); p.balance = Math.max(0, +(p.balance - amt).toFixed(2)); D.log('Patient payment ' + M(amt) + ': ' + p.name); D.save(); draw(); }, { ok: 'Record Payment', type: 'number', step: '0.01' });
       D.save(); draw();
     });
   };
@@ -473,7 +473,7 @@
     U.on(app, '#switch', 'click', function () { V.pickPatient('Switch patient', function (m) { location.href = '/v4/emr/documents?mrn=' + m; }); });
     U.on(app, '#upload', 'click', function () { V.upload(mrn, function (r) { sel = r.id; draw(); }); });
     U.on(app, '#savedoc', 'click', function () { var d = cur(); Object.assign(d, U.values(app.querySelector('.main > section:last-child .dp-sec'))); D.log('Document updated: ' + d.name); D.save(); draw(); U.toast('Saved.'); });
-    U.on(app, '#deldoc', 'click', function () { var d = cur(); if (!confirm('Delete ' + d.name + '?')) return; S.docs = S.docs.filter(function (x) { return x !== d; }); D.S.docs = S.docs; D.log('Document deleted: ' + d.name); D.save(); draw(); });
+    U.on(app, '#deldoc', 'click', function () { var d = cur(); U.confirm('Delete Document', '<p class="cf">Delete ' + E(d.name) + '? This can’t be undone.</p>', 'Delete', function () { S.docs = S.docs.filter(function (x) { return x !== d; }); D.S.docs = S.docs; D.log('Document deleted: ' + d.name); D.save(); draw(); }, { danger: 1 }); });
     U.on(app, '#dl', 'click', function () { var d = cur(); if (!d) return U.toast('Select a document.'); if (!d.data) return U.toast('Only the details of this file were saved, so it can’t be downloaded here.'); var a = document.createElement('a'); a.href = d.data; a.download = d.file || d.name; a.click(); });
     U.on(app, '#printdoc', 'click', function () { var d = cur(); if (!d || !d.data) return window.print(); var w = window.open(''); w.document.write(/^image\//.test(d.mime) ? '<img src="' + d.data + '" style="max-width:100%">' : '<iframe src="' + d.data + '" style="width:100%;height:100vh;border:0"></iframe>'); setTimeout(function () { w.print(); }, 400); });
     U.on(app, '[data-recv]', 'click', function (b) { var r = S.requests.filter(function (x) { return x.id === b.dataset.recv; })[0]; r.status = 'Received'; D.save(); draw(); });

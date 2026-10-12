@@ -118,7 +118,7 @@
   U.modal = function (title, body, buttons, o) {
     o = o || {};
     var w = document.createElement('div'); w.className = 'mdl-wrap';
-    w.innerHTML = '<div class="mdl' + (o.wide ? ' wide' : '') + '"' + (o.width ? ' style="width:' + o.width + 'px;max-height:94vh"' : '') + ' role="dialog" aria-modal="true"><div class="mdl-h">' + U.esc(title) + '<button type="button" class="mdl-x" aria-label="Close">' + U.I.x + '</button></div><div class="mdl-b">' + body + '</div>' +
+    w.innerHTML = '<div class="mdl' + (o.wide ? ' wide' : '') + '"' + (o.width ? ' style="width:' + o.width + 'px"' : '') + ' role="dialog" aria-modal="true"><div class="mdl-h">' + U.esc(title) + '<button type="button" class="mdl-x" aria-label="Close">' + U.I.x + '</button></div><div class="mdl-b">' + body + '</div>' +
       '<div class="dp-f">' + (buttons || []).map(function (b, i) { return '<button type="button" class="btn ' + (b[1] || '') + '" data-mb="' + i + '">' + U.esc(b[0]) + '</button>'; }).join('') + '</div></div>';
     var close = function () { w.remove(); document.removeEventListener('keydown', esc); };
     var esc = function (e) { if (e.key === 'Escape') close(); };
@@ -126,6 +126,25 @@
     w.addEventListener('click', function (e) { if (e.target === w || e.target.closest('.mdl-x')) close(); var b = e.target.closest('[data-mb]'); if (b) { var r = buttons[+b.dataset.mb][2](close, w); if (r !== false) close(); } });
     document.body.appendChild(w);
     var f = w.querySelector('input:not([type=hidden]):not([readonly]),select,textarea'); if (f) f.focus();
+    return w;
+  };
+  // in-app replacements for the browser's confirm() / prompt(): same look as every other dialog
+  // U.confirm(title, html, okLabel, onOk, {danger, cancel})
+  U.confirm = function (title, html, ok, fn, o) {
+    o = o || {};
+    return U.modal(title, html, [[o.cancel || 'Cancel', '', function () {}], [ok || 'OK', o.danger ? 'pri danger' : 'pri', function () { fn(); }]], { width: o.width || 440 });
+  };
+  // U.ask(title, label, default, onValue(text), {ok, ph, must: 'DELETE', type, html})
+  U.ask = function (title, label, def, fn, o) {
+    o = o || {};
+    var w = U.modal(title, (o.html || '') + '<label class="ask-l" for="ask-v">' + U.esc(label) + '</label><input id="ask-v" type="' + (o.type || 'text') + '"' + (o.step ? ' step="' + o.step + '"' : '') + ' value="' + U.esc(def == null ? '' : def) + '" placeholder="' + U.esc(o.ph || '') + '" style="width:100%"><div class="s-red" id="ask-err" style="margin-top:6px;font-size:12px"></div>',
+      [['Cancel', '', function () {}], [o.ok || 'Save', o.danger ? 'pri danger' : 'pri', function (close, w) {
+        var v = w.querySelector('#ask-v').value.trim();
+        if (!v || (o.must && v !== o.must)) { w.querySelector('#ask-err').textContent = o.must ? 'Type ' + o.must + ' to confirm.' : 'Enter a value.'; return false; }
+        fn(v);
+      }]], { width: o.width || 420 });
+    var inp = w.querySelector('#ask-v'); inp.select();
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); w.querySelector('[data-mb="1"]').click(); } });
     return w;
   };
   // fields: [{k, label, type, options, req, span, ph, help}]
@@ -165,7 +184,28 @@
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { var a = box.querySelector('a'); if (a) location.href = a.href; } });
     document.addEventListener('click', function (e) { if (!e.target.closest('.hd-search')) box.style.display = 'none'; });
   };
-  U.toast = function (msg) { var d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 3200); };
+  // toast(msg, kind?) kind: 'busy' | 'ok' | 'warn' | 'info' (guessed from the text when not given)
+  var TOAST_ICON = {
+    ok: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="7.5" fill="var(--grn)"/><path d="M4.6 8.3l2.2 2.2 4.6-4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    warn: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.2l7.3 13.3H.7z" fill="var(--amb)"/><path d="M8 6v3.6" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.9" r=".95" fill="#fff"/></svg>',
+    info: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="7.5" fill="var(--blue)"/><circle cx="8" cy="4.9" r="1" fill="#fff"/><path d="M8 7.3v4.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    busy: '<span class="toast-spin" aria-hidden="true"></span>' };
+  U.toast = function (msg, kind) {
+    msg = String(msg == null ? '' : msg);
+    kind = kind || (/still|one moment|building|checking|working|loading|sending|starting one/i.test(msg) ? 'busy'
+      : /^(signed|saved|approved|added|draft saved|settings saved|card saved|letter drafted|addendum signed|claim check done|re-checked|sample clinic (loaded|removed)|marked|you now|filled|changes discarded)/i.test(msg) ? 'ok'
+      : /first|enter |can’t|can't|couldn|isn’t|denied|must|empty|nothing|no patients|choose|select|already|only the|finish|paste|get /i.test(msg) ? 'warn' : 'info');
+    var box = document.querySelector('.toasts'); if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); document.body.appendChild(box); }
+    [].slice.call(box.children).forEach(function (o) { if (o.dataset.msg === msg) o.remove(); });   // the same message again replaces itself
+    var d = document.createElement('div'); d.className = 'toast t-' + kind; d.dataset.msg = msg;
+    var i = msg.indexOf(' ('), main = i > 0 && /\)\.?$/.test(msg) ? msg.slice(0, i) : msg, note = main === msg ? '' : msg.slice(i + 2).replace(/\)\.?$/, '');
+    d.innerHTML = '<span class="toast-i">' + TOAST_ICON[kind] + '</span><div class="toast-m">' + U.esc(main) + (note ? '<small>' + U.esc(note) + '</small>' : '') + '</div><button type="button" class="toast-x" aria-label="Dismiss">' + U.I.x + '</button>';
+    box.appendChild(d); while (box.children.length > 4) box.firstChild.remove();
+    var gone = function () { d.classList.add('out'); setTimeout(function () { d.remove(); }, 180); };
+    d.addEventListener('click', gone);
+    setTimeout(gone, Math.min(7000, 2800 + msg.length * 35));
+    return d;
+  };
   // sizes the pane area to the window under whatever chrome the page has (header, toolbar, banner, strip)
   U.fit = function () {
     var tb = document.querySelector('.tb'); if (tb) document.documentElement.style.setProperty('--tb-top', Math.round(tb.getBoundingClientRect().top + window.scrollY + 4) + 'px');   // Althea sits in the toolbar

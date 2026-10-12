@@ -255,7 +255,7 @@
       var x = edits().filter(function (y) { return y.id === b.dataset.apply; })[0]; if (!x) return;
       var k = x.id === 'MCR-CKD-003' ? 'a' : 'o'; e[k] = (e[k] ? e[k].replace(/\s+$/, '') + '\n' : '') + x.addendum; save(); D.log('Applied ' + x.id + ' to note: ' + p.name); draw(); scheduleCodes(300); U.toast('Added to the ' + (k === 'a' ? 'assessment' : 'objective') + '. Logged as approved by ' + S.clinic.user + '.');
     });
-    U.on(app, '[data-ignore]', 'click', function (b) { var r = prompt('Reason for ignoring ' + b.dataset.ignore + ' (kept with the claim):'); if (!r) return; e.ignored = e.ignored || {}; e.ignored[b.dataset.ignore] = r; save(); redrawRight(); scheduleAuto(true); });
+    U.on(app, '[data-ignore]', 'click', function (b) { U.ask('Ignore ' + b.dataset.ignore, 'Reason (kept with the claim)', '', function (r) { e.ignored = e.ignored || {}; e.ignored[b.dataset.ignore] = r; save(); redrawRight(); scheduleAuto(true); }, { ok: 'Ignore' }); });
     // orders
     U.on(app, '#addorder', 'click', function () { var v = U.values(app.querySelector('#midbody .dp-sec')); if (!v.name) return U.toast('Enter the order.'); v.status = 'Pending'; e.orders.push(v); save(); draw(); });
     U.on(app, '[data-del-order]', 'click', function (b) { e.orders.splice(+b.dataset.delOrder, 1); save(); draw(); });
@@ -300,8 +300,9 @@
     };
     U.on(app, '#save', 'click', function () { save(); D.log('Draft saved: ' + p.name); U.toast('Draft saved, ' + stamp() + '.'); });
     U.on(app, '#delete', 'click', function () {
-      if (!confirm('Delete this draft visit? This can’t be undone.')) return;
+      U.confirm('Delete Draft Visit', '<p class="cf">Delete this draft visit for ' + E(p.name) + '? This can’t be undone.</p>', 'Delete Draft', function () {
       S.encs.splice(S.encs.indexOf(e), 1); S.appts.forEach(function (a) { if (a.encId === e.id) { a.encId = ''; if (a.visit === 'In room') a.visit = 'Checked in'; } }); D.log('Draft deleted: ' + p.name); D.save(); location.href = '/v4/emr/schedule';
+      }, { danger: 1 });
     });
     U.on(app, '#sign', 'click', function () {
       if (REC.on) app.querySelector('#rec').click();
@@ -309,9 +310,23 @@
       if (auto.busy && !e.autoAt) return U.toast('Althea is still building the claim. One moment.');   // once built, a background re-check never blocks signing
       var adds = e.pendingAdds || [];
       var ed = edits(), cpt = e.codes.filter(function (c) { return c.state === 'acc' && c.type === 'CPT'; });
-      var msg = 'Sign this note' + (e.orders.length ? ' and ' + e.orders.length + ' order' + (e.orders.length === 1 ? '' : 's') : '') + ' as ' + S.clinic.user + '?' + (adds.length ? '\n\nAlthea’s ' + adds.length + ' note addition' + (adds.length === 1 ? '' : 's') + ' (each quoting the visit record) will be added.' : '') + (e.check ? '\nClaim check: ' + e.check.score + '%.' : '') +
-        (cpt.length ? '\n\nA claim will be created' + (ed.length ? ' and held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve' : ' and checked') + '.' : '\n\nNo CPT code is accepted, so no claim will be created.');
-      if (!confirm(msg)) return;
+      var dx = e.codes.filter(function (c) { return c.state === 'acc' && c.type !== 'CPT'; }), k = e.check, pc = preview();
+      var row = function (c) { return '<div class="so-code"><b>' + E(c.code) + (c.mod ? '-' + E(c.mod) : '') + '</b><span>' + E(c.desc && c.desc !== c.code ? c.desc : '') + '</span></div>'; };
+      var col = k ? V.scoreColor(k.score) : 'mut';
+      var body = '<div class="so">' +
+        '<div class="so-who">Signing as <b>' + E(S.clinic.user) + '</b> · ' + E(p.name) + ' · ' + E(D.us ? D.us(e.date) : e.date) + '</div>' +
+        (cpt.length ? '<div class="so-sec"><div class="so-h">Claim</div>' +
+          (k ? '<div class="so-score"><b class="s-' + col + '">' + k.score + '%</b><div class="so-bar"><i style="width:' + k.score + '%;background:var(--' + col + ')"></i></div><span>' + (k.score >= 85 ? 'Ready to submit' : k.score >= 65 ? 'Some risk' : 'Not ready') + '</span></div>' : '') +
+          '<div class="so-codes">' + cpt.map(row).join('') + dx.map(row).join('') + '</div>' +
+          '<div class="so-tot"><span>Estimated charge</span><b>' + U.money(D.charge(pc)) + '</b></div>' +
+          (ed.length ? '<div class="so-warn">' + U.warn + 'Held with ' + ed.length + ' edit' + (ed.length === 1 ? '' : 's') + ' to resolve.</div>' : '') + '</div>'
+          : '<div class="so-sec"><div class="so-warn">' + U.warn + 'No visit code, so no claim will be created.</div></div>') +
+        (adds.length ? '<div class="so-sec"><div class="so-h">Added to the note<span>' + adds.length + ', quoted from the visit</span></div><div class="so-adds">' + adds.map(function (a) {
+          return '<div class="so-add"><em>' + E(a.section) + '</em><div>' + E(a.text) + (a.source_quote ? '<small title="' + E(a.source_quote) + '">“' + E(a.source_quote) + '”</small>' : '') + '</div></div>'; }).join('') + '</div></div>' : '') +
+        (e.orders.length ? '<div class="so-sec"><div class="so-h">Orders<span>' + e.orders.length + '</span></div><div class="so-codes">' + e.orders.map(function (o) { return '<div class="so-code"><b>' + E(o.type || 'Order') + '</b><span>' + E(o.name || '') + '</span></div>'; }).join('') + '</div></div>' : '') +
+        '<div class="so-foot">Signing approves the note' + (cpt.length ? ' and the claim' : '') + ', recorded with your name and the time.</div></div>';
+      U.modal('Sign Note', body, [['Cancel', '', function () {}], [cpt.length ? 'Sign And Approve Claim' : 'Sign Note', 'pri', function () { doSign(); }]], { width: 540 });
+      function doSign() {
       adds.forEach(function (a) { var k = { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' }[a.section] || 'a'; e[k] = (e[k] ? String(e[k]).replace(/\s+$/, '') + '\n' : '') + a.text; });
       e.pendingAdds = [];
       e.status = 'Signed'; e.signedAt = new Date().toISOString(); e.signedBy = S.clinic.user; e.orders.forEach(function (o) { o.status = 'Signed'; });
@@ -324,6 +339,7 @@
       }
       D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save(); draw();
       U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits to resolve.' : ' is ready to submit.') : ''));
+      }
     });
   };
 
