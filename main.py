@@ -2236,25 +2236,8 @@ Spoken request: "{transcript}\""""
             "additionalProperties": False,
         }
 
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,  # this is intent classification, not creative generation
-                response_format={"type": "json_schema", "json_schema": {"name": "althea_response", "strict": True, "schema": althea_schema}},
-            )
-        except Exception:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-
-        text = response.choices[0].message.content.strip()
-        match = re.search(r"\{.*\}", text, re.S)
-        if match:
-            text = match.group(0)
-        result = json.loads(text)
+        # intent classification: the fast model (the stronger one if it's out of quota), off the event loop
+        result = await run_in_threadpool(_fast_json, prompt, althea_schema, "althea_response", FAST_MODEL)
 
         allowed_intents = set(intent_enum)
         if not isinstance(result, dict) or result.get("intent") not in allowed_intents:

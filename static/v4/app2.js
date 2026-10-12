@@ -175,7 +175,7 @@
     function draw() {
       var rec = REC.on ? '<span class="rec"><span class="dot"></span>Virtual SOAP <span id="clock">0:00</span></span>' : signed() ? '<span class="s-grn">' + I.check + 'Note signed</span>' : '<span class="mut">Draft</span>';
       app.innerHTML = U.header('encounter') + V.banner(e.mrn, rec + '<button class="btn" id="switch">Switch patient</button>') +
-        U.toolbar('Encounter ' + D.us(e.date), [['Edit note', 'pencil', { id: 'editnote' }], ['Orders', 'clip', { id: 'toorders' }], ['Message patient', 'chat', { id: 'msg' }], '|', ['Print', 'print', { id: 'print' }]],
+        U.toolbar('Encounter ' + D.us(e.date), [['Edit note', 'pencil', { id: 'editnote' }], ['Orders', 'clip', { id: 'toorders' }], ['Message patient', 'chat', { id: 'msg' }], '|', ['Print', 'print', { id: 'print' }], ['Import CSV', 'upload', { id: 'importcsv' }]],
           '<select class="mini" id="vtype"' + (signed() ? ' disabled' : '') + '>' + ['Office visit', 'Telehealth', 'New patient', 'Annual wellness', 'Procedure'].map(function (t) { return '<option' + (t === e.visitType ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</select>' +
           '<select class="mini" id="vprov"' + (signed() ? ' disabled' : '') + '>' + V.provOptions().map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === e.prov ? ' selected' : '') + '>' + E(o[1]) + '</option>'; }).join('') + '</select>') +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 470px">' + left() +

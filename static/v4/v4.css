@@ -358,6 +358,11 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 /* Althea: her mark plus a label, so it's clear she's there */
 html body #althea-fab .alt-launch { width: auto !important; height: 30px; padding: 0 12px 0 5px !important; gap: 7px !important; justify-content: flex-start;
   background: var(--brand-50) !important; border: 1px solid var(--blue) !important; color: var(--blue) !important; }
-html body #althea-fab .alt-launch::after { content: "Ask Althea"; font-size: 13px; font-weight: 600; white-space: nowrap; }
+html body #althea-fab .alt-launch::after { content: "Althea"; font-size: 13px; font-weight: 600; white-space: nowrap; }
 html body #althea-fab .alt-launch:hover { background: var(--sel) !important; }
-.tb { padding-right: 140px; }
+.tb { padding-right: 120px; }
+
+/* Althea's panel: compact, so she sits beside the work instead of over it */
+html body #althea-fab .alt-panel { width: 300px !important; max-height: 300px !important; font-size: 12.5px; }
+html body #althea-fab .alt-chips, html body #althea-fab .alt-note { display: none !important; }
+html body #althea-fab .alt-panel #althea-hello { font-size: 12.5px; line-height: 1.45; }

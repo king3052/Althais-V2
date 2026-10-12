@@ -245,7 +245,7 @@
         }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing booked.') + '</tbody>')) +
         '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + rows.length + ' of ' + all.length + '</span></div></section>';
       app.innerHTML = U.header('schedule') +
-        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }]]) +
+        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }], ['Import CSV', 'upload', { id: 'importcsv' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Providers', '', '', U.queue([
             { h: 'Day, ' + D.us(V.day).slice(0, 5), items: [{ key: 'all', label: 'All providers', n: all.length, color: 'blue' }].concat(provs.map(function (id) { return { key: 'p:' + id, label: D.provName(id), n: cnt(function (a) { return a.prov === id; }), color: 'lblue' }; })) },
@@ -336,7 +336,12 @@
     U.on(app, '#export', 'click', function () {
       U.download('patients-' + D.today() + '.csv', U.csv([['Name', 'MRN', 'DOB', 'Sex', 'Phone', 'Email', 'Address', 'Payer', 'Member ID', 'PCP', 'Balance', 'Status']].concat(S.patients.map(function (p) { return [p.name, p.mrn, p.dob, p.sex, p.phone, p.email, p.addr, p.payer, p.member, D.provName(p.pcp), p.balance, p.status || 'Active']; }))));
     });
-    U.on(app, '#import', 'click', function () {
+    U.on(app, '#import', 'click', function () { V.importPatients(draw); });
+  };
+
+  // import patients from another clinic's or EMR's CSV export (EMR toolbars and Patients); matches common column names
+  U.on(app, '#importcsv', 'click', function () { V.importPatients(V.refresh); });   // the EMR toolbars' Import CSV
+  V.importPatients = function (after) {
       U.modal('Import patients from CSV', '<p style="margin:0 0 8px">The first row must be headers. Recognized columns: <span class="mono">name</span> (or <span class="mono">last</span> and <span class="mono">first</span>), <span class="mono">dob</span>, <span class="mono">sex</span>, <span class="mono">phone</span>, <span class="mono">email</span>, <span class="mono">address</span>, <span class="mono">payer</span>, <span class="mono">member</span>.</p><p class="mut" style="margin:0">Dates as YYYY-MM-DD or MM/DD/YYYY.</p>',
         [['Download template', '', function () { U.download('patients-template.csv', 'last,first,dob,sex,phone,email,address,payer,member\nGarcia,Daniel,1984-03-27,M,(512) 555-0101,,,BCBS TX,XQB812004\n'); return false; }], ['Cancel', '', function () {}], ['Choose file', 'pri', function () {
           U.pickFile('.csv,text/csv', false, function (files) {
@@ -345,20 +350,21 @@
               var h = (rows.shift() || []).map(function (x) { return x.toLowerCase().replace(/[^a-z]/g, ''); }), col = function (r, names) { for (var i = 0; i < names.length; i++) { var k = h.indexOf(names[i]); if (k >= 0 && r[k]) return r[k]; } return ''; };
               var add = 0, skip = 0;
               rows.forEach(function (r) {
-                var name = col(r, ['name', 'patient', 'patientname']) || (col(r, ['last', 'lastname']) ? col(r, ['last', 'lastname']) + ', ' + col(r, ['first', 'firstname']) : '');
-                var dob = col(r, ['dob', 'dateofbirth', 'birthdate']); if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dob)) { var x = dob.split('/'); dob = x[2] + '-' + ('0' + x[0]).slice(-2) + '-' + ('0' + x[1]).slice(-2); }
+                var name = col(r, ['name', 'patient', 'patientname', 'fullname', 'patientfullname']) || (col(r, ['last', 'lastname', 'surname', 'patientlastname', 'familyname']) ? col(r, ['last', 'lastname', 'surname', 'patientlastname', 'familyname']) + ', ' + col(r, ['first', 'firstname', 'givenname', 'patientfirstname']) : '');
+                var dob = col(r, ['dob', 'dateofbirth', 'birthdate', 'birthday', 'patientdob']).trim(), x;
+                if ((x = dob.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/))) { var yy = x[3].length === 2 ? (+x[3] > +String(new Date().getFullYear()).slice(2) ? '19' : '20') + x[3] : x[3]; dob = yy + '-' + ('0' + x[1]).slice(-2) + '-' + ('0' + x[2]).slice(-2); }
+                else if ((x = dob.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/))) dob = x[1] + '-' + ('0' + x[2]).slice(-2) + '-' + ('0' + x[3]).slice(-2);
                 if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { skip++; return; }
                 name = V.splitName(name);
                 if (S.patients.some(function (p) { return p.name.toLowerCase() === name.toLowerCase() && p.dob === dob; })) { skip++; return; }
-                var payer = col(r, ['payer', 'insurance', 'primaryinsurance']); var match = D.PAYERS.filter(function (pp) { return pp.toLowerCase().indexOf(payer.toLowerCase()) === 0 && payer; })[0];
-                S.patients.push({ mrn: D.nextMrn(name), name: name, dob: dob, sex: (col(r, ['sex', 'gender'])[0] || 'X').toUpperCase(), phone: col(r, ['phone', 'phonenumber']), email: col(r, ['email']), addr: col(r, ['address', 'addr']), payer: match || payer || 'Self-pay', member: col(r, ['member', 'memberid', 'insuranceid']), pcp: '', balance: 0, status: 'New', created: D.today() });
+                var payer = col(r, ['payer', 'insurance', 'primaryinsurance', 'insurancename', 'primarypayer', 'carrier', 'plan']); var match = D.PAYERS.filter(function (pp) { return pp.toLowerCase().indexOf(payer.toLowerCase()) === 0 && payer; })[0];
+                S.patients.push({ mrn: D.nextMrn(name), name: name, dob: dob, sex: (col(r, ['sex', 'gender', 'patientsex'])[0] || 'X').toUpperCase(), phone: col(r, ['phone', 'phonenumber']), email: col(r, ['email']), addr: col(r, ['address', 'addr']), payer: match || payer || 'Self-pay', member: col(r, ['member', 'memberid', 'insuranceid', 'subscriberid', 'policynumber', 'policyid', 'memberno', 'idnumber']), pcp: '', balance: 0, status: 'New', created: D.today() });
                 add++;
               });
-              D.log('Imported ' + add + ' patients from CSV'); D.save(); draw(); U.toast(add + ' imported' + (skip ? ', ' + skip + ' skipped (missing name or DOB, or already on file)' : '') + '.');
+              D.log('Imported ' + add + ' patients from CSV'); D.save(); (after || V.refresh)(); U.toast(add + ' imported' + (skip ? ', ' + skip + ' skipped (missing name or DOB, or already on file)' : '') + '.');
             });
           });
         }]]);
-    });
   };
 
   /* ================= Patient chart ================= */
@@ -380,7 +386,7 @@
       var docs = S.docs.filter(function (d) { return d.mrn === mrn; }), up = S.appts.filter(function (a) { return a.mrn === mrn && a.date >= D.today() && ['Scheduled', 'Checked in'].indexOf(a.visit) >= 0; }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
       var sec = function (id, title, sub, cols, rows, empty, end) { return '<div id="' + id + '">' + U.sect(title, sub, U.grid(cols, rows, { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(cols.length, empty) + '</tbody>'), end) + '</div>'; };
       app.innerHTML = U.header('chart') + V.banner(mrn, '<button class="btn" id="msg">Message</button><button class="btn" id="switch">Switch patient</button><button class="btn pri" id="visit" style="display:inline-flex;align-items:center;gap:5px">' + I.mic + 'Start Visit</button>') +
-        U.toolbar('Patient chart', [['New note', 'pencil', { id: 'note' }], ['Orders', 'clip', { id: 'orders' }], ['Upload document', 'upload', { id: 'upload' }], '|', ['Print', 'print', { id: 'print' }], ['Export record', 'download', { id: 'export' }]]) +
+        U.toolbar('Patient chart', [['New note', 'pencil', { id: 'note' }], ['Orders', 'clip', { id: 'orders' }], ['Upload document', 'upload', { id: 'upload' }], '|', ['Print', 'print', { id: 'print' }], ['Import CSV', 'upload', { id: 'importcsv' }], ['Export record', 'download', { id: 'export' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Chart', '', '', U.queue([
             { h: 'Patient record', items: [{ key: 'notes', label: 'Clinical notes', n: encs.length, color: 'blue' }, { key: 'demo', label: 'Demographics', color: null }, { key: 'ins', label: 'Insurance', n: p.payer ? 1 : 0, color: null }] },
@@ -455,7 +461,7 @@
         : /pdf/.test(d.mime) ? '<iframe title="Preview" src="' + d.data + '" style="width:100%;height:100%;border:0;background:#fff"></iframe>'
         : /^text\//.test(d.mime) ? '<div class="fax"><pre style="white-space:pre-wrap;margin:0;font:12px var(--mono)">' + E(atob(d.data.split(',')[1] || '')) + '</pre></div>' : '<div class="fax"><p>' + E(d.file || d.name) + '</p><p class="mut">This file type can’t be previewed. Use Download.</p></div>';
       app.innerHTML = U.header('documents') + (mrn ? V.banner(mrn, '<button class="btn" id="switch">Switch patient</button><a class="btn" style="display:inline-flex;align-items:center" href="/v4/emr/documents">All patients</a>') : '') +
-        U.toolbar('Documents', [['Upload', 'upload', { pri: 1, id: 'upload' }], ['Request from patient', 'mail', { id: 'request' }], ['Send fax', 'fax', { id: 'fax' }], '|', ['Print', 'print', { id: 'printdoc' }], ['Download', 'download', { id: 'dl' }]]) +
+        U.toolbar('Documents', [['Upload', 'upload', { pri: 1, id: 'upload' }], ['Request from patient', 'mail', { id: 'request' }], ['Send fax', 'fax', { id: 'fax' }], '|', ['Print', 'print', { id: 'printdoc' }], ['Import CSV', 'upload', { id: 'importcsv' }], ['Download', 'download', { id: 'dl' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 420px">' +
           U.pane('Document types', '', '', U.queue([{ items: [{ key: 'All', label: 'All', n: all.length, color: 'blue' }].concat(types.map(function (t) { return { key: t, label: t, n: all.filter(function (x) { return x.type === t; }).length, color: null }; })) },
             { h: 'Status', items: [{ key: 'await', label: 'Awaiting signature', n: all.filter(function (x) { return x.status === 'Awaiting signature'; }).length, color: 'amb' }, { key: 'unfiled', label: 'Unfiled', n: all.filter(function (x) { return x.status === 'Unfiled'; }).length, color: 'gray' }] }], Q)) +

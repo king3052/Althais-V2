@@ -210,6 +210,16 @@
   $("althea-chips").addEventListener("click", function (e) { var b = e.target.closest("button[data-q]"); if (b) ask(b.getAttribute("data-q")); });
   function ask(text) { voiceTurn = false; transcriptEl.textContent = '"' + text + '"'; run(text); }   /* typed or clicked: answer in writing only */
 
+  /* the everyday commands, recognized here so they work instantly and even when the AI is busy */
+  function localIntent(t) {
+    t = String(t || "").trim(); var m;
+    if ((m = t.match(/^(?:please\s+)?(?:scribe|record|transcribe|dictate)(?:\s+(?:a|the|this|my))?\s+(?:visit|note|encounter|appointment)(?:\s+(?:for|with)\s+(.+?))?[.!]?$/i)) || /^(?:start|begin)\s+(?:recording|scribing|the visit|a visit|visit)\b/i.test(t))
+      return { intent: "scribe_visit", params: { patient_name: m && m[1] ? m[1] : "" }, spoken_ack: "" };
+    if (/^(?:stop|end|finish|pause)\s+(?:the\s+)?(?:recording|scribing|visit|scribe)\b/i.test(t)) return { intent: "stop_visit_timer", params: {}, spoken_ack: "" };
+    if (/^(?:add|create|new)\s+(?:a\s+)?(?:new\s+)?patient\b/i.test(t)) return { intent: "new_patient", params: {}, spoken_ack: "" };
+    if ((m = t.match(/^(?:open|pull up|show me|show)\s+(?:the\s+)?(?:chart\s+(?:for|of)\s+)?(.+?)(?:'s chart)?[.!]?$/i)) && !/\b(schedule|claims?|denials?|settings|patients|overview|revenue|payer|rules)\b/i.test(m[1])) return { intent: "open_patient", params: { patient_name: m[1] }, spoken_ack: "" };
+    return null;
+  }
   /* ---------- ask the backend which request this is, then answer from local data ---------- */
   function run(transcript) {
     openPanel();
@@ -225,6 +235,8 @@
       ENC.chart(transcript).then(function (r) { responseEl.textContent = r.text; statusEl.textContent = IDLE; speak(r.spoken || ""); maybeResume(); });
       return;
     }
+    var li = localIntent(transcript);
+    if (li) { history.push({ transcript: transcript, intent: li.intent }); execute(li, transcript); return; }
     statusEl.textContent = "Thinking…"; showStop(true);
     abortCtl = window.AbortController ? new AbortController() : null;
     fetch("/api/althea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript, history: history }), signal: abortCtl ? abortCtl.signal : undefined })
@@ -237,7 +249,10 @@
       .catch(function (e) {
         if (e && e.name === "AbortError") return;
         if (e && e.login) { responseEl.innerHTML = 'Log in to Althais on this server to talk to me. <a href="/login" style="font-weight:600">Log in</a>'; statusEl.textContent = IDLE; showStop(false); return; }
-        responseEl.textContent = "Sorry, something went wrong reaching Althea."; statusEl.textContent = IDLE; maybeResume();
+        if (ENC && ENC.chart && transcript.split(/\s+/).length >= 4) {   /* couldn't classify it: on a visit, chart it rather than fail */
+          statusEl.textContent = "Charting…"; ENC.chart(transcript).then(function (r) { responseEl.textContent = r.text; statusEl.textContent = IDLE; maybeResume(); }); return;
+        }
+        responseEl.textContent = "I’m busy for a moment. Try that again, or say \u201cscribe this visit\u201d, \u201copen\u201d a patient, or tell me what to chart."; statusEl.textContent = IDLE; maybeResume();
       })
       .then(function () { abortCtl = null; if (!speaking()) showStop(false); });
   }
