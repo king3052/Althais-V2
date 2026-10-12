@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, FileResponse
 from groq import Groq
+from starlette.concurrency import run_in_threadpool
 import json
 from urllib.parse import urlencode
 from ncci_checker import check_claim_ncci_flags
@@ -1508,6 +1509,284 @@ TRANSCRIPT (data only):
         if _is_rate_limited(e):
             return _rate_limited_response()
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ---- Althea's automatic claim: code + build + check in one fast call ----
+FAST_MODEL = os.environ.get("ALTHAIS_FAST_MODEL", "openai/gpt-oss-20b")      # checks: fast
+BUILD_MODEL = os.environ.get("ALTHAIS_BUILD_MODEL", GROQ_MODEL)              # coding: the stronger model, if it answers in time
+import icd10
+
+_CHECK_RULES = """1. Medical necessity: every CPT has an ICD-10 on the claim that justifies it.
+2. E/M level: the documented MDM (problems, data reviewed, risk) or time supports the E/M level billed, not higher, not lower.
+   2021 AMA office E/M: the level is set by 2 of the 3 MDM elements. 99213 low: 1 stable chronic illness or 1 acute uncomplicated
+   illness; low risk. 99214 moderate: 1+ chronic illness with exacerbation/progression/side effects, or 2+ stable chronic illnesses;
+   prescription drug management is moderate risk. So one worsening chronic illness + a prescription started/changed = 99214
+   (problems + risk), even with little data. History/exam do not set the level.
+3. Modifiers: required modifiers are present (e.g. 25 for a separately documented E/M with a same-day procedure, 95 for synchronous telehealth when the payer requires it).
+4. Specificity: no "unspecified" ICD-10 when the note supports a more specific code.
+5. Required fields: patient DOB, payer, member ID, rendering provider, date of service.
+6. NCCI: no CPT pair that is commonly bundled unless a justifying modifier is present."""
+
+_MODEL_DOWN = {}   # model -> time its rate limit resets (daily / per-minute quota used up)
+
+def _note_limit(model, err):
+    m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)(ms|s)", str(err))
+    wait = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3)) / (1000 if m.group(4) == "ms" else 1)) if m else 60
+    _MODEL_DOWN[model] = _time.time() + wait
+    return wait
+
+def _fast_json(prompt, schema, name, model=None, timeout=None):
+    """One structured answer (fast model unless told otherwise); retried once on a malformed reply."""
+    last = None
+    cl = client.with_options(timeout=timeout, max_retries=0) if timeout else client
+    model = model or FAST_MODEL
+    other = GROQ_MODEL if model != GROQ_MODEL else FAST_MODEL
+    up = lambda m: _MODEL_DOWN.get(m, 0) <= _time.time()
+    if not up(model) and up(other):
+        model, other = other, model   # this one is out of quota: use the other model
+    first = model
+    for attempt in range(3):
+        if attempt and last is not None and _is_rate_limited(last):
+            if up(other) and model != other:
+                model = other   # each model has its own limit: use the other one instead of waiting
+            else:               # both busy: wait out the shorter reset if it's brief, rather than failing the claim
+                wait = min(_MODEL_DOWN.get(first, 0), _MODEL_DOWN.get(other, 0)) - _time.time()
+                if wait > 8:
+                    break
+                _time.sleep(max(0, wait) + 0.3)
+                model = first if _MODEL_DOWN.get(first, 0) <= _MODEL_DOWN.get(other, 0) else other
+        elif attempt and (timeout or attempt > 1):
+            break
+        try:
+            try:
+                r = cl.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}], temperature=0, reasoning_effort="low",
+                    response_format={"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}})
+            except Exception as e:
+                if _is_rate_limited(e):
+                    raise
+                r = cl.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}], temperature=0, reasoning_effort="low")
+            t = (r.choices[0].message.content or "").strip()
+            if not t:
+                raise ValueError("empty reply")
+            m = re.search(r'\{.*\}', t, re.S)
+            return json.loads(m.group(0) if m else t)
+        except Exception as e:
+            last = e
+            print(f"ai {name} {model} failed: {str(e)[:160]}", flush=True)
+            if _is_rate_limited(e):
+                _note_limit(model, e)
+            if timeout and not _is_rate_limited(e):   # a timed call gets one try; the caller falls back
+                break
+    raise last
+
+_BUILD_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["codes", "note_additions", "unresolved"], "properties": {
+    "codes": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["code", "type", "description", "modifier", "units", "reason"],
+        "properties": {"code": {"type": "string"}, "type": {"type": "string", "enum": ["CPT", "ICD-10"]}, "description": {"type": "string"}, "modifier": {"type": "string"}, "units": {"type": "integer"}, "reason": {"type": "string"}}}},
+    "note_additions": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["section", "text", "source_quote"],
+        "properties": {"section": {"type": "string", "enum": ["subjective", "objective", "assessment", "plan"]}, "text": {"type": "string"}, "source_quote": {"type": "string"}}}},
+    "unresolved": {"type": "array", "items": {"type": "string"}}}}
+_CHECK_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["score", "flags", "missing"],
+    "properties": {"score": {"type": "integer"}, "flags": {"type": "array", "items": {"type": "string"}}, "missing": {"type": "array", "items": {"type": "string"}}}}
+
+def _claim_check(header, codes, note):
+    prompt = f"""You are a medical billing compliance reviewer. Score how likely this claim is to be paid without denial (0-100), checking:
+{_CHECK_RULES}
+A claim that passes all six with documentation that supports every code should score 90 or higher. Deduct only for real problems.
+Return JSON: score (integer), flags (specific issues, naming the code), missing (required items that are absent).
+
+Claim header: {header}
+Codes: {json.dumps([{k: c.get(k) for k in ("code", "type", "description", "modifier", "units")} for c in codes])}
+Visit note:
+<<<
+{note}
+>>>"""
+    try:
+        res = _fast_json(prompt, _CHECK_SCHEMA, "claim_check")
+    except Exception as e:   # the AI reviewer is busy: score by the rules a clearinghouse applies
+        print(f"claim check by rules: {str(e)[:120]}", flush=True)
+        low = header.lower()
+        missing = [f for f, pat in (("patient DOB", r"dob (?!not on file)"), ("member ID", r"member id (?!not on file)"), ("rendering provider", r"rendering provider (?!not on file)"), ("date of service", r"date of service (?!not on file)")) if not re.search(pat, low)]
+        res = {"score": max(0, 92 - 10 * len(missing)), "flags": [], "missing": missing, "by": "rules"}
+    res["score"] = max(0, min(100, int(res.get("score", 0))))
+    for pr in icd10.problems(codes):   # a code that isn't billable is rejected outright, whatever the model thought
+        res["missing"] = res.get("missing", []) + [pr["code"] + " is " + pr["issue"] + (" (" + ", ".join(o[0] for o in pr["options"][:4]) + ")" if pr["options"] else "")]
+        res["score"] = min(res["score"], 40)
+    cpts = [c.get("code", "") for c in codes if str(c.get("type", "")).upper().startswith("CPT")]
+    if len(cpts) == len(codes):   # no diagnosis: denied for medical necessity, whatever the model thought
+        res["missing"] = [m for m in res.get("missing", []) if "icd" not in m.lower() and "diagnos" not in m.lower()] + ["ICD-10 diagnosis code"]
+        res["score"] = min(res["score"], 20)
+    if not cpts:
+        res["missing"] = res.get("missing", []) + ["CPT/HCPCS service code"]
+        res["score"] = min(res["score"], 20)
+    ncci = check_claim_ncci_flags(cpts)
+    if ncci:
+        res["flags"] = [f for f in res.get("flags", []) if "ncci" not in f.lower() and "bundl" not in f.lower()] + ncci
+        hard = sum(1 for f in ncci if "no modifier" in f.lower())
+        res["score"] = max(0, res["score"] - hard * 15)
+    return res
+
+def _build_claim(note, transcript, header, visit, codes, last_check):
+    prompt = f"""You are a certified medical coder. Build the claim for this visit so it is paid on first submission, using ONLY what is documented.
+Rules:
+- Pick exactly one E/M (or the procedure codes) the documentation supports. Visit: {visit}. Use MDM (2021 AMA office E/M) or documented time; never higher or lower than supported.
+  MDM = 2 of 3: problems / data / risk. Straightforward 99212: 1 self-limited problem, minimal risk. Low 99213: 1 acute uncomplicated illness, or 1 stable chronic illness, or 2+ self-limited; low risk (OTC drugs).
+  Moderate 99214: 1+ chronic illness with exacerbation/progression, or 2+ stable chronic illnesses, or 1 acute illness with systemic symptoms; data such as reviewing/ordering 3 tests; prescription drug management = moderate risk.
+  High 99215: severe exacerbation or threat to life; drug therapy requiring intensive monitoring, decision about hospitalization. New patient: 99202-99205 on the same scale.
+- Every ICD-10 must be a billable ICD-10-CM 2026 code at full specificity (e.g. N18.31, not N18.3). Apply combination codes: hypertension + CKD = I12.x; diabetes + CKD = E11.22 with the N18 stage.
+- Add every ICD-10 the documentation supports, most specific first, so each CPT has a supporting diagnosis.
+- Add modifiers only when documented and required.
+- note_additions: short sentences restating facts ALREADY in the note or transcript in the form a payer reviewer needs (e.g. an explicit MDM summary, or an exam stated aloud in the transcript but not written). Each needs source_quote copied exactly from the NOTE or TRANSCRIPT. Never invent findings.
+- unresolved: problems the documentation cannot fix.
+The claim will be reviewed against:
+{_CHECK_RULES}
+Claim header: {header}
+Current codes: {json.dumps(codes)}
+Last review: {json.dumps(last_check or {})}
+Code-set problems to fix: {json.dumps(icd10.problems(codes) if codes else [])}
+NOTE:
+<<<
+{note}
+>>>
+TRANSCRIPT:
+<<<
+{transcript}
+>>>"""
+    has_dx = lambda r: any(c.get("code") and not str(c.get("type", "")).upper().startswith("CPT") for c in r.get("codes", []))
+    try:
+        res = _fast_json(prompt, _BUILD_SCHEMA, "claim_build", model=BUILD_MODEL, timeout=9)
+    except Exception:
+        res = {}
+    if not has_dx(res):   # no reply, or a reply without a diagnosis: the other model gets one try
+        try:
+            alt = _fast_json(prompt, _BUILD_SCHEMA, "claim_build", model=FAST_MODEL if BUILD_MODEL != FAST_MODEL else GROQ_MODEL, timeout=9)
+            if has_dx(alt) or not res:
+                res = alt
+        except Exception:
+            pass
+    res = {"codes": list(res.get("codes") or []), "note_additions": res.get("note_additions") or [], "unresolved": res.get("unresolved") or []}
+    if not has_dx(res):   # the AI coder didn't answer with a diagnosis: code the assessment by the ICD-10-CM index
+        res["codes"] += icd10.from_assessment(note)
+    norm = lambda t: re.sub(r"[^a-z0-9]+", " ", str(t).lower()).strip()
+    source = norm(note + " " + transcript)
+    res["note_additions"] = [a for a in res.get("note_additions", []) if len(norm(a.get("source_quote", ""))) >= 6 and norm(a.get("source_quote", "")) in source]
+    codes, rule_notes = icd10.clean([c for c in validate_codes([c for c in res.get("codes", []) if c.get("code")]) if c.get("format_valid", True)])
+    codes, header_notes = icd10.resolve_headers(codes, note + " " + transcript)
+    codes, sup_notes = icd10.supported(codes, note + " " + transcript)
+    codes, spec_notes = icd10.specify(codes, note)
+    spec_notes = sup_notes + spec_notes
+    header_notes += spec_notes
+    if header_notes:
+        codes, more = icd10.clean(codes)
+        rule_notes += header_notes + more
+    res["codes"], res["rule_notes"] = codes, rule_notes
+    return res
+
+_CHRONIC = ("E08", "E09", "E10", "E11", "E13", "E03", "E05", "E66", "E78", "I10", "I11", "I12", "I13", "I20", "I25", "I48", "I50",
+    "N18", "J44", "J45", "F31", "F32", "F33", "F41", "F90", "K21", "K50", "K51", "M05", "M06", "M17", "M81", "G20", "G35", "G40", "G43", "B20", "D50")
+_OTC = re.compile(r"acetaminophen|tylenol|ibuprofen|advil|motrin|naproxen|aleve|loratadine|cetirizine|fexofenadine|guaifenesin|saline|docusate|fluids", re.I)
+
+def _em_floor(codes, note, visit, notes, adds=None):
+    """2021 AMA office E/M: when the note shows moderate problems AND moderate risk (2 of 3 MDM elements), the visit is at
+    least 99214 / 99204. Raises an under-coded level only; never lowers one."""
+    dx = [str(c.get("code", "")).upper() for c in codes if not str(c.get("type", "")).upper().startswith("CPT")]
+    chronic = [d for d in dx if d[:3] in _CHRONIC]
+    text = note.lower()
+    worse = re.search(r"worsen|uncontrolled|not at goal|poorly controlled|progress|exacerbat|up from|rising|increased from|flare", text)
+    problems_mod = len(chronic) >= 2 or (chronic and worse)
+    plan = text.split("plan", 1)[-1] if "plan" in text else text
+    rx = [m for m in re.finditer(r"\b(start|add|begin|increase|decrease|titrate|switch|change|continue|refill|stop|discontinue|prescribe)\w*\b[^.\n]{0,60}?\d+(\.\d+)?\s*(mg|mcg|units|ml)\b", plan)]
+    risk_mod = any(not _OTC.search(m.group(0)) for m in rx)
+    new = "new" in visit.lower()
+    # ceiling: one acute uncomplicated problem, no drug (Rx or OTC), no tests = straightforward MDM (99212 / 99202)
+    otc = re.search(r"acetaminophen|tylenol|ibuprofen|advil|motrin|naproxen|aleve|loratadine|cetirizine|fexofenadine|guaifenesin|docusate|benzonatate|lozenge|antihistamine|decongestant|nasal spray", plan)
+    tests = re.search(r"\b(test|lab|labs|panel|x-?ray|cbc|bmp|cmp|a1c|culture|rapid|swab|urinalysis|\bua\b|ecg|ekg|imaging|ct|mri|ultrasound|ordered|reviewed)\b", text)
+    if not chronic and len(dx) <= 1 and not rx and not otc and not tests:
+        top, cap = ("99203", "99202") if new else ("99213", "99212")
+        if any(str(c.get("code")) == top for c in codes):
+            notes.append(top + " → " + cap + ": straightforward MDM (one acute uncomplicated problem, no drug management, no tests)")
+            return [dict(c, code=cap, description="Office/outpatient visit, " + ("new" if new else "established") + " patient, straightforward MDM", reason="Straightforward MDM: one acute uncomplicated problem, supportive care only") if str(c.get("code")) == top else c for c in codes]
+    if not (problems_mod and risk_mod):
+        return codes
+    floor = "99204" if new else "99214"
+    low = ("99202", "99203") if new else ("99211", "99212", "99213")
+    out = []
+    if adds is not None and any(str(c.get("code")) in low for c in codes):
+        q = rx[0].group(0).strip()
+        src = next((ln.strip() for ln in note.splitlines() if q.lower() in ln.lower()), "")
+        real = re.search(re.escape(q), note, re.I)
+        if real and not any("MDM" in a.get("text", "") for a in adds):
+            adds.append({"section": "assessment", "source_quote": real.group(0),
+                         "text": "MDM moderate: " + ("2+ chronic illnesses" if len(chronic) >= 2 else "chronic illness with progression") + " (" + ", ".join(chronic[:3]) + "); prescription drug management (" + real.group(0) + ")."})
+    for c in codes:
+        if str(c.get("code")) in low:
+            notes.append(c["code"] + " → " + floor + ": moderate MDM (" + ("2+ chronic illnesses" if len(chronic) >= 2 else "chronic illness worsening") + ", prescription drug management)")
+            c = dict(c, code=floor, description="Office/outpatient visit, " + ("new" if new else "established") + " patient, moderate MDM",
+                     reason="Moderate MDM: " + ("2+ chronic illnesses" if len(chronic) >= 2 else "chronic illness with progression") + " and prescription drug management")
+        out.append(c)
+    return out
+
+@app.post("/api/claim-auto")
+async def claim_auto(request: Request, user=Depends(require_role("provider")), db: Session = Depends(get_db)):
+    """Althea's claim for a visit, fast: code and build from the documentation, check it, and if it's under 90 build once more
+    from what the check found. Returns the best version. Nothing is invented: additions must quote the note or transcript."""
+    ensure_product(user, db, "coding")
+    ensure_area(user, "code_a_note")
+    t0 = _time.time()
+    try:
+        data = await request.json()
+        _ckey, _hit = _ai_cache_get("auto", data)
+        if _hit is not None:
+            return JSONResponse(_hit)
+        note = str(data.get("note") or "")[:20000]
+        transcript = str(data.get("transcript") or "")[:20000]
+        header = str(data.get("header") or "")[:1000]
+        visit = str(data.get("visit") or "office visit, established patient")
+        pinned = data.get("codes") or []
+        best = await run_in_threadpool(_claim_auto_work, note, transcript, header, visit, pinned, t0)
+        if best["check"]["score"] >= 90:   # only a finished claim is cached; anything else gets a fresh try next time
+            _ai_cache_put(_ckey, best)
+        return JSONResponse(best)
+    except Exception as e:
+        if _is_rate_limited(e):
+            return _rate_limited_response()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+def _claim_auto_work(note, transcript, header, visit, pinned, t0):
+    if True:
+        built = _build_claim(note, transcript, header, visit, pinned, None)
+        dxs = lambda cs: [c for c in cs if not str(c.get("type", "")).upper().startswith("CPT")]
+        if not dxs(built["codes"]):
+            again = _build_claim(note, transcript, header, visit, built["codes"], {"missing": ["ICD-10 diagnosis code(s): the last answer had none. Code every diagnosis in the ASSESSMENT."]})
+            if dxs(again["codes"]):
+                built = again
+        if icd10.problems(built["codes"]):   # a diagnosis that isn't billable: one targeted rebuild with the valid options
+            again = _build_claim(note, transcript, header, visit, built["codes"], {"missing": [p["code"] + " " + p["issue"] for p in icd10.problems(built["codes"])]})
+            ndx = lambda cs: sum(1 for c in cs if not str(c.get("type", "")).upper().startswith("CPT"))
+            if any(str(c.get("type", "")).upper() == "CPT" for c in again["codes"]) and len(icd10.problems(again["codes"])) < len(icd10.problems(built["codes"])) and ndx(again["codes"]) >= ndx(built["codes"]) - len(icd10.problems(built["codes"])):
+                again["note_additions"] = built["note_additions"] + [a for a in again["note_additions"] if a["text"] not in {x["text"] for x in built["note_additions"]}]
+                built = again
+        bad = {p["code"] for p in icd10.problems(built["codes"])}
+        if bad:
+            built["unresolved"] = built.get("unresolved", []) + [c + " was removed: not a billable ICD-10-CM code" for c in bad]
+            built["codes"] = [c for c in built["codes"] if c.get("code") not in bad]
+        codes = _em_floor(built["codes"], note, visit, built.setdefault("rule_notes", []), built["note_additions"])
+        if not any(str(c.get("type", "")).upper() == "CPT" for c in codes):
+            codes.insert(0, {"code": "99203" if "new" in visit.lower() else "99213", "type": "CPT", "description": "Office visit", "modifier": "", "units": 1, "reason": "Office visit for this visit type"})
+        full = note + "".join("\n" + a["text"] for a in built["note_additions"])
+        check = _claim_check(header, codes, full)
+        best = {"codes": codes, "note_additions": built["note_additions"], "unresolved": built.get("unresolved", []), "rule_notes": built.get("rule_notes", []), "check": check, "passes": 1}
+        if check["score"] < 90:
+            again = _build_claim(note, transcript, header, visit, codes, check)
+            again["codes"] = _em_floor(again["codes"], note, visit, again.setdefault("rule_notes", []), again["note_additions"])
+            if any(str(c.get("type", "")).upper() == "CPT" for c in again["codes"]) and not icd10.problems(again["codes"]) and any(not str(c.get("type", "")).upper().startswith("CPT") for c in again["codes"]):
+                adds = built["note_additions"] + [a for a in again["note_additions"] if a["text"] not in {x["text"] for x in built["note_additions"]}]
+                full2 = note + "".join("\n" + a["text"] for a in adds)
+                check2 = _claim_check(header, again["codes"], full2)
+                if check2["score"] > check["score"]:
+                    best = {"codes": again["codes"], "note_additions": adds, "unresolved": again.get("unresolved", []), "rule_notes": again.get("rule_notes", []), "check": check2, "passes": 2}
+        best["ms"] = int((_time.time() - t0) * 1000)
+        print(f"claim-auto {best['ms']}ms passes={best['passes']} score={best['check']['score']} codes={[c.get('code') for c in best['codes']]} first_check={check['score']} {check.get('flags', [])[:2]} {check.get('missing', [])[:2]}", flush=True)
+        return best
 
 
 @app.post("/api/appeal-letter")

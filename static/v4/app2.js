@@ -166,19 +166,19 @@
     var lastCoded = '', codeTimer = null, fails = 0;
     // Althea builds the claim on her own: picks the codes the note supports, applies payer-rule fixes found in the record,
     // and improves until the claim check is 90% or better. Note additions wait (each quoting its source) until the provider signs.
-    function autoKey() { return D.noteText(e) + '|' + (p.payer || '') + '|' + e.codes.map(function (c) { return c.code + (c.manual ? c.state : ''); }).join(','); }
+    function autoKey() { return D.noteText(e) + '|' + e.visitType + '|' + (p.payer || '') + '|' + e.codes.map(function (c) { return c.code + (c.manual ? c.state : ''); }).join(','); }
     function scheduleAuto(force) {
-      clearTimeout(auto.timer); if (signed() || !e.codes.length) return;
+      clearTimeout(auto.timer); if (signed() || (!e.codes.length && !noteHasText())) return;
       auto.timer = setTimeout(function () {
         if (auto.busy) { auto.again = true; return; }
-        var key = autoKey(); if (!force && e.autoKey === key && e.check && e.autoVer === 2) return;   // v2: every claim carries a visit code
+        var key = autoKey(); if (!force && e.autoKey === key && e.check && e.autoVer === 3) return;   // v3: one-call coding (claim-auto)
         auto.busy = true; auto.err = ''; redrawRight();
         var start = e.codes.filter(function (c) { return !(c.manual && c.state === 'rej'); }).map(function (c) { return { code: c.code, type: c.type, desc: c.desc, mod: c.mod || '', units: c.units || 1, reason: c.why || '' }; });
-        V.optimize({ enc: e, codes: start }).then(function (b) {
+        V.optimize({ enc: e, codes: start, pin: e.codes.filter(function (c) { return c.manual && c.state === 'acc'; }) }).then(function (b) {
           var picked = {}; b.codes.forEach(function (x) { picked[x.code] = x; });
           e.codes.forEach(function (c) { if (c.manual) return; var x = picked[c.code]; c.state = x ? 'acc' : 'rej'; if (x) { c.mod = x.mod || c.mod || ''; c.units = x.units || 1; if (x.reason) c.why = x.reason; } });
           b.codes.forEach(function (x) { if (!e.codes.some(function (c) { return c.code === x.code; })) e.codes.push({ code: x.code, desc: x.desc || x.code, type: x.type, conf: 0, why: x.reason || '', mod: x.mod || '', units: x.units || 1, state: 'acc', auto: true }); });
-          e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoVer = 2; e.autoAt = new Date().toISOString(); e.checkKey = '';
+          e.pendingAdds = b.adds; e.check = b.check; e.unresolved = b.unresolved; e.autoKey = autoKey(); e.autoVer = 3; e.autoAt = new Date().toISOString(); e.checkKey = '';
           if (b.error && !b.check) { if (/plan or role|Log in/.test(b.error)) auto.err = b.error; else { auto.retrying = true; setTimeout(function () { auto.retrying = false; scheduleAuto(true); }, /usage limit/.test(b.error) ? 60000 : 4000); } }   // not checked yet: try again on its own
           save();
         }).catch(function (x) { if (/plan or role|Log in/.test(x.message)) auto.err = x.message; else { auto.err = ''; setTimeout(function () { scheduleAuto(true); }, /usage limit/.test(x.message) ? 60000 : 4000); } })
@@ -204,6 +204,7 @@
       if (!(e.s + e.o + e.a + e.p).trim()) return U.toast('Write the note first.');
       if (busy) { scheduleCodes(1500); return; }
       var key = codeKey(); if (!force && key === lastCoded) return;
+      if (noteHasText()) { lastCoded = key; codeMsg = ''; e.codedAt = new Date().toISOString(); scheduleAuto(!!force); return; }   // one call codes, builds and checks the claim
       busy = true; codeMsg = ''; redrawRight();
       fetch('/api/code-note', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: D.noteText(e), encounter_type: 'office', is_new_patient: e.visitType === 'New patient', payer: p.payer || '', specialty: 'primary care / outpatient office' }) })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, s: r.status }; }); })

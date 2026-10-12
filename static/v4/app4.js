@@ -373,11 +373,32 @@
     }
     function check() { ensureEM(); var c = workClaim(ctx, codes, adds); var save = D.save; D.save = function () {}; return V.claimCheck(c, { tries: 2 }).then(function (k) { D.save = save; return k; }, function (e) { D.save = save; throw e; }); }
     function snapshot(k) { return { score: k.score, check: k, codes: JSON.parse(JSON.stringify(codes)), adds: JSON.parse(JSON.stringify(adds)), ctx: ctx }; }
-    var p0 = codes.length ? Promise.resolve() : (ctx.enc ? (say('Reading the note for codes', 'mut'), post('/api/code-note', { note: D.noteText(ctx.enc), encounter_type: 'office', payer: ctx.payer || '' }).then(function (j) {
+    // fast path: one server call codes, builds and checks the claim (official ICD-10-CM, combination codes, E/M by MDM)
+    var snap0 = V.claimSnap(workClaim(ctx, codes, adds)), noteNow = ctx.enc ? D.noteText(ctx.enc) : (ctx.note || '');
+    var header = 'patient ' + (snap0.patient || 'not on file') + ', DOB ' + (snap0.dob || 'not on file') + ', sex ' + (snap0.sex || 'not on file') + ', payer ' + (snap0.payer || 'not on file') + ', member ID ' + (snap0.insuredId || 'not on file') + ', rendering provider ' + (snap0.provider || 'not on file') + ', date of service ' + (snap0.svcDate || 'not on file') + ', place of service 11';
+    var fast = !String(noteNow).trim() ? Promise.resolve(null) : (say('Coding and building the claim', 'mut'), post('/api/claim-auto', { note: noteNow, transcript: transcript, header: header,
+        visit: ctx.enc && ctx.enc.visitType ? 'office visit, ' + ctx.enc.visitType : 'office visit, established patient', codes: (target.pin || (ctx.enc ? [] : codes)).map(function (c) { return { code: c.code, type: c.type, modifier: c.mod || '' }; }) })
+      .then(function (r) {
+        var nc = (r.codes || []).filter(function (c) { return c.code; });
+        if (!nc.some(function (c) { return /CPT/i.test(c.type); })) return null;
+        codes = nc.map(function (c) { return { code: String(c.code).toUpperCase(), type: /CPT/i.test(c.type) ? 'CPT' : 'ICD-10', desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.reason || '' }; });
+        say('Codes: ' + codes.map(function (c) { return c.code + (c.mod ? '-' + c.mod : ''); }).join(', '));
+        (r.rule_notes || []).forEach(function (t) { say('Coding rule: ' + t); });
+        (r.note_additions || []).forEach(function (a) { adds.push(a); say('Note addition (' + a.section + '), from: “' + a.source_quote + '”'); });
+        ctx.unresolved = r.unresolved || [];
+        ruleAdds();
+        var k = { score: Math.max(0, Math.min(100, Number(r.check && r.check.score) || 0)), flags: (r.check && r.check.flags) || [], missing: (r.check && r.check.missing) || [], at: new Date().toISOString() };
+        say('Claim check: ' + k.score + '% (' + ((r.ms || 0) / 1000).toFixed(1) + 's)', k.score >= TARGET ? '' : 'w');
+        best = snapshot(k);
+        return k;
+      }).catch(function () { return null; }));
+    var p0 = fast.then(function (k) { if (k) throw { done: k }; }).then(function () { return codes.length ? null : (ctx.enc ? (say('Reading the note for codes', 'mut'), post('/api/code-note', { note: D.noteText(ctx.enc), encounter_type: 'office', payer: ctx.payer || '' }).then(function (j) {
       codes = (j.codes || []).map(function (c) { return { code: c.code, type: /CPT/i.test(c.type || '') ? 'CPT' : 'ICD-10', desc: c.description || '', mod: c.modifier || '', units: c.units || 1, reason: c.justification || '' }; }); say('Coded the visit: ' + codes.map(function (c) { return c.code; }).join(', '));
-    })) : Promise.reject(new Error('This claim has no codes.')));
+    })) : Promise.reject(new Error('This claim has no codes.'))); });
     return p0.then(function () { ruleAdds(); if (adds.length) say('Payer rules: ' + adds.length + ' fix' + (adds.length === 1 ? '' : 'es') + ' found in the visit record'); say('Running the claim check', 'mut'); return check(); })
+      .catch(function (x) { if (x && x.done) return x.done.score >= TARGET ? { _best: true } : Object.assign(x.done, { _n: 3 }); throw x; })
       .then(function round(k, n) {
+        if (k && k._best) return best;
         n = n || 1; if (!best || k.score > best.score) best = snapshot(k);
         say('Claim check, pass ' + n + ': ' + k.score + '%', k.score >= TARGET ? '' : 'w');
         if (k.score >= TARGET || n >= 4) return best;
