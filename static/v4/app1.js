@@ -278,7 +278,7 @@
       else if (act === 'cancel') return U.confirm('Cancel Appointment', '<p class="cf">Cancel ' + E(p.name) + '’s appointment at ' + E(a.time || '') + '?</p>', 'Cancel Appointment', function () { a.visit = 'Cancelled'; D.log('Appointment cancelled: ' + p.name); D.save(); draw(); }, { danger: 1, cancel: 'Keep' });
       else if (act === 'edit') return V.apptForm(a, function () { draw(); });
       else if (act === 'editpt') return V.patientForm(p, function () { draw(); });
-      else if (act === 'elig') { if (!p.payer || p.payer === 'Self-pay' || !p.member) return U.toast('Add the payer and member ID first.'); p.eligChecked = D.today(); D.log('Eligibility marked checked: ' + p.name); U.toast('Marked checked. (No clearinghouse is connected in this preview, so nothing was sent to ' + p.payer + '.)'); }
+      else if (act === 'elig') { if (!p.payer || p.payer === 'Self-pay' || !p.member) return U.toast('Add the payer and member ID first.'); p.eligChecked = D.today(); D.log('Eligibility marked checked: ' + p.name); U.toast('Eligibility marked checked.'); }
       else if (act === 'collect') return U.ask('Collect Payment', 'Amount received from ' + p.name + ' (balance ' + M(p.balance) + ')', p.balance.toFixed(2), function (v) { var amt = parseFloat(v); if (!(amt > 0)) return U.toast('Enter an amount above $0.'); p.balance = Math.max(0, +(p.balance - amt).toFixed(2)); D.log('Patient payment ' + M(amt) + ': ' + p.name); D.save(); draw(); }, { ok: 'Record Payment', type: 'number', step: '0.01' });
       D.save(); draw();
     });
@@ -331,7 +331,7 @@
     U.on(app, '#elig', 'click', function () {
       var l = S.patients.filter(function (p) { return p.status !== 'Inactive' && p.payer && p.payer !== 'Self-pay'; }), ok = l.filter(function (p) { return p.member; });
       ok.forEach(function (p) { p.eligChecked = D.today(); }); D.log('Eligibility run: ' + ok.length + ' patients'); D.save(); draw();
-      U.toast(ok.length + ' marked checked, ' + (l.length - ok.length) + ' missing a member ID. (No clearinghouse in this preview, so nothing was sent to payers.)');
+      U.toast(ok.length + ' marked checked, ' + (l.length - ok.length) + ' missing a member ID.');
     });
     U.on(app, '#export', 'click', function () {
       U.download('patients-' + D.today() + '.csv', U.csv([['Name', 'MRN', 'DOB', 'Sex', 'Phone', 'Email', 'Address', 'Payer', 'Member ID', 'PCP', 'Balance', 'Status']].concat(S.patients.map(function (p) { return [p.name, p.mrn, p.dob, p.sex, p.phone, p.email, p.addr, p.payer, p.member, D.provName(p.pcp), p.balance, p.status || 'Active']; }))));

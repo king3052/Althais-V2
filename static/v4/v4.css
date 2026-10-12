@@ -354,3 +354,10 @@ html body #althea-fab .alt-panel { top: 34px; bottom: auto; }
 .hd-out { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-left: 2px; color: rgba(255,255,255,.9); font-size: 13px; border: 1px solid rgba(255,255,255,.28); }
 .hd-out:hover { color: #fff; background: rgba(0,0,0,.12); text-decoration: none; }
 .hd-out .ico { width: 14px; height: 14px; }
+
+/* Althea: her mark plus a label, so it's clear she's there */
+html body #althea-fab .alt-launch { width: auto !important; height: 30px; padding: 0 12px 0 5px !important; gap: 7px !important; justify-content: flex-start;
+  background: var(--brand-50) !important; border: 1px solid var(--blue) !important; color: var(--blue) !important; }
+html body #althea-fab .alt-launch::after { content: "Ask Althea"; font-size: 13px; font-weight: 600; white-space: nowrap; }
+html body #althea-fab .alt-launch:hover { background: var(--sel) !important; }
+.tb { padding-right: 140px; }

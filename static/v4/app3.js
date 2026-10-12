@@ -127,7 +127,7 @@
         (W.length ? '<span class="end"><button class="mini pri" id="signall">Sign All (' + W.length + ')</button></span>' : '') + '</div><div class="pbody">' + body + '</div>';
       app.innerHTML = U.header('claims') +
         U.toolbar('Claims', [['Submit selected', 'send', { pri: 1, id: 'subsel' }], ['New claim', 'plus', { id: 'newclaim' }], ['Re-scrub', 'check', { id: 'rescrub' }], '|', ['Print', 'print', { id: 'print' }], ['Export', 'download', { id: 'export' }], ['Import 837', 'upload', { id: 'imp' }]],
-          (S.integrations.filter(function (i) { return i.name === 'Availity'; })[0] || {}).on ? '<span class="dot grn"></span>Clearinghouse marked connected (preview: claims are not transmitted)' : '<span class="dot" style="background:var(--m)"></span>No clearinghouse: submitting is recorded here only') +
+          '') +
         '<div class="main" style="grid-template-columns:200px minmax(0,1fr) 400px">' +
           U.pane('Work queues', '', '', U.queue([
             { h: 'Before submission', items: [{ key: 'signoff', label: 'Waiting for sign-off', n: waiting().length, color: 'blue' }, { key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
