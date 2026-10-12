@@ -36,8 +36,9 @@
     function noteTab() {
       var ro = signed() ? ' readonly' : '', ed = function (k, label, rows, ph) { return '<h4>' + label + '</h4><textarea class="ed" data-n="' + k + '" rows="' + rows + '" placeholder="' + ph + '"' + ro + '>' + E(e[k] || '') + '</textarea>'; };
       var pend = (e.addenda || []).filter(function (a) { return !a.signed; });
-      return '<div class="banner-note">' + (signed() ? '<span class="s-grn">Signed by ' + E(e.signedBy) + ', ' + new Date(e.signedAt).toLocaleString('en-US') + '.</span> The note is locked; changes go in an addendum.' :
-        (REC.on ? '<span class="rec"><span class="dot"></span>Recording</span> · the transcript fills in as you talk. ' : '') + 'Draft. Not signed. ' + (SR ? '' : 'This browser can’t record speech; type the note or paste a transcript.')) + '</div>' +
+      var bn = signed() ? '<span class="s-grn">Signed by ' + E(e.signedBy) + ', ' + new Date(e.signedAt).toLocaleString('en-US') + '.</span> The note is locked; changes go in an addendum.' :
+        (REC.on ? '<span class="rec"><span class="dot"></span>Recording</span> · the transcript fills in as you talk. ' : '') + (SR ? '' : 'This browser can’t record speech; type the note or paste a transcript.');
+      return (bn ? '<div class="banner-note">' + bn + '</div>' : '') +
         (pend.length ? '<div class="dp-sec" style="background:var(--amb-bg)">' + pend.map(function (a, i) { return '<div style="margin-bottom:6px"><b class="s-amb">' + U.warn + 'Addendum waiting for your signature</b> <span class="mut">from ' + E(a.from) + '</span><div style="margin:4px 0">' + E(a.text) + '</div><button class="mini pri" data-sign-add="' + e.addenda.indexOf(a) + '">Sign addendum</button> <button class="mini" data-drop-add="' + e.addenda.indexOf(a) + '">Decline</button></div>'; }).join('') + '</div>' : '') +
         (!signed() ? '<div class="dp-sec" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="chk" style="margin:0"><input type="checkbox" id="consent"' + (REC.consent || REC.on ? ' checked' : '') + (REC.on ? ' disabled' : '') + '> Patient agreed to be recorded</label>' +
           '<button class="btn sm' + (REC.on ? '' : ' pri') + '" id="rec"' + (SR && (REC.consent || REC.on) ? '' : ' disabled') + '>' + (REC.on ? I.pause + 'Stop recording' : I.mic + 'Start recording') + '</button>' +

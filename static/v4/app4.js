@@ -63,27 +63,116 @@
     V.claimCheck(c).then(function () { c.checkKey = V.checkKey(c); D.save(); }).catch(function (e) { checkErr[c.id] = e.message; }).then(function () { delete checking[c.id]; V.refresh(); });
   });
 
-  /* ---------- CMS-1500 ---------- */
+  /* ---------- CMS-1500 (02-12), laid out box for box like the NUCC form ---------- */
   V.cms1500 = function (c) {
-    var s = V.claimSnap(c), p = D.pt(c.mrn) || {};
-    var box = function (n, label, val, span) { return '<div class="cms-b" style="grid-column:span ' + (span || 1) + '"><span>' + n + '. ' + E(label) + '</span><b>' + (val ? E(val) : '&nbsp;') + '</b></div>'; };
-    var html = '<div class="cms" id="cms"><div class="cms-top"><b>HEALTH INSURANCE CLAIM FORM</b><span>APPROVED BY NATIONAL UNIFORM CLAIM COMMITTEE (NUCC) 02/12 · FORM CMS-1500 (02-12)</span></div>' +
-      '<div class="cms-g">' + box('1', 'Insurance', s.payer, 2) + box('1a', 'Insured’s ID number', s.insuredId, 2) +
-        box('2', 'Patient’s name', s.patient, 2) + box('3', 'Birth date, sex', D.us(s.dob) + '  ' + s.sex, 1) + box('4', 'Insured’s name', s.patient, 1) +
-        box('5', 'Patient’s address', p.addr || '', 2) + box('7', 'Insured’s phone', p.phone || '', 2) +
-        box('17', 'Referring provider', '', 2) + box('17b', 'NPI', '', 2) +
-        box('21', 'Diagnosis (ICD-10)', s.icds.map(function (d, i) { return String.fromCharCode(65 + i) + '. ' + d.code; }).join('   '), 4) + '</div>' +
-      '<table class="cms-t"><thead><tr><th>24A. DOS</th><th>B. POS</th><th>D. CPT/HCPCS</th><th>Modifier</th><th>E. Dx ptr</th><th>F. Charges</th><th>G. Units</th><th>J. Rendering NPI</th></tr></thead><tbody>' +
-        s.cpts.map(function (l) { return '<tr><td>' + D.us(s.svcDate) + '</td><td>11</td><td>' + E(l.code) + '</td><td>' + E(l.modifier || '') + '</td><td>' + s.icds.slice(0, 4).map(function (_, i) { return String.fromCharCode(65 + i); }).join('') + '</td><td>' + M(l.charge) + '</td><td>' + l.units + '</td><td>' + E(s.npi || '') + '</td></tr>'; }).join('') +
-        '</tbody></table><div class="cms-g">' + box('25', 'Federal tax ID', S.clinic.ein, 1) + box('26', 'Patient account no.', s.mrn, 1) + box('28', 'Total charge', M(s.totalAmt), 1) + box('29', 'Amount paid', M(c.paid || 0), 1) +
-        box('31', 'Signature of physician', s.provider + '  ' + D.us(c.dos), 2) + box('32', 'Service facility', (S.locations[0] || {}).name || S.clinic.name, 1) + box('33', 'Billing provider, NPI', S.clinic.name + (S.clinic.npi ? '  NPI ' + S.clinic.npi : ''), 1) + '</div></div>';
+    var s = V.claimSnap(c), p = D.pt(c.mrn) || {}, prov = D.staff(c.prov) || {}, loc = S.locations[0] || {};
+    var X = function (on) { return '<i class="cx">' + (on ? 'X' : '') + '</i>'; };
+    var v = function (t, cls) { return '<span class="cv' + (cls ? ' ' + cls : '') + '">' + (t == null || t === '' ? '&nbsp;' : E(t)) + '</span>'; };
+    var L = function (n, t, sub) { return '<span class="cl">' + (n ? '<b>' + n + '.</b> ' : '') + t + (sub ? ' <em>' + sub + '</em>' : '') + '</span>'; };
+    var dt = function (iso) { if (!iso) return ['', '', '']; var d = iso.split('-'); return [d[1], d[2], d[0].slice(2)]; };
+    var dob = dt(s.dob), dos = dt(s.svcDate), today = dt(D.today());
+    var adr = String(p.addr || '').split(/\s*,\s*/), street = adr[0] || '', city = adr.length > 2 ? adr[1] : '', stz = (adr[adr.length > 2 ? 2 : 1] || '').split(/\s+/), st = adr.length > 1 ? stz[0] || '' : '', zip = adr.length > 1 ? stz.slice(1).join(' ') : '';
+    var payer = s.payer || '', kind = /^medicare/i.test(payer) ? 'mcr' : /medicaid/i.test(payer) ? 'mcd' : /tricare/i.test(payer) ? 'tri' : /champva/i.test(payer) ? 'chv' : payer && payer !== 'Self-pay' ? 'grp' : 'oth';
+    var nm = String(s.patient || '').toUpperCase(), phone = String(p.phone || '').replace(/\D/g, ''), ph = [phone.slice(0, 3), phone.slice(3, 6) + (phone.length > 6 ? '-' + phone.slice(6) : '')];
+    var cpts = s.cpts.slice(0, 6), icd = s.icds.slice(0, 12), ptr = icd.slice(0, 4).map(function (_, k) { return String.fromCharCode(65 + k); }).join('');
+    var money = function (n) { var t = Number(n || 0).toFixed(2).split('.'); return '<span class="cv">' + t[0] + '</span><span class="cv cc">' + t[1] + '</span>'; };
+    var line = function (l) {
+      if (!l) return '<tr class="sl"><td colspan="13" class="shade">&nbsp;</td><td class="shade"></td><td class="shade"></td></tr><tr class="sl2">' + '<td></td>'.repeat(13) + '<td class="npi">NPI</td><td></td></tr>';
+      return '<tr class="sl"><td colspan="13" class="shade">&nbsp;</td><td class="shade"></td><td class="shade"></td></tr><tr class="sl2">' +
+        [dos[0], dos[1], dos[2], dos[0], dos[1], dos[2]].map(function (x) { return '<td>' + v(x) + '</td>'; }).join('') + '<td>' + v('11') + '</td><td></td><td>' + v(l.code) + '</td><td>' + v((l.modifier || '').split(/[\s,]+/).join(' ')) + '</td><td>' + v(ptr) + '</td>' +
+        '<td class="amt">' + money(l.charge) + '</td><td>' + v(l.units) + '</td><td class="npi">NPI</td><td>' + v(s.npi) + '</td></tr>';
+    };
+    var html = '<div class="c15" id="cms1500form">' +
+      '<div class="c15-title"><b>HEALTH INSURANCE CLAIM FORM</b><span>APPROVED BY NATIONAL UNIFORM CLAIM COMMITTEE (NUCC) 02/12</span></div>' +
+      '<div class="c15-pica"><span>PICA</span><span>PICA</span></div>' +
+      '<div class="c15-grid">' +
+        // 1 / 1a
+        '<div class="c span2 r1">' + L('1', '') + '<div class="types">' + [['mcr', 'MEDICARE', 'Medicare#'], ['mcd', 'MEDICAID', 'Medicaid#'], ['tri', 'TRICARE', 'ID#/DoD#'], ['chv', 'CHAMPVA', 'Member ID#'], ['grp', 'GROUP HEALTH PLAN', 'ID#'], ['feca', 'FECA BLK LUNG', 'ID#'], ['oth', 'OTHER', 'ID#']].map(function (t) { return '<span>' + X(kind === t[0]) + '<b>' + t[1] + '</b><em>(' + t[2] + ')</em></span>'; }).join('') + '</div></div>' +
+        '<div class="c">' + L('1a', 'INSURED’S I.D. NUMBER', '(For Program in Item 1)') + v(s.insuredId) + '</div>' +
+        // 2 / 3 / 4
+        '<div class="c">' + L('2', 'PATIENT’S NAME', '(Last Name, First Name, Middle Initial)') + v(nm) + '</div>' +
+        '<div class="c">' + L('3', 'PATIENT’S BIRTH DATE', '') + '<div class="row">' + v(dob[0]) + v(dob[1]) + v(dob[2]) + '<span class="sx">SEX</span> M' + X(s.sex === 'M') + ' F' + X(s.sex === 'F') + '</div></div>' +
+        '<div class="c">' + L('4', 'INSURED’S NAME', '(Last Name, First Name, Middle Initial)') + v(nm) + '</div>' +
+        // 5 / 6 / 7
+        '<div class="c">' + L('5', 'PATIENT’S ADDRESS', '(No., Street)') + v(street.toUpperCase()) + '</div>' +
+        '<div class="c">' + L('6', 'PATIENT RELATIONSHIP TO INSURED') + '<div class="row">Self' + X(1) + ' Spouse' + X(0) + ' Child' + X(0) + ' Other' + X(0) + '</div></div>' +
+        '<div class="c">' + L('7', 'INSURED’S ADDRESS', '(No., Street)') + v(street.toUpperCase()) + '</div>' +
+        // city/state, 8, city/state
+        '<div class="c split"><div>' + L('', 'CITY') + v(city.toUpperCase()) + '</div><div class="w25">' + L('', 'STATE') + v(st) + '</div></div>' +
+        '<div class="c tall">' + L('8', 'RESERVED FOR NUCC USE') + '</div>' +
+        '<div class="c split"><div>' + L('', 'CITY') + v(city.toUpperCase()) + '</div><div class="w25">' + L('', 'STATE') + v(st) + '</div></div>' +
+        '<div class="c split"><div>' + L('', 'ZIP CODE') + v(zip) + '</div><div>' + L('', 'TELEPHONE', '(Include Area Code)') + '<div class="row">(' + v(ph[0]) + ')' + v(ph[1]) + '</div></div></div>' +
+        '<div class="c split"><div>' + L('', 'ZIP CODE') + v(zip) + '</div><div>' + L('', 'TELEPHONE', '(Include Area Code)') + '<div class="row">(' + v(ph[0]) + ')' + v(ph[1]) + '</div></div></div>' +
+        // 9-11
+        '<div class="c">' + L('9', 'OTHER INSURED’S NAME', '(Last Name, First Name, Middle Initial)') + v('') + '</div>' +
+        '<div class="c">' + L('10', 'IS PATIENT’S CONDITION RELATED TO:') + '</div>' +
+        '<div class="c">' + L('11', 'INSURED’S POLICY GROUP OR FECA NUMBER') + v('') + '</div>' +
+        '<div class="c">' + L('a', 'OTHER INSURED’S POLICY OR GROUP NUMBER') + v('') + '</div>' +
+        '<div class="c">' + L('a', 'EMPLOYMENT?', '(Current or Previous)') + '<div class="row yn">' + X(0) + 'YES ' + X(1) + 'NO</div></div>' +
+        '<div class="c">' + L('a', 'INSURED’S DATE OF BIRTH') + '<div class="row">' + v(dob[0]) + v(dob[1]) + v(dob[2]) + '<span class="sx">SEX</span> M' + X(s.sex === 'M') + ' F' + X(s.sex === 'F') + '</div></div>' +
+        '<div class="c">' + L('b', 'RESERVED FOR NUCC USE') + '</div>' +
+        '<div class="c">' + L('b', 'AUTO ACCIDENT?') + '<div class="row yn">' + X(0) + 'YES ' + X(1) + 'NO <span class="sx">PLACE (State)</span>' + v('') + '</div></div>' +
+        '<div class="c">' + L('b', 'OTHER CLAIM ID', '(Designated by NUCC)') + v('') + '</div>' +
+        '<div class="c">' + L('c', 'RESERVED FOR NUCC USE') + '</div>' +
+        '<div class="c">' + L('c', 'OTHER ACCIDENT?') + '<div class="row yn">' + X(0) + 'YES ' + X(1) + 'NO</div></div>' +
+        '<div class="c">' + L('c', 'INSURANCE PLAN NAME OR PROGRAM NAME') + v(payer.toUpperCase()) + '</div>' +
+        '<div class="c">' + L('d', 'INSURANCE PLAN NAME OR PROGRAM NAME') + v('') + '</div>' +
+        '<div class="c">' + L('10d', 'CLAIM CODES', '(Designated by NUCC)') + v('') + '</div>' +
+        '<div class="c">' + L('d', 'IS THERE ANOTHER HEALTH BENEFIT PLAN?') + '<div class="row yn">' + X(0) + 'YES ' + X(1) + 'NO <em>If yes, complete items 9, 9a, and 9d.</em></div></div>' +
+        // 12 / 13
+        '<div class="c span2 sig"><div class="ctr"><b>READ BACK OF FORM BEFORE COMPLETING &amp; SIGNING THIS FORM.</b></div>' + L('12', 'PATIENT’S OR AUTHORIZED PERSON’S SIGNATURE', 'I authorize the release of any medical or other information necessary to process this claim. I also request payment of government benefits either to myself or to the party who accepts assignment below.') +
+          '<div class="row">SIGNED ' + v('SIGNATURE ON FILE', 'grow') + ' DATE ' + v(today.join('/')) + '</div></div>' +
+        '<div class="c sig">' + L('13', 'INSURED’S OR AUTHORIZED PERSON’S SIGNATURE', 'I authorize payment of medical benefits to the undersigned physician or supplier for services described below.') + '<div class="row">SIGNED ' + v('SIGNATURE ON FILE', 'grow') + '</div></div>' +
+      '</div>' +
+      '<div class="c15-grid c15-phys">' +
+        '<div class="c">' + L('14', 'DATE OF CURRENT ILLNESS, INJURY, or PREGNANCY (LMP)') + '<div class="row">' + v('') + v('') + v('') + ' QUAL. ' + v('') + '</div></div>' +
+        '<div class="c">' + L('15', 'OTHER DATE') + '<div class="row">QUAL. ' + v('') + v('') + v('') + v('') + '</div></div>' +
+        '<div class="c">' + L('16', 'DATES PATIENT UNABLE TO WORK IN CURRENT OCCUPATION') + '<div class="row">FROM ' + v('') + ' TO ' + v('') + '</div></div>' +
+        '<div class="c">' + L('17', 'NAME OF REFERRING PROVIDER OR OTHER SOURCE') + v('') + '</div>' +
+        '<div class="c"><div class="row">17a. ' + v('') + '</div><div class="row">17b. NPI ' + v('') + '</div></div>' +
+        '<div class="c">' + L('18', 'HOSPITALIZATION DATES RELATED TO CURRENT SERVICES') + '<div class="row">FROM ' + v('') + ' TO ' + v('') + '</div></div>' +
+        '<div class="c span2">' + L('19', 'ADDITIONAL CLAIM INFORMATION', '(Designated by NUCC)') + v('') + '</div>' +
+        '<div class="c">' + L('20', 'OUTSIDE LAB?') + '<div class="row yn">' + X(0) + 'YES ' + X(1) + 'NO <span class="sx">$ CHARGES</span>' + v('') + '</div></div>' +
+        '<div class="c span2">' + L('21', 'DIAGNOSIS OR NATURE OF ILLNESS OR INJURY', 'Relate A-L to service line below (24E)') + ' <span class="sx">ICD Ind.</span>' + v('0') +
+          '<div class="dx">' + 'ABCDEFGHIJKL'.split('').map(function (k, i) { return '<span>' + k + '. ' + v(icd[i] ? icd[i].code : '') + '</span>'; }).join('') + '</div></div>' +
+        '<div class="c"><div>' + L('22', 'RESUBMISSION CODE') + '<div class="row">' + v('') + ' <span class="sx">ORIGINAL REF. NO.</span>' + v('') + '</div></div><div style="border-top:1px solid #000;margin:3px -5px 0;padding:3px 5px 0">' + L('23', 'PRIOR AUTHORIZATION NUMBER') + v(c.auth || '') + '</div></div>' +
+      '</div>' +
+      '<table class="c15-lines"><thead><tr><th colspan="6">24. A. DATE(S) OF SERVICE<br><span>From MM DD YY &nbsp; To MM DD YY</span></th><th>B.<br>PLACE OF SERVICE</th><th>C.<br>EMG</th><th colspan="2">D. PROCEDURES, SERVICES, OR SUPPLIES<br><span>CPT/HCPCS &nbsp; MODIFIER</span></th><th>E.<br>DIAGNOSIS POINTER</th><th>F.<br>$ CHARGES</th><th>G.<br>DAYS OR UNITS</th><th>I.<br>ID. QUAL.</th><th>J.<br>RENDERING PROVIDER ID. #</th></tr></thead><tbody>' +
+        [0, 1, 2, 3, 4, 5].map(function (k) { return line(cpts[k]); }).join('') + '</tbody></table>' +
+      '<div class="c15-foot">' +
+        '<div class="c f25">' + L('25', 'FEDERAL TAX I.D. NUMBER') + '<div class="row">' + v(S.clinic.ein || '', 'grow') + ' SSN' + X(0) + ' EIN' + X(!!S.clinic.ein) + '</div></div>' +
+        '<div class="c f26">' + L('26', 'PATIENT’S ACCOUNT NO.') + v(s.mrn) + '</div>' +
+        '<div class="c f27">' + L('27', 'ACCEPT ASSIGNMENT?', '(For govt. claims, see back)') + '<div class="row yn">' + X(1) + 'YES ' + X(0) + 'NO</div></div>' +
+        '<div class="c f28">' + L('28', 'TOTAL CHARGE') + '<div class="row">$ ' + money(s.totalAmt) + '</div></div>' +
+        '<div class="c f29">' + L('29', 'AMOUNT PAID') + '<div class="row">$ ' + money(c.paid || 0) + '</div></div>' +
+        '<div class="c f30">' + L('30', 'Rsvd for NUCC Use') + '</div>' +
+        '<div class="c f31">' + L('31', 'SIGNATURE OF PHYSICIAN OR SUPPLIER INCLUDING DEGREES OR CREDENTIALS', '(I certify that the statements on the reverse apply to this bill and are made a part thereof.)') +
+          '<div class="row">SIGNED ' + v(String(prov.name || s.provider || '').toUpperCase() + (prov.cred ? ' ' + prov.cred : ''), 'grow') + ' DATE ' + v(dos.join('/')) + '</div></div>' +
+        '<div class="c f32">' + L('32', 'SERVICE FACILITY LOCATION INFORMATION') + v(String(loc.name || S.clinic.name || '').toUpperCase()) + v(String(loc.addr || S.clinic.addr || '').toUpperCase()) + '<div class="row">a. ' + v(S.clinic.npi) + ' b. ' + v('') + '</div></div>' +
+        '<div class="c f33">' + L('33', 'BILLING PROVIDER INFO &amp; PH #') + ' ' + v(S.clinic.phone || '') + v(String(S.clinic.name || '').toUpperCase()) + v(String((S.clinic.addr || '') + (S.clinic.city ? ', ' + S.clinic.city : '')).toUpperCase()) + '<div class="row">a. ' + v(S.clinic.npi) + ' b. ' + v(S.clinic.taxonomy || '') + '</div></div>' +
+      '</div>' +
+      '<div class="c15-bot"><span>NUCC Instruction Manual available at: www.nucc.org</span><b>PLEASE PRINT OR TYPE</b><span>APPROVED OMB-0938-1197 FORM 1500 (02-12)</span></div></div>';
     U.modal('CMS-1500, ' + c.id, html, [['Close', '', function () {}], ['Print', 'pri', function () {
-      var w = window.open(''); w.document.write('<html><head><title>CMS-1500 ' + c.id + '</title><style>' + CMS_CSS + 'body{font:12px Arial;margin:24px}</style></head><body>' + html + '</body></html>'); setTimeout(function () { w.print(); }, 300); return false;
-    }]], { wide: 1 });
+      var w = window.open(''); w.document.write('<html><head><title>CMS-1500 ' + E(c.id) + '</title><style>' + CMS_CSS + '@page{size:letter;margin:.3in}body{margin:0}</style></head><body>' + html + '</body></html>'); w.document.close(); setTimeout(function () { w.print(); }, 300); return false;
+    }]], { width: 1000 });
   };
-  var CMS_CSS = '.cms{border:2px solid #b5332a;color:#1c2733}.cms-top{display:flex;justify-content:space-between;align-items:baseline;padding:6px 8px;border-bottom:2px solid #b5332a;color:#b5332a}.cms-top span{font-size:10px}' +
-    '.cms-g{display:grid;grid-template-columns:repeat(4,1fr)}.cms-b{border-right:1px solid #e3a8a3;border-bottom:1px solid #e3a8a3;padding:3px 6px;min-height:34px}.cms-b span{display:block;font-size:9.5px;color:#b5332a;text-transform:uppercase}.cms-b b{font-weight:500;font-family:"IBM Plex Mono",monospace;font-size:12px}' +
-    '.cms-t{width:100%;border-collapse:collapse}.cms-t th{font-size:9.5px;color:#b5332a;text-align:left;border-bottom:1px solid #e3a8a3;padding:3px 6px;font-weight:600}.cms-t td{font-family:"IBM Plex Mono",monospace;font-size:12px;padding:4px 6px;border-bottom:1px solid #e3a8a3}';
+  var CMS_CSS = '.c15{font:9px Arial,Helvetica,sans-serif;color:#000;background:#fff;border:0}' +
+    '.c15-title{display:flex;flex-direction:column}.c15-title b{font-size:17px}.c15-title span{font-size:8.5px;color:#333}.c15-pica{display:flex;justify-content:space-between;font-size:8.5px;padding:3px 0 2px;border-bottom:2px solid #000}' +
+    '.c15-grid{display:grid;grid-template-columns:37% 25.3% 37.7%;border-left:1px solid #000}.c15-phys{border-top:2px solid #000}' +
+    '.c15 .c{border-right:1px solid #000;border-bottom:1px solid #000;padding:2px 5px 3px;min-height:40px;box-sizing:border-box}.c15 .span2{grid-column:span 2}.c15 .tall{grid-row:span 2}' +
+    '.c15 .split{display:flex;padding:0}.c15 .split>div{flex:1;padding:2px 5px 3px}.c15 .split>div+div{border-left:1px solid #000}.c15 .w25{flex:0 0 28%!important}' +
+    '.c15 .cl{display:block;font-size:8.5px;line-height:1.25}.c15 .cl b{font-weight:700}.c15 .cl em{font-style:normal;font-size:7.5px;color:#333}' +
+    '.c15 .cv{display:inline-block;min-width:24px;background:#e3edf9;font:11px "Courier New",monospace;font-weight:600;color:#0b2a6f;padding:1px 4px;margin:2px 3px 0 0;min-height:14px;vertical-align:middle}.c15 .cv.grow{min-width:55%}.c15 .cv.cc{min-width:16px}' +
+    '.c15 .row{display:flex;align-items:center;flex-wrap:wrap;gap:2px;font-size:8.5px}.c15 .sx{margin:0 4px 0 8px;font-size:8.5px}' +
+    '.c15 .cx{display:inline-block;width:13px;height:11px;background:#e3edf9;margin:0 3px;font:bold 10px Arial;color:#0b2a6f;text-align:center;line-height:11px;font-style:normal;vertical-align:middle}' +
+    '.c15 .types{display:flex;justify-content:space-between;margin-top:2px}.c15 .types span{display:flex;flex-direction:column;align-items:flex-start;font-size:8.5px}.c15 .types b{font-weight:400;font-size:9.5px}.c15 .types em{font-size:7.5px;font-style:italic}' +
+    '.c15 .sig{min-height:58px}.c15 .ctr{text-align:center;font-size:9px;margin-bottom:2px}' +
+    '.c15 .dx{display:grid;grid-template-columns:repeat(4,1fr);gap:1px 8px;margin-top:3px}.c15 .dx span{font-size:9px}.c15 .dx .cv{min-width:70%}' +
+    '.c15-lines{width:100%;border-collapse:collapse;border-left:1px solid #000}.c15-lines th{font-size:8px;font-weight:400;text-align:center;border-right:1px solid #000;border-bottom:1px solid #000;padding:2px;vertical-align:bottom}.c15-lines th span{font-size:7px}' +
+    '.c15-lines td{border-right:1px solid #000;padding:0 2px;font-size:8px;text-align:center}.c15-lines tr.sl td{background:#f2f6fc;height:9px;border-bottom:1px dashed #9aa}.c15-lines tr.sl2 td{border-bottom:1px solid #000;height:19px}.c15-lines td .cv{margin:1px 0;min-width:0;font-size:10.5px}' +
+    '.c15-lines td.npi{font-size:8px;font-weight:700}.c15-lines td.amt{white-space:nowrap}' +
+    '.c15-foot{display:grid;grid-template-columns:20% 8% 18% 16% 16% 22%;border-left:1px solid #000}.c15-foot .f31{grid-column:span 2;min-height:70px}.c15-foot .f32{grid-column:span 2}.c15-foot .f33{grid-column:span 2}' +
+    '.c15-bot{display:flex;justify-content:space-between;font-size:9px;padding-top:4px;border-top:2px solid #000}.c15-bot b{font-style:italic}';
   var st = document.createElement('style'); st.textContent = CMS_CSS; document.head.appendChild(st);
 
   /* ---------- sending: 837P steps, then the server's claim gate ---------- */

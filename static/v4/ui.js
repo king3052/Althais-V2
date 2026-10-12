@@ -118,7 +118,7 @@
   U.modal = function (title, body, buttons, o) {
     o = o || {};
     var w = document.createElement('div'); w.className = 'mdl-wrap';
-    w.innerHTML = '<div class="mdl' + (o.wide ? ' wide' : '') + '" role="dialog" aria-modal="true"><div class="mdl-h">' + U.esc(title) + '<button type="button" class="mdl-x" aria-label="Close">' + U.I.x + '</button></div><div class="mdl-b">' + body + '</div>' +
+    w.innerHTML = '<div class="mdl' + (o.wide ? ' wide' : '') + '"' + (o.width ? ' style="width:' + o.width + 'px;max-height:94vh"' : '') + ' role="dialog" aria-modal="true"><div class="mdl-h">' + U.esc(title) + '<button type="button" class="mdl-x" aria-label="Close">' + U.I.x + '</button></div><div class="mdl-b">' + body + '</div>' +
       '<div class="dp-f">' + (buttons || []).map(function (b, i) { return '<button type="button" class="btn ' + (b[1] || '') + '" data-mb="' + i + '">' + U.esc(b[0]) + '</button>'; }).join('') + '</div></div>';
     var close = function () { w.remove(); document.removeEventListener('keydown', esc); };
     var esc = function (e) { if (e.key === 'Escape') close(); };
