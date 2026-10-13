@@ -1358,6 +1358,13 @@
 
         <!-- Settings sidebar -->
         <aside class="s-nav">
+          <!-- back to the new EMR (the previous EMR is only shown to people who switched to it) -->
+          <div style="margin:0 4px 14px;padding:12px;border:1px solid var(--brand-100);background:var(--brand-50);border-radius:8px">
+            <div style="font-size:12.5px;font-weight:600;color:#1a1d24">You're on the previous EMR</div>
+            <div style="font-size:11.5px;color:#6b7280;margin:3px 0 9px;line-height:1.4">Your patients and claims are in the new EMR too.</div>
+            <a href="/ui/new" id="settings-new-emr" class="s-btn s-btn-primary" style="display:flex;align-items:center;justify-content:center;gap:7px;text-decoration:none">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4"/></svg>Switch To New EMR</a>
+          </div>
           <div class="s-group">Your Tools</div>
           <div class="s-tab" data-settings-tab="emr_prefs"><span>EMR</span></div>
           <div class="s-tab" data-settings-tab="scribe_prefs"><span>Scribe</span></div>
