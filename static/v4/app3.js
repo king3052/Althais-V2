@@ -15,7 +15,7 @@
     var QS = { edits: function (c) { return c.stage === 'edits'; }, ready: function (c) { return c.stage === 'ready'; }, submitted: function (c) { return c.stage === 'submitted'; },
       stale: function (c) { return c.stage === 'submitted' && D.daysBetween(c.submittedOn || D.today(), D.today()) > 30; }, rejected: function (c) { return c.stage === 'submitted' && /reject/i.test(c.status || ''); }, denied: function (c) { return c.stage === 'denied'; },
       signoff: function () { return false; }, appeal: function (c) { return c.stage === 'denied' && c.dstatus !== 'Appealed' && D.daysBetween(D.today(), c.appealBy) <= 7; }, paid: function (c) { return c.stage === 'paid'; }, all: function () { return true; } };
-    var TITLES = { signoff: 'Waiting for sign-off', edits: 'Edits to resolve', ready: 'Ready to submit', submitted: 'With payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
+    var TITLES = { signoff: 'Waiting For Sign-Off', edits: 'Edits To Resolve', ready: 'Ready To Submit', submitted: 'With Payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
         : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
@@ -91,7 +91,7 @@
       return U.grid(['DOS', 'Patient', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], 'Claim check', ['Est. charge', 'num'], ''], W.map(function (e) {
         var c = V.visitClaim(e), k = e.check;
         return { sel: e.id === vsel, attrs: ' data-visit="' + e.id + '"', cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), E(D.provName(e.prov)), E((D.pt(e.mrn) || {}).payer || ''), c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).join(', '), c.dx.join(', '),
-          k ? '<span class="s-' + V.scoreColor(k.score) + '">' + k.score + '%</span> <span class="tc mut">' + (k.score >= 85 ? 'ready to submit' : 'needs review') + '</span>' : '<span class="mut">Checking…</span>', M(D.charge(c)), '<button class="mini pri" data-signvisit="' + e.id + '">Review And Sign</button>'] };
+          k ? '<span class="s-' + V.scoreColor(k.score) + '">' + k.score + '%</span> <span class="tc mut">' + (k.score >= 85 ? 'Ready To Submit' : 'Needs Review') + '</span>' : '<span class="mut">Checking…</span>', M(D.charge(c)), '<button class="mini pri" data-signvisit="' + e.id + '">Review And Sign</button>'] };
       }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(9, 'Nothing waiting. Visits Althea has coded show up here until the provider signs them.') + '</tbody>');
     }
     function visitDetail() {
@@ -120,7 +120,7 @@
       var body = Q === 'signoff' ? signoffGrid(W) : Q === 'lag' ? U.grid(['DOS', 'Patient', 'MRN', 'Provider', 'Note', ''], lag().map(function (e) { return { cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), '<span class="mono s-mut">' + e.mrn + '</span>', E(D.provName(e.prov)), 'Signed, no CPT accepted', V.link('Open note', V.encHref(e.id))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'Every signed note has a claim.') + '</tbody>')
         : empty(S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.')(U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }));
       var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + (Q === 'lag' ? lag().length + ' signed notes' : list.length + ' claim' + (list.length === 1 ? '' : 's') + ', ' + M(D.sum(list, D.charge))) + '</span></div>' + (Q === 'lag' ? '' : chips) + '<div class="pbody">' + body +
-        (Q === 'edits' ? U.sect('Ready to submit', n('ready') + ' claims, ' + M(t.ready.amt) + ', passed all edits', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
+        (Q === 'edits' ? U.sect('Ready To Submit', n('ready') + ' claims, ' + M(t.ready.amt) + ', passed all edits', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', empty('Nothing submitted in the last 7 days.')(U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         '</div><div class="pf"><span id="nsel">' + picked.length + ' selected</span><span id="ssel">Selected charges <b>' + M(D.sum(picked, D.charge)) + '</b></span><span class="end">Showing ' + list.length + ' of ' + S.claims.length + '</span></div>';
       if (Q === 'signoff') mid = '<div class="ph">' + TITLES.signoff + ' <span class="sub">' + W.length + ' visit' + (W.length === 1 ? '' : 's') + ', ' + M(D.sum(W, function (e) { return D.charge(V.visitClaim(e)); })) + ', coded by Althea</span>' +
@@ -130,8 +130,8 @@
           '') +
         '<div class="main" style="grid-template-columns:200px minmax(0,1fr) 400px">' +
           U.pane('Work queues', '', '', U.queue([
-            { h: 'Before submission', items: [{ key: 'signoff', label: 'Waiting for sign-off', n: waiting().length, color: 'blue' }, { key: 'edits', label: 'Edits to resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready to submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
-            { h: 'With payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'Over 30 days', n: n('stale'), color: null, indent: 1 }, { key: 'rejected', label: 'Rejected by clearinghouse', n: n('rejected'), color: 'amb' }] },
+            { h: 'Before submission', items: [{ key: 'signoff', label: 'Waiting For Sign-Off', n: waiting().length, color: 'blue' }, { key: 'edits', label: 'Edits To Resolve', n: n('edits'), color: 'red' }, { key: 'ready', label: 'Ready To Submit', n: n('ready'), color: 'blue' }, { key: 'lag', label: 'Charges not entered', n: lag().length, color: 'gray' }] },
+            { h: 'With Payer', items: [{ key: 'submitted', label: 'Submitted', n: n('submitted'), color: 'lblue' }, { key: 'stale', label: 'Over 30 days', n: n('stale'), color: null, indent: 1 }, { key: 'rejected', label: 'Rejected by clearinghouse', n: n('rejected'), color: 'amb' }] },
             { h: 'After adjudication', items: [{ key: 'denied', label: 'Denied', n: n('denied'), color: 'red' }, { key: 'appeal', label: 'Appeal due in 7 days', n: n('appeal'), color: null, indent: 1 }, { key: 'paid', label: 'Paid', n: n('paid'), color: 'grn' }, { key: 'balance', label: 'Patient balance', n: S.patients.filter(function (p) { return p.balance > 0; }).length, color: 'gray' }] },
             { h: 'All', items: [{ key: 'all', label: 'All claims, ' + new Date().toLocaleDateString('en-US', { month: 'long' }), n: S.claims.length, color: null }] },
           ], Q), { after: U.sum([['Billed MTD', M(t.billed)], ['Collected MTD', M(t.collected)], ['First-pass rate', t.r90 ? U.pct(t.firstPass) : '-'], ['Avg days to pay', t.avgPay == null ? '-' : t.avgPay.toFixed(1)]]) }) +
@@ -193,7 +193,7 @@
     var submit = function (list) {   // the 837P steps, then the server's claim gate decides sent or held
       V.transmit(list, function () { list.forEach(function (c) { CHK[c.id] = false; }); draw(); });
     };
-    U.on(app, '#subsel', 'click', function () { var l = S.claims.filter(function (c) { return CHK[c.id]; }); if (!l.length) l = Q === 'ready' ? D.stage('ready') : []; if (!l.length) return U.toast('Check claims in Ready to submit first.'); submit(l); });
+    U.on(app, '#subsel', 'click', function () { var l = S.claims.filter(function (c) { return CHK[c.id]; }); if (!l.length) l = Q === 'ready' ? D.stage('ready') : []; if (!l.length) return U.toast('Check claims in Ready To Submit first.'); submit(l); });
     U.on(app, '#submit1', 'click', function () { submit([C()]); });
     U.on(app, '#cms', 'click', function () { V.cms1500(C()); });
     U.on(app, '#altfix', 'click', function () { V.buildClaim({ claim: C() }, draw); });
@@ -477,7 +477,7 @@
             '<span style="margin-left:auto"></span><button class="btn" id="apreset">Althais Blue</button></div>' +
           groups.map(function (g) { return '<div class="ap-grp"><h5>' + E(g.group) + '</h5><div class="ap-sw">' + g.colors.map(function (c) { return '<button type="button" data-apc="' + E(c[1]) + '" class="' + (String(c[1]).toLowerCase() === String(cur).toLowerCase() ? 'on' : '') + '"><i style="background:' + E(c[1]) + '"></i>' + E(c[0]) + '</button>'; }).join('') + '</div></div>'; }).join('') +
           '<div class="ap-grp"><h5>Custom color</h5><div class="ap-sw"><input type="color" id="apcustom" value="' + E(cur) + '" style="width:44px;height:28px;padding:0;border:1px solid var(--b)"> <span class="mut" style="align-self:center">Pick any color; text stays readable on it.</span></div></div>' +
-          '<h5 style="margin:6px 0;font-size:12px;color:var(--t2)">Preview</h5><div class="ap-prev"><div class="bar">ALTHAIS <span style="letter-spacing:0;font-weight:500;opacity:.85">Overview</span><span style="letter-spacing:0;font-weight:500;opacity:.85">EMR</span></div><div class="row"><button class="btn pri">Primary Button</button><a href="#">A link</a><span class="s-blue">Ready to submit</span></div></div>' +
+          '<h5 style="margin:6px 0;font-size:12px;color:var(--t2)">Preview</h5><div class="ap-prev"><div class="bar">ALTHAIS <span style="letter-spacing:0;font-weight:500;opacity:.85">Overview</span><span style="letter-spacing:0;font-weight:500;opacity:.85">EMR</span></div><div class="row"><button class="btn pri">Primary Button</button><a href="#">A link</a><span class="s-blue">Ready To Submit</span></div></div>' +
           (can ? '' : '<p class="mut" style="margin:10px 0 0">Only a clinic admin can change the color for everyone. Colors you click are previewed here only.</p>') + '</div>');
       }
       if (sec === 'nf') return U.sect('Notifications', '', '<div class="dp-sec">' + [['email', 'Email me a daily summary'], ['sms', 'Text me when a claim is denied'], ['denials', 'Show denial alerts on Overview'], ['creds', 'Remind staff 30 days before a credential expires']].map(function (n) { return '<label class="chk" style="margin:0 0 6px"><input type="checkbox" data-nf="' + n[0] + '"' + (S.notify[n[0]] ? ' checked' : '') + '> ' + n[1] + '</label><br>'; }).join('') + '</div>');
@@ -501,6 +501,21 @@
     var commit = function () {
       var pd = document.getElementById('pdform'), vs = document.getElementById('vsform'), sc = document.getElementById('secform');
       if (pd) { var v = U.values(pd); if (v.npi && !/^\d{10}$/.test(v.npi)) { U.toast('Group NPI must be 10 digits.'); return false; } Object.assign(S.clinic, v); }
+      // an account created without a clinic name can't set up billing or send claims: name it on the account too
+      var me = window.__ALTHAIS_USER__ || {};
+      if (pd && !String(me.organization || '').trim() && String(S.clinic.name || '').trim().length >= 2) {
+        fetch('/api/clinic/name', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: S.clinic.name.trim() }) })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (x) {
+            if (!x.ok || !x.j.organization) return U.toast(x.j.error || 'Could not save the clinic name for billing.', 'warn');
+            if (x.j.unchanged) return;
+            // this browser's records follow the clinic to its new name
+            var newKey = 'althais.v4.store.v1::' + String(x.j.organization).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+            try { localStorage.setItem(newKey, localStorage.getItem(D.KEY) || JSON.stringify(S)); } catch (e) {}
+            U.toast(x.j.organization + ' is now your clinic’s name for billing and claims. Reloading…');
+            setTimeout(function () { location.reload(); }, 1400);
+          });
+      }
       if (vs) Object.assign(S.soap, U.values(vs)); if (sc) Object.assign(S.security, U.values(sc));
       S.lastSaved = new Date().toISOString(); D.log('Settings saved'); D.save(); dirty = false; return true;
     };

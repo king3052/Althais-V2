@@ -225,7 +225,7 @@
           var st = r.res.status;
           return '<div style="padding:5px 0;border-bottom:1px solid var(--b2)"><b class="mono">' + r.c.id + '</b> ' + E(D.ptName(r.c.mrn)) + ' · ' + M(D.charge(r.c)) + ' · ' +
             (st === 'sent' ? '<span class="s-grn">Sent' + (r.res.test ? ' (test mode)' : '') + (r.res.reference ? ', ref ' + E(r.res.reference) : '') + '</span>' : st === 'held' ? '<span class="s-amb">Held, not sent</span>' + (r.res.blockers || []).map(function (b) { return '<div class="mut" style="font-size:12px">' + E(b.title || '') + ': ' + E(b.reason || '') + (b.next ? ' · ' + E(b.next) : '') + '</div>'; }).join('') : '<span class="s-red">Not sent: ' + E(r.res.message || r.res.detail || 'error') + '</span>') + '</div>';
-        }).join('') + (held.length ? '<div class="mut" style="margin-top:6px">Held claims stay in Ready to submit. Finish the items above in <a href="/revenue/billing-activation">Billing activation</a> and send again.</div>' : '');
+        }).join('') + (held.length ? '<div class="mut" style="margin-top:6px">Held claims stay in Ready To Submit. Finish the items above in <a href="/revenue/billing-activation">Billing activation</a> and send again.</div>' : '');
         w.querySelector('.mdl-h').firstChild.textContent = sent.length + ' sent, ' + held.length + ' held' + (bad.length ? ', ' + bad.length + ' not sent' : '');
         D.log('Sent ' + sent.length + ' claim(s), ' + held.length + ' held'); D.save(); if (done) done();
         return;

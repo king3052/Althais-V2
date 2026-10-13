@@ -424,3 +424,8 @@ html[data-theme-resolved="dark"] img, html[data-theme-resolved="dark"] iframe { 
 .ap-mode button { padding: 6px 16px; border: 0; border-right: 1px solid var(--b); background: var(--surface); color: var(--t); cursor: pointer; font-size: 12.5px; }
 .ap-mode button:last-child { border-right: 0; }
 .ap-mode button.on { background: var(--brand); color: var(--brand-on); font-weight: 600; }
+
+/* Althea's panel opens in the bottom-left corner, clear of the coding pane and the page's buttons */
+html body #althea-fab .alt-panel { position: fixed !important; left: 16px !important; bottom: 16px !important; top: auto !important; right: auto !important;
+  width: 320px !important; max-height: min(420px, calc(100vh - 140px)) !important; z-index: 60; box-shadow: 0 10px 30px rgba(15, 17, 22, .22) !important; }
+html[data-theme-resolved="dark"] body #althea-fab .alt-panel { box-shadow: 0 10px 30px rgba(0, 0, 0, .55) !important; }

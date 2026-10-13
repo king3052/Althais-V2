@@ -140,13 +140,13 @@
       var alerts = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (cr) { var d = cr.exp ? D.daysBetween(today, cr.exp) : 999; if (d <= 60) alerts.push([s.name, cr.name + (d < 0 ? ' expired ' : ' expires ') + D.us(cr.exp, 1), d < 0 ? 'red' : 'amb']); }); if (s.status === 'Invited') alerts.push([s.name, 'Onboarding ' + (s.steps || []).filter(function (x) { return x[1]; }).length + ' of ' + (s.steps || []).length + ' steps complete', '']); });
       app.innerHTML = U.header('overview') +
         U.toolbar('Overview', [['Start Visit', 'mic', { pri: 1, id: 'start' }], ['New Patient', 'plus', { id: 'newpt' }], ['Submit Claims', '', { href: '/v4/revenue/claims?q=ready' }], '|', ['Print', 'print', { id: 'print' }]], D.longDate(today)) +
-        U.strip([['Patients today', seen + ' of ' + appts.length, (appts.length - seen) + ' remaining'], ['Unsigned notes', drafts.length, ''], ['Edits to resolve', t.edits.n, M(t.edits.amt) + ' held', t.edits.n ? 'red' : ''],
-          ['Ready to submit', t.ready.n, M(t.ready.amt)], ['Collected MTD', M(t.collected), t.paidN + ' claims paid'], ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90]]) +
+        U.strip([['Patients today', seen + ' of ' + appts.length, (appts.length - seen) + ' remaining'], ['Unsigned notes', drafts.length, ''], ['Edits To Resolve', t.edits.n, M(t.edits.amt) + ' held', t.edits.n ? 'red' : ''],
+          ['Ready To Submit', t.ready.n, M(t.ready.amt)], ['Collected MTD', M(t.collected), t.paidN + ' claims paid'], ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90]]) +
         '<div class="main" style="grid-template-columns:1.08fr 1.08fr .74fr"><div class="col">' +
           U.pane('Today’s schedule', appts.length + ' appointment' + (appts.length === 1 ? '' : 's'), V.link('Open schedule', '/v4/emr/schedule'), U.grid(['Time', 'Patient', 'Reason', 'Provider', 'Status'],
             appts.map(function (a) { return { attrs: ' data-href="/v4/emr/schedule?appt=' + a.id + '"', cells: [V.fmtT(a.time), E(D.ptName(a.mrn)), E(a.reason || ''), E(D.provName(a.prov)), V.apptStatus(a)] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'No appointments today.') + '</tbody>'), { cls: 'grow', style: 'flex:1.25' }) +
           U.pane('Claims pipeline, ' + new Date().toLocaleDateString('en-US', { month: 'long' }), t.all + ' claims', V.link('Open claims', '/v4/revenue/claims'),
-            U.grid(['Stage', ['Claims', 'num'], ['Amount', 'num'], ['Share', 'num']], [['edits', 'Edits to resolve', 'red'], ['ready', 'Ready to submit', 'blue'], ['submitted', 'With payer', ''], ['paid', 'Paid', 'grn'], ['denied', 'Denied', 'red']].map(function (s) {
+            U.grid(['Stage', ['Claims', 'num'], ['Amount', 'num'], ['Share', 'num']], [['edits', 'Edits To Resolve', 'red'], ['ready', 'Ready To Submit', 'blue'], ['submitted', 'With Payer', ''], ['paid', 'Paid', 'grn'], ['denied', 'Denied', 'red']].map(function (s) {
               var x = t[s[0]], tot = D.sum(S.claims, D.charge) || 1;
               return { attrs: ' data-href="/v4/revenue/claims?q=' + s[0] + '"', cells: [s[2] === 'red' ? U.st(s[1], 'red') : '<span class="s-' + (s[2] || 'none') + '">' + s[1] + '</span>', x.n, M(x.amt), U.pct(x.amt / tot, 0)] };
             }), { click: 1 }), { footer: '<span>First-pass rate <b>' + (t.r90 ? U.pct(t.firstPass) : '-') + '</b></span><span>Avg days to pay <b>' + (t.avgPay == null ? '-' : t.avgPay.toFixed(1)) + '</b></span>' }) +
@@ -431,7 +431,7 @@
   };
   V.claimStatus = function (c) {
     if (c.stage === 'edits') return U.st('Edit: ' + ((c.edits[0] || {}).label || ''), (c.edits[0] || {}).lvl || 'amb');
-    if (c.stage === 'ready') return '<span class="s-blue">Ready to submit</span>';
+    if (c.stage === 'ready') return '<span class="s-blue">Ready To Submit</span>';
     if (c.stage === 'submitted') return E(c.status || 'Submitted');
     if (c.stage === 'paid') return '<span class="s-grn">Paid ' + D.us(c.paidOn, 1).slice(0, 5) + '</span>';
     if (c.stage === 'denied') return U.st('Denied ' + c.carc, 'red');

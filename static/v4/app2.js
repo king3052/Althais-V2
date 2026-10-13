@@ -49,7 +49,7 @@
         D.history(c, 'Built by Althea' + (e.check ? ' (' + e.check.score + '% claim check)' : '') + ', approved and signed by ' + S.clinic.user + ', ' + (c.stage === 'edits' ? c.edits.length + ' edit(s) to resolve' : 'all checks passed')); S.claims.push(c); made = c;
       }
       D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save(); if (after) after(made);
-      if (!opts.silent) U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits to resolve.' : ' is ready to submit.') : ''));
+      if (!opts.silent) U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits To Resolve.' : ' is Ready To Submit.') : ''));
       }
   };
 
@@ -343,7 +343,7 @@
     // addenda
     U.on(app, '[data-sign-add]', 'click', function (b) {
       var a = e.addenda[+b.dataset.signAdd]; a.signed = true; a.signedOn = D.today(); a.signedBy = S.clinic.user; save();
-      S.claims.filter(function (c) { return c.encId === e.id && c.stage === 'edits'; }).forEach(function (c) { if (c.waitingOn) { delete c.resolved[c.waitingOn]; delete c.waitingOn; } D.scrub(c); D.history(c, 'Addendum signed, claim re-checked: ' + (c.stage === 'ready' ? 'ready to submit' : c.edits.length + ' edit(s) remain')); });
+      S.claims.filter(function (c) { return c.encId === e.id && c.stage === 'edits'; }).forEach(function (c) { if (c.waitingOn) { delete c.resolved[c.waitingOn]; delete c.waitingOn; } D.scrub(c); D.history(c, 'Addendum signed, claim re-checked: ' + (c.stage === 'ready' ? 'Ready To Submit' : c.edits.length + ' edit(s) remain')); });
       D.log('Addendum signed: ' + p.name); D.save(); draw(); U.toast('Addendum signed. The claim was re-checked.');
     });
     U.on(app, '[data-drop-add]', 'click', function (b) { e.addenda.splice(+b.dataset.dropAdd, 1); S.claims.filter(function (c) { return c.encId === e.id && c.waitingOn; }).forEach(function (c) { delete c.resolved[c.waitingOn]; delete c.waitingOn; D.scrub(c); }); save(); draw(); });

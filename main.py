@@ -56,7 +56,7 @@ templates.env.globals["impersonation_info"] = impersonation_info
 import time as _time
 templates.env.globals["asset_v"] = str(int(_time.time()))
 from sqlalchemy.orm import Session
-from sqlalchemy import select as sa_select
+from sqlalchemy import select as sa_select, func
 import datetime as dt
 from datetime import timezone
 from marketing_data import SOLUTION_SEGMENTS, RESOURCE_CATEGORIES, RESOURCE_ARTICLES
@@ -1067,6 +1067,44 @@ def api_delete_patient(mrn: str, user=Depends(require_biller), db: Session = Dep
 
 
 # ── Claim CRUD ────────────────────────────────────────────────────────────────
+
+@app.post("/api/clinic/name")
+def set_clinic_name(payload: dict = Body(...), user=Depends(require_user), db: Session = Depends(get_db)):
+    """Name the clinic for an account that was created without one. Until it has a name, the account is a solo
+    workspace ("user:<email>"), and billing setup and claim sending are refused. Everything the account stored under
+    its solo keys moves to the clinic in one transaction. Accounts already in a clinic are renamed by Althais support."""
+    from sqlalchemy import inspect as _inspect, text as _text
+    if (user.organization or "").strip():
+        return {"ok": True, "organization": user.organization, "unchanged": True}
+    if (user.role or "") != "admin":
+        return JSONResponse({"error": "Ask your clinic's admin to add the clinic name."}, status_code=403)
+    name = re.sub(r"\s+", " ", str(payload.get("name") or "")).strip()
+    if len(name) < 2 or len(name) > 120 or name.lower().startswith("user:"):
+        return JSONResponse({"error": "Enter the clinic's name (2 to 120 characters)."}, status_code=400)
+    taken = db.scalar(sa_select(User).where(func.lower(func.trim(User.organization)) == name.lower(), User.id != user.id))
+    if taken:
+        return JSONResponse({"error": "A clinic named " + name + " is already in Althais. Ask its admin to invite you, or use a different name."}, status_code=409)
+    old_doc, old_ns = f"user:{user.email}", _org_namespace(user)
+    email_ns = "org_" + re.sub(r"[^a-z0-9]+", "_", (user.email or "").lower()).strip("_")
+    solo_users = db.scalar(sa_select(func.count()).select_from(User).where(func.coalesce(func.trim(User.organization), "") == "")) or 0
+    me = db.get(User, user.id)   # the copy in this session, so the change is saved with the moves
+    me.organization = name
+    new_ns = _org_namespace(me)
+    moves = {old_doc: name, email_ns: new_ns}
+    if solo_users <= 1:   # org_default is shared by every account without a clinic: only move it when this is the only one
+        moves[old_ns] = new_ns
+    try:
+        for table in _inspect(engine).get_table_names():
+            if table != "admin_audit_log" and any(c["name"] == "org_key" for c in _inspect(engine).get_columns(table)):
+                for old, new in moves.items():
+                    if old != new:
+                        db.execute(_text(f'UPDATE "{table}" SET org_key = :new WHERE org_key = :old'), {"new": new, "old": old})
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return JSONResponse({"error": "Could not save the clinic name. Nothing was changed."}, status_code=500)
+    return {"ok": True, "organization": name}
+
 
 @app.get("/api/claims")
 def api_list_claims(user=Depends(require_user), db: Session = Depends(get_db)):

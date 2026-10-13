@@ -159,4 +159,17 @@
   }
   var save = D.save;
   D.save = function () { save(); clearTimeout(timer); timer = setTimeout(push, 1500); };
+  // an account created without a clinic name, whose Practice details already name the clinic: give the account that name,
+  // so billing setup and claim sending work (server: /api/clinic/name moves the account's records to the clinic)
+  (function () {
+    var name = String(S.clinic.name || '').trim();
+    if (String(me.organization || '').trim() || (me.role && me.role !== 'admin') || name.length < 2 || name === 'My Clinic') return;
+    try { if (sessionStorage.getItem('althais.clinicNameTried')) return; sessionStorage.setItem('althais.clinicNameTried', '1'); } catch (e) {}
+    fetch('/api/clinic/name', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+      .then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j || !j.organization || j.unchanged) return;
+        try { localStorage.setItem('althais.v4.store.v1::' + String(j.organization).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'), localStorage.getItem(D.KEY) || JSON.stringify(S)); } catch (e) {}
+        location.reload();
+      }).catch(function () {});
+  })();
 })();
