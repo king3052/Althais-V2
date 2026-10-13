@@ -495,6 +495,12 @@
         var before = c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).concat(c.dx).join(','), afterCodes = b.codes.map(function (x) { return x.code + (x.mod ? '-' + x.mod : ''); }).join(',');
         c.proposal = { key: key, score: b.check.score, check: b.check, codes: b.codes, adds: b.adds, unresolved: b.unresolved, changed: before !== afterCodes || b.adds.length > 0, from: c.check ? c.check.score : null, at: new Date().toISOString() };
       } else c.proposal = null;
+      // a claim can't go out without a diagnosis: when it has none, Althea's diagnoses from the note go straight on
+      // (the codes the note supports, checked against ICD-10-CM); the claim is then re-checked
+      var dxs = (b.codes || []).filter(function (x) { return x.type !== 'CPT'; }).map(function (x) { return x.code; });
+      if (!c.dx.length && dxs.length && ['edits', 'ready'].indexOf(c.stage) >= 0) {
+        c.dx = dxs; D.history(c, 'Diagnoses added by Althea from the visit note: ' + dxs.join(', ')); delete c.check; c.proposal = null; D.scrub(c);
+      }
       D.save();
     }).catch(function () { c.proposal = null; }).then(function () { delete busy[c.id]; (after || V.refresh)(); });
   };

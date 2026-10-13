@@ -45,12 +45,21 @@
     if (!D.pt(mrn)) S.patients.push({ mrn: mrn, name: personName(name) || mrn, dob: '', sex: 'X', payer: payer || '', member: '', pcp: '', balance: 0, status: 'Active', created: D.today(), imported: true });
     return mrn;
   }
+  // the service lines and diagnoses on an old claim, wherever that EMR kept them: the saved snapshot, the code list
+  // (typed or not: 5 digits / letter + 4 digits = procedure, letter + 2 digits (+ .xxx) = diagnosis), or plain text fields
+  function codesFrom(o) {
+    var snap = o.snap || {}, codes = Array.isArray(o.codes) ? o.codes : [], all = [].concat(snap.cpts || [], snap.icds || [], codes);
+    var isDx = function (c) { var k = String(c.code || '').toUpperCase().trim(); return /icd|diag|dx/i.test(c.type || '') || (!/cpt|hcpcs|proc/i.test(c.type || '') && /^[A-TV-Z][0-9][0-9A-Z](\.?[0-9A-Z]{1,4})?$/.test(k) && !/^[A-Z]\d{4}$/.test(k)); };
+    var cpts = [], dx = [], seen = {};
+    all.forEach(function (c) { if (!c || !c.code) return; var k = String(c.code).toUpperCase().trim(); if (seen[k]) return; seen[k] = 1;
+      if (isDx(c)) dx.push(k); else cpts.push({ code: k, mod: c.modifier || c.mod || '', units: +c.units || 1 }); });
+    if (!cpts.length && o.cpt) cpts = String(o.cpt).split(/[\s,;]+/).filter(Boolean).map(function (c) { return { code: c.toUpperCase(), mod: '', units: 1 }; });
+    if (!dx.length && (o.icd || o.dx || o.diagnosis)) dx = String(o.icd || o.dx || o.diagnosis).split(/[\s,;]+/).filter(function (x) { return /^[A-Z]\d/i.test(x); }).map(function (c) { return c.toUpperCase(); });
+    return { cpts: cpts, dx: dx };
+  }
   function claimFrom(o) {
     var snap = o.snap || {}, codes = o.codes || [];
-    var cpts = (snap.cpts || codes.filter(function (c) { return /CPT/i.test(c.type || '') || /^\d{5}$/.test(c.code || ''); })).map(function (c) { return { code: String(c.code || '').toUpperCase(), mod: c.modifier || c.mod || '', units: +c.units || 1 }; });
-    if (!cpts.length && o.cpt) cpts = String(o.cpt).split(/[\s,]+/).filter(Boolean).map(function (c) { return { code: c.toUpperCase(), mod: '', units: 1 }; });
-    var dx = (snap.icds || codes.filter(function (c) { return /ICD/i.test(c.type || ''); })).map(function (c) { return String(c.code || '').toUpperCase(); });
-    if (!dx.length && o.icd) dx = String(o.icd).split(/[\s,]+/).filter(Boolean).map(function (c) { return c.toUpperCase(); });
+    var cd = codesFrom(o), cpts = cd.cpts, dx = cd.dx;
     var stage = STAGE(o.status), dos = iso(snap.svcDate || o.dos || o.ts || o.createdAt) || D.today();
     var st = snap.structured || {}, sv = st.vitals || {};
     var noteTxt = o.note || snap.note || (snap.structured ? ['CHIEF COMPLAINT: ' + (st.cc || ''), 'HPI: ' + (st.hpi || ''), 'ROS: ' + (st.ros || ''), 'VITALS: ' + [sv.bp && 'BP ' + sv.bp, sv.hr && 'HR ' + sv.hr].filter(Boolean).join(', '), 'EXAM: ' + (st.exam || ''), 'LABS: ' + (st.labs || ''), 'ASSESSMENT: ' + (st.assessment || ''), 'PLAN: ' + (st.plan || '')].join('\n') : '');
@@ -106,6 +115,9 @@
   var pullServer = function () { return Promise.all([has('suite') ? api('/api/patients') : [], has('insurance') ? api('/api/claims') : []]).then(function (res) {
     var n = 0;
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && !D.pt(o.mrn)) { S.patients.push(patientFromOld(o)); n++; } });
+    (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { var have = o && o.id && D.claim(o.id);
+      if (have && have.imported && (!have.dx.length || !have.lines.length)) { var cd = codesFrom(o);
+        if ((!have.dx.length && cd.dx.length) || (!have.lines.length && cd.cpts.length)) { if (!have.dx.length) have.dx = cd.dx; if (!have.lines.length) have.lines = cd.cpts; delete have.check; D.history(have, 'Codes restored from the previous EMR'); if (have.stage === 'edits' || have.stage === 'ready') D.scrub(have); n++; } } });
     (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { var c = claimFrom(o); if (!c.prov) c.prov = defProv(); S.claims.push(c); n++; } });
     // remember what the server already has so unchanged records aren't sent back
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && D.pt(o.mrn)) sent['p:' + o.mrn] = sent['p:' + o.mrn] || 'server'; });
