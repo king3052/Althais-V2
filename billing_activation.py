@@ -1300,7 +1300,9 @@ def transmit(db, org, env, data, user, c: dict, release=False) -> dict:
                                    environment=env, user_id=user.id)
     if not hold:
         db.add(tx)
-    res = connector.submit_claim(c, idempotency_key=key)
+    pv = provider_for(data, c.get("provider")) or {}
+    sendable = dict(c, billingProfile=data, npi=c.get("npi") or pv.get("npi") or "")   # the 837 needs the clinic's billing profile and the provider's NPI
+    res = connector.submit_claim(sendable, idempotency_key=key)
     if not res.ok:
         tx.delivery, tx.held, tx.blockers = "FAILED", 1, json.dumps([{"title": "Clearinghouse", "reason": res.message, "next": "Try again later", "responsible": "Althais"}])
         return {"status": "failed", "message": res.message}
@@ -1486,7 +1488,10 @@ def overview(c: Ctx = Depends(ctx)):
     tasks = db.scalars(select(BillingTask).where(BillingTask.org_key == org, BillingTask.status == "open").order_by(BillingTask.created_at)).all()
     sigs = db.scalars(select(BillingSignature).where(BillingSignature.org_key == org, BillingSignature.status == "requested")).all()
     view = "owner" if c.owner else ("biller" if c.biller else ("provider" if any(p.get("personId") == c.person_id for p in data["providers"]) and c.person_id else "other"))
-    out = {"view": view, "environment": c.env, "clearinghouse": connector.describe(), "registry": {"version": reg.VERSION, "review": reg.REVIEW},
+    conn = chx.load_connection(org)
+    chd = dict(connector.describe(), partner=conn.get("partner") or "", last4=conn.get("last4") or "", connectedBy=conn.get("connectedBy") or "",
+               connectedAt=conn.get("connectedAt") or "", canConnect=bool(c.owner), partners=[{"key": k, "label": v[0], "built": v[1] is not None} for k, v in chx.PARTNERS.items()])
+    out = {"view": view, "environment": c.env, "clearinghouse": chd, "registry": {"version": reg.VERSION, "review": reg.REVIEW},
            "myTasks": [_task_json(t) for t in tasks if t.assignee in mine],
            "mySignatures": [_sig_json(s) for s in sigs if s.signer in mine]}
     if c.person and c.biller:
@@ -1654,7 +1659,8 @@ async def put_payers(request: Request, c: Ctx = Depends(owner_ctx)):
         ptype = p.get("type") if p.get("type") in reg.PAYER_TYPES else reg.payer_type(name)
         rec = dict(old, key=key, name=reg.KNOWN_PAYERS.get(name.lower(), (name,))[0], type=ptype,
                    alreadyBills=p.get("alreadyBills") if p.get("alreadyBills") in (True, False) else old.get("alreadyBills"),
-                   network=p.get("network") if p.get("network") in ("in", "out") else old.get("network"))
+                   network=p.get("network") if p.get("network") in ("in", "out") else old.get("network"),
+                   payerId=re.sub(r"[^A-Za-z0-9]", "", str(p.get("payerId") if p.get("payerId") is not None else old.get("payerId") or ""))[:20])
         if rec.get("network") == "out" and old.get("network") != "out":
             rec["networkConfirmedBy"], rec["networkConfirmedAt"] = c.user.full_name or c.user.email, _today().isoformat()
         if rec.get("network") != "out":
@@ -2007,6 +2013,40 @@ def sync_now(c: Ctx = Depends(owner_ctx)):
 
 
 # ── claims ──
+@router.put("/api/billing/clearinghouse")
+async def connect_clearinghouse(request: Request, c: Ctx = Depends(ctx)):
+    """Connect the clinic's clearinghouse account (owners only). The key is tested with the clearinghouse first and stored
+    encrypted; it's never shown again (only its last 4 characters)."""
+    if not c.owner:
+        raise HTTPException(status_code=403, detail="Only a clinic owner or admin can connect the clearinghouse.")
+    body = await request.json()
+    partner, key = str(body.get("partner") or "").strip().lower(), str(body.get("accountKey") or "").strip()
+    if partner != "claimmd":
+        raise HTTPException(status_code=400, detail="That clearinghouse isn't available yet. Claim.MD is.")
+    if len(key) < 8:
+        raise HTTPException(status_code=400, detail="Paste your Claim.MD account key (Claim.MD > Settings > Account Settings).")
+    res = await asyncio.to_thread(chx.ClaimMD(key).check_connection, {})
+    if not res.ok or res.status != "CONNECTED":
+        raise HTTPException(status_code=400, detail=res.message or "Claim.MD didn't accept that account key.")
+    chx.save_connection(c.db, c.org, {"partner": "claimmd", "key": chx.seal(key), "last4": key[-4:], "connectedBy": c.user.full_name or c.user.email,
+                                     "connectedAt": _now().isoformat()})
+    audit(c, c.org, c.user, "clearinghouse_connected", "Claim.MD account connected")
+    c.db.commit()
+    request_sync(c.db, c.org, "clearinghouse connected")
+    c.db.commit()
+    return {"ok": True, "label": "Claim.MD", "last4": key[-4:]}
+
+
+@router.delete("/api/billing/clearinghouse")
+def disconnect_clearinghouse(c: Ctx = Depends(ctx)):
+    if not c.owner:
+        raise HTTPException(status_code=403, detail="Only a clinic owner or admin can disconnect the clearinghouse.")
+    chx.save_connection(c.db, c.org, {})
+    audit(c, c.org, c.user, "clearinghouse_disconnected", "Clearinghouse disconnected")
+    c.db.commit()
+    return {"ok": True}
+
+
 @router.post("/api/billing/claims/transmit")
 async def claims_transmit(request: Request, c: Ctx = Depends(ctx)):
     """The EMR calls this before anything is sent. The server decides: send, or hold with the exact reasons."""

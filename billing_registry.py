@@ -24,6 +24,7 @@ Tracks (kept separate on purpose, because each moves on its own timeline):
   eft            electronic funds transfer (payment, doesn't block sending claims)
   connectivity   the clinic's clearinghouse account and payer route
 """
+import re
 
 VERSION = "2026.09.1"
 REVIEW = {"reviewedBy": None, "reviewedOn": None}   # filled in by a person after checking every source below
@@ -119,7 +120,16 @@ BY_ID = {r["id"]: r for r in REQUIREMENTS}
 
 
 def payer_type(name: str) -> str:
-    return KNOWN_PAYERS.get((name or "").strip().lower(), (name, "other"))[1]
+    n = (name or "").strip().lower()
+    if n in KNOWN_PAYERS:
+        return KNOWN_PAYERS[n][1]
+    if "medicaid" in n:
+        return "medicaid"
+    if "medicare" in n and "advantage" not in n:
+        return "medicare"
+    if re.search(r"aetna|cigna|united|uhc|blue|bcbs|anthem|humana|kaiser|oscar|ambetter|molina|centene|wellcare|highmark|careFirst|premera|regence|advantage", n, re.I):
+        return "commercial"
+    return "other"
 
 
 def payer_key(name: str) -> str:
