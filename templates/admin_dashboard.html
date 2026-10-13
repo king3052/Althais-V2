@@ -272,6 +272,7 @@
         <aside class="s-nav">
           <div class="s-group">Clinics</div>
           <div class="s-tab active" data-stab="signups">Sign-Ups &amp; Plans</div>
+          <div class="s-tab" data-stab="claims">Claim Submission</div>
           <div class="s-group">Admin Console</div>
           <div class="s-tab" data-stab="appearance">Appearance</div>
           <div class="s-tab" data-stab="display">Display</div>
@@ -288,6 +289,21 @@
                 <select class="s-input" data-aset="new_clinic_plan"><option value="suite">Full Suite</option><option value="scribe">Scribe</option><option value="coding">Coding</option><option value="insurance">Insurance</option><option value="staff">Team</option><option value="none">No Access Until Switched On</option></select></div>
             </div>
             <p class="s-note">Changing the plan for new clinics doesn’t change any clinic that already exists. Use Organizations &amp; Access for those.</p>
+          </div>
+          <div data-spanel="claims" class="hidden">
+            <h2 class="s-title">Claim Submission</h2>
+            <p class="s-sub">Clinics send their claims to Althais. Althais submits every clinic's claims to payers through this Claim.MD account, under each clinic's own NPI and Tax ID, and reads every response back into the clinic's app.</p>
+            <div class="s-divider"></div>
+            <div class="s-card">
+              <div class="s-row"><div><div class="s-row-label">Status</div><div class="s-row-sub" id="chx-sub">Checking…</div></div><b id="chx-status" class="text-[13px]">…</b></div>
+              <div class="s-row" style="align-items:flex-start"><div style="flex:1"><div class="s-row-label">Claim.MD Account Key</div>
+                <div class="s-row-sub">Claim.MD › Settings › Account Settings › API Key. Tested with Claim.MD before it's saved; stored encrypted; only the last 4 characters are shown again.</div>
+                <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input type="password" id="chx-key" class="s-input" autocomplete="off" placeholder="Paste the account key" style="max-width:340px">
+                  <button type="button" id="chx-save" class="s-btn s-btn-primary" style="padding:6px 14px;border-radius:6px;background:var(--brand);color:var(--brand-on);font-weight:600;font-size:12.5px">Test And Save</button>
+                  <button type="button" id="chx-off" class="s-btn" style="padding:6px 14px;border-radius:6px;border:1px solid #d0d3db;font-size:12.5px;display:none">Disconnect</button></div>
+                <div id="chx-err" style="color:#c83838;font-size:12px;margin-top:6px"></div></div></div>
+            </div>
+            <p class="s-note">Use a Claim.MD test account's key first to try the whole flow; switch to the live key when you're ready. Claim responses are read every 5 minutes.</p>
           </div>
           <div data-spanel="security" class="hidden">
             <h2 class="s-title">Security</h2>
@@ -1020,5 +1036,37 @@
     show(location.hash.slice(1));
     load();
   </script>
+<script>
+  // Claim Submission: Althais's own Claim.MD account (one for every clinic)
+  (function () {
+    var $ = function (id) { return document.getElementById(id); };
+    function show() {
+      fetch('/api/admin/clearinghouse', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+        if (!d) return;
+        var on = d.partner === 'claimmd';
+        $('chx-status').textContent = on ? 'Connected' : 'Not connected'; $('chx-status').style.color = on ? '#0c8a4f' : '#b86a00';
+        $('chx-sub').textContent = on ? 'Claim.MD, key ending ' + d.last4 + ' · ' + d.sent + ' claims sent' + (d.lastPoll ? ' · responses checked ' + new Date(d.lastPoll).toLocaleString() : '') + (d.pollError ? ' · last check failed: ' + d.pollError : '')
+          : 'Clinics can prepare and send claims now; they are held safely until this is connected.';
+        $('chx-off').style.display = on ? '' : 'none';
+      });
+    }
+    document.addEventListener('click', function (e) {
+      if (e.target.id === 'chx-save') {
+        var k = $('chx-key').value.trim(); $('chx-err').textContent = '';
+        if (k.length < 8) { $('chx-err').textContent = 'Paste the Claim.MD account key.'; return; }
+        e.target.disabled = true; e.target.textContent = 'Testing…';
+        fetch('/api/admin/clearinghouse', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountKey: k }) })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || j.error || 'Could not save.'); return j; }); })
+          .then(function () { $('chx-key').value = ''; show(); }, function (er) { $('chx-err').textContent = er.message; })
+          .then(function () { e.target.disabled = false; e.target.textContent = 'Test And Save'; });
+      }
+      if (e.target.id === 'chx-off' && confirm('Disconnect Althais from Claim.MD? Every clinic\'s claims will be held until it is connected again.')) {
+        fetch('/api/admin/clearinghouse', { method: 'DELETE', credentials: 'same-origin' }).then(show);
+      }
+      if (e.target.dataset && e.target.dataset.stab === 'claims') show();
+    });
+    show();
+  })();
+</script>
 </body>
 </html>

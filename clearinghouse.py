@@ -195,6 +195,22 @@ class ClaimMD(Connector):
             return self._res(True, "NOT_REQUIRED", f"Claim.MD sends to {attrs.get('payer_name')} ({pid}) without enrollment.", ref=pid)
         return self._res(True, "UNKNOWN", f"Claim.MD payer {pid} found; check its enrollment rules in Claim.MD.", ref=pid)
 
+    def responses(self, last_id: str = "0"):
+        """Claim status updates since last_id (Claim.MD /services/response/): (list of dicts, new last id)."""
+        code, text = self._post("response/", {"ResponseID": str(last_id or "0")}, timeout=60)
+        root = self._xml(text)
+        if code != 200 or root is None:
+            raise RuntimeError(self._error(root, text) or "No response from Claim.MD.")
+        err = root.find(".//error")
+        if err is not None:
+            raise RuntimeError(self._error(root, text))
+        out = []
+        for cl in root.findall(".//claim"):
+            msgs = [{"status": m.get("status") or "", "message": (m.get("message") or "").strip(), "responseid": m.get("responseid") or ""} for m in cl.findall(".//message")]
+            out.append({"claimid": cl.get("claimid") or "", "claimmd_id": cl.get("claimmd_id") or "", "status": (cl.get("status") or "").upper(),
+                        "sender": cl.get("sender_name") or "", "messages": msgs})
+        return out, root.get("last_responseid") or last_id
+
     def submit_claim(self, claim: dict, idempotency_key: str) -> Result:
         try:
             prof = claim.get("billingProfile") or {}
@@ -297,6 +313,9 @@ def _fernet():
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"althais-clearinghouse|" + secret).digest()))
 
 
+PLATFORM = "__althais_platform__"   # Althais's own clearinghouse account: clinics never connect one themselves
+
+
 def load_connection(org_key: str) -> dict:
     try:
         import json as _json
@@ -351,11 +370,11 @@ def connector_for(org_key: str) -> Connector:
     """Sandbox only for test-mode clinics. Production gets the configured partner, or NotConnected."""
     if environment_for(org_key) == "sandbox":
         return Sandbox()
-    conn = load_connection(org_key)   # the clinic's own connection, set up in Billing Activation
+    conn = load_connection(PLATFORM)   # Althais submits for every clinic through its own clearinghouse account (admin console)
     if conn.get("partner") == "claimmd" and conn.get("key"):
         try:
             c = ClaimMD(unseal(conn["key"]))
-            c.label = "Claim.MD (account key ending " + str(conn.get("last4") or "") + ")"
+            c.label = "Althais (through Claim.MD)"
             return c
         except Exception:
             pass
@@ -364,6 +383,7 @@ def connector_for(org_key: str) -> Connector:
     if entry and entry[1] is not None and os.environ.get("CLEARINGHOUSE_API_KEY"):
         return entry[1](os.environ["CLEARINGHOUSE_API_KEY"])
     c = NotConnected()
+    c.label = "Althais is finishing its clearinghouse connection"
     if entry:
         c.label = f"{entry[0]} selected, but its connection isn't built yet (partner API access needed)"
     return c

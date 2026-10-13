@@ -35,7 +35,7 @@
       ['Add the providers who see patients', P.providers.length > 0 && P.providers.every(function (p) { return p.confirmed; }), 'providers'],
       ['List the payers you bill, and whether you already bill each one', P.payers.length > 0 && P.payers.every(function (p) { return p.alreadyBills !== null && p.alreadyBills !== undefined; }), 'payers'],
       ['Authorize Althais to prepare applications and send claims', allOk('clinic_authorization'), 'auth'],
-      ['Connect your clearinghouse', allOk('clearinghouse_account'), 'ch'],
+      ['Althais submits your claims to payers', allOk('clearinghouse_account'), 'ch'],
       ['Finish each payer’s applications', D.items.filter(function (i) { return i.blocksClaims && i.payerKey; }).every(function (i) { return i.ready; }) && D.items.some(function (i) { return i.payerKey; }), 'apps'],
       ['Give your billers claim submission access', D.billers.length ? D.billers.every(function (b) { return b.access === 'ACTIVE'; }) : false, 'billers']];
     var done = steps.filter(function (s) { return s[1]; }).length;
@@ -149,9 +149,10 @@
     return U.sect('Held Claims', D.held.length + ' waiting', D.held.length ? D.held.map(function (h) {
         return '<div class="ba-task"><span class="ba-dot warn">⏸</span><div class="ba-sb"><div class="ba-st"><a href="' + V.claimHref(h.claimId) + '">' + E(h.claimId) + '</a> · ' + E(h.patient) + ' · ' + E(h.payer) + '</div><div class="mut" style="font-size:11.5px">Held since ' + fmt(h.since) + '. Saved as-is; nothing was sent.</div>' +
           h.blockers.map(function (b) { return '<div style="font-size:12.5px"><b>' + E(b.title) + '</b>: ' + E(b.reason) + '</div>'; }).join('') + '</div></div>'; }).join('') : none('No held claims.')) +
-      U.sect('Recently Sent', (D.sent || []).length, (D.sent || []).length ? U.grid(['Claim', 'Delivered', 'Clearinghouse', 'Payer', 'Payment'], D.sent.map(function (h) {
+      U.sect('Recently Sent', (D.sent || []).length + ', submitted by Althais', (D.sent || []).length ? U.grid(['Claim', 'Delivered', 'Clearinghouse', 'Payer', 'Payment', ['Details', 'wrap']], D.sent.map(function (h) {
         var tone = function (v) { return v === 'ACCEPTED' || v === 'PAID' ? 'APPROVED' : v === 'REJECTED' || v === 'DENIED' ? 'DENIED' : 'SUBMITTED'; };
-        return { cells: ['<b>' + E(h.claimId) + '</b>' + (h.environment === 'sandbox' ? ' ' + pill('NONE', 'Test') : '') + '<div class="mono mut" style="font-size:11px">' + E(h.reference || '') + '</div>', fmt(h.sentAt), pill(tone(h.ack), h.ack || 'Pending'), pill(tone(h.payerStatus), h.payerStatus || 'Pending'), h.payment ? pill(tone(h.payment), h.payment) : '-'] };
+        return { cells: ['<a href="' + V.claimHref(h.claimId) + '"><b>' + E(h.claimId) + '</b></a>' + (h.environment === 'sandbox' ? ' ' + pill('NONE', 'Test') : '') + '<div class="mono mut" style="font-size:11px">' + E(h.reference || '') + '</div>', fmt(h.sentAt), pill(tone(h.ack), h.ack || 'Pending'), pill(tone(h.payerStatus), h.payerStatus || 'Pending'), h.payment ? pill(tone(h.payment), h.payment) : '-',
+          (h.blockers || []).map(function (b) { return '<div class="s-red" style="font-size:12px"><b>' + E(b.title) + '</b>: ' + E(b.reason) + '</div>'; }).join('') || '<span class="mut">-</span>'] };
       })) : none('Nothing sent yet.'));
   }
   function activity() {
@@ -164,11 +165,9 @@
   }
 
   function chBody() {
-    var ch = D.clearinghouse;
-    if (ch.capabilities.claim_submit) return '<div class="ba-note">' + pill('APPROVED', 'Connected') + ' <b>' + E(ch.partner === 'claimmd' ? 'Claim.MD' : ch.label) + '</b>' + (ch.last4 ? ' · account key ending ' + E(ch.last4) : '') +
-      (ch.connectedBy ? ' · connected by ' + E(ch.connectedBy) + (ch.connectedAt ? ', ' + fmt(ch.connectedAt) : '') : '') + (ch.canConnect && ch.partner ? ' <button class="mini" data-ch-off>Disconnect</button>' : '') + '</div>';
-    return '<div class="ba-note">' + (ch.canConnect ? '<button class="btn pri" data-ch-on>Connect Claim.MD</button> <span class="mut">Claims go to payers through your Claim.MD account. Until it’s connected, claims are held safely instead of sent.</span>'
-      : '<span class="mut">A clinic owner connects the clearinghouse. Until then, claims are held safely instead of sent.</span>') + '</div>';
+    var ok = D.clearinghouse.capabilities.claim_submit;
+    return '<div class="ba-note">' + (ok ? pill('APPROVED', 'Ready') + ' <span>You send claims from <a href="/v4/revenue/claims?q=ready">Claims</a>; Althais submits them to each payer and tracks every response here and on the claim.</span>'
+      : pill('SUBMITTED', 'Althais is setting this up') + ' <span class="mut">Nothing for you to do. Claims you send are held safely and go out as soon as it’s ready.</span>') + '</div>';
   }
 
   // ---------- right side: what needs this person ----------
@@ -193,7 +192,7 @@
   function draw() {
     if (!D) { app.innerHTML = U.header('billing') + U.toolbar('Billing Activation', []) + '<div class="main" style="grid-template-columns:1fr"><section class="pane"><div class="pbody">' + (ERR ? '<div class="s-red" style="padding:14px">' + E(ERR) + '</div>' : none('Loading…')) + '</div></section></div>'; U.fit(); return; }
     var ch = D.clearinghouse, R = D.routes || [], ready = R.filter(function (r) { return r.ready; }).length, nT = (D.tasks || []).length + (D.signatures || []).length;
-    var strip = U.strip([['Ready To Send Claims', R.length ? ready + ' of ' + R.length : '-', 'payer and provider pairs', ready ? 'grn' : 'amb'], ['Clearinghouse', ch.capabilities.claim_submit ? 'Connected' : 'Not connected', ch.capabilities.claim_submit ? (ch.partner === 'claimmd' ? 'Claim.MD' : E(ch.label)) : (ch.canConnect ? '<a href="#" data-ch-on>Connect Claim.MD</a>' : ''), ch.capabilities.claim_submit ? 'grn' : 'amb'],
+    var strip = U.strip([['Ready To Send Claims', R.length ? ready + ' of ' + R.length : '-', 'payer and provider pairs', ready ? 'grn' : 'amb'], ['Claim Submission', ch.capabilities.claim_submit ? 'By Althais' : 'Setting up', ch.capabilities.claim_submit ? 'ready to submit' : 'by Althais', ch.capabilities.claim_submit ? 'grn' : 'blue'],
       ['Your Open Tasks', ((D.myTasks || []).length + (D.mySignatures || []).length) || '0', 'only you can do these'], ['Held Claims', (D.held || []).length, (D.sent || []).length + ' sent'], ['Requirements Registry', 'v' + E(D.registry.version), D.registry.review.reviewedBy ? 'reviewed by ' + E(D.registry.review.reviewedBy) : 'confirm details with each payer']]);
     var owner = D.view === 'owner', side = ((D.myTasks || []).length + (D.mySignatures || []).length) > 0 || !owner;   // Waiting On You only takes room when something waits
     var nav = owner ? U.pane('Sections', '', '', U.queue([{ h: 'Setup', items: SECTIONS.slice(0, 4).map(function (s) { return { key: s[0], label: s[1], n: s[0] === 'items' ? D.items.filter(function (i) { return !i.ready; }).length || '' : s[0] === 'billers' ? D.billers.length : s[0] === 'routes' ? ready + '/' + R.length : '', color: null }; }) },
@@ -256,22 +255,6 @@
         [['Cancel', '', function () {}], ['Confirm', 'pri', function (close, w) { var v = U.values(w);
           act(function () { return api('POST', '/api/billing/items/' + i.id + '/confirm', { status: v.status, effectiveDate: v.eff, expiresAt: v.exp, reference: v.ref, documentId: v.doc || null, note: v.note }); }, 'Confirmed.'); }]], { width: 560 });
     });
-    U.on(app, '[data-ch-on]', 'click', function (b, e) { e.preventDefault();
-      U.modal('Connect Claim.MD', '<div class="so"><p class="cf" style="margin:0">Althais sends your claims as standard 837P files through your own Claim.MD account.</p>' +
-        '<div class="so-sec" style="padding:10px 12px;line-height:1.6"><b>1.</b> Sign in at <a href="https://www.claim.md" target="_blank" rel="noopener">claim.md</a><br><b>2.</b> Open <b>Settings › Account Settings</b> and copy your <b>API Key</b> (AccountKey)<br><b>3.</b> Paste it here. Althais tests it with Claim.MD before saving.</div>' +
-        '<div><label class="ask-l" for="ch-key">Claim.MD account key</label><input id="ch-key" type="password" autocomplete="off" style="width:100%;height:30px;border:1px solid var(--b);padding:0 8px"></div>' +
-        '<p class="mut" style="margin:0;font-size:12px">The key is stored encrypted and never shown again; only its last 4 characters are. Only owners and admins can change it.</p><div class="s-red" id="ch-err" style="font-size:12px"></div></div>',
-        [['Cancel', '', function () {}], ['Test And Connect', 'pri', function (close, w) {
-          var key = w.querySelector('#ch-key').value.trim(), err = w.querySelector('#ch-err'), btn = w.querySelector('[data-mb="1"]');
-          if (key.length < 8) { err.textContent = 'Paste your Claim.MD account key.'; return false; }
-          btn.disabled = true; btn.textContent = 'Testing…'; err.textContent = '';
-          api('PUT', '/api/billing/clearinghouse', { partner: 'claimmd', accountKey: key }).then(function () { close(); U.toast('Claim.MD connected. Claims can go out once each payer is ready.'); load(); },
-            function (e2) { btn.disabled = false; btn.textContent = 'Test And Connect'; err.textContent = e2.message; });
-          return false;
-        }]], { width: 520 });
-    });
-    U.on(app, '[data-ch-off]', 'click', function () { U.confirm('Disconnect Claim.MD', '<p class="cf">Disconnect Claim.MD? Claims will be held instead of sent until a clearinghouse is connected again. The saved key is deleted.</p>', 'Disconnect', function () {
-      act(function () { return api('DELETE', '/api/billing/clearinghouse'); }, 'Claim.MD disconnected.'); }, { danger: 1 }); });
     U.on(app, '[data-policy]', 'change', function (cb) { var o = {}; o[cb.dataset.policy] = cb.checked; act(function () { return api('PUT', '/api/billing/policy', o); }, 'Saved.'); });
     U.on(app, '#prov-add', 'change', function (sel) {
       var v = sel.value; if (!v) return; var s = D.staffPhysicians.filter(function (x) { return x.personId === v; })[0];

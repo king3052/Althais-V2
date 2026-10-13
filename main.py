@@ -148,7 +148,7 @@ async def _billing_jobs():
         return
 
     async def loop():
-        last_daily = None
+        last_daily, polls, last_batch = None, 0, None
         while True:
             try:
                 today = billing_activation._today()
@@ -157,6 +157,13 @@ async def _billing_jobs():
                         billing_activation.daily(db)
                     last_daily = today
                 await asyncio.to_thread(billing_activation.run_due)
+                now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                if now.hour >= billing_activation.BATCH_HOUR_UTC and last_batch != now.date():   # Althais's end-of-day claim submission
+                    last_batch = now.date()
+                    await asyncio.to_thread(billing_activation.submit_queued)
+                polls += 1   # claim responses from the clearinghouse, every 5 minutes
+                if polls % 5 == 1:
+                    await asyncio.to_thread(billing_activation.poll_clearinghouse)
             except Exception as e:
                 print(f"[BILLING JOBS] {type(e).__name__}")      # no details: they could include clinic data
             await asyncio.sleep(60)

@@ -18,7 +18,7 @@
     var TITLES = { signoff: 'Waiting For Sign-Off', edits: 'Edits To Resolve', ready: 'Ready To Submit', submitted: 'With Payer', stale: 'Submitted over 30 days', rejected: 'Rejected by clearinghouse', denied: 'Denied', appeal: 'Appeal due in 7 days', lag: 'Charges not entered', paid: 'Paid', all: 'All claims' };
     function row(c) {
       var st = c.stage === 'edits' ? (c.waitingOn ? '<span class="s-blue">Waiting on addendum</span>' : U.st((c.edits[0] || {}).label || 'Edit', (c.edits[0] || {}).lvl || 'amb') + (c.edits.length > 1 ? ' <span class="mut">+' + (c.edits.length - 1) + '</span>' : ''))
-        : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' : V.claimStatus(c);
+        : c.stage === 'ready' ? '<span class="s-grn">Passed (' + c.passed + ')</span>' + (c.queuedAt ? ' <span class="tc s-blue">approved · Althais submits ' + V.batchTime(c.submitAt) + '</span>' : '') : V.claimStatus(c);
       if (c.check && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-' + V.scoreColor(c.check.score) + '" title="Claim check">' + c.check.score + '%</span>';
       if (c.proposal && c.proposal.changed && c.proposal.score > (c.check ? c.check.score : 0) && ['edits', 'ready'].indexOf(c.stage) >= 0) st += ' <span class="s-grn" title="Althea built a version that checks at ' + c.proposal.score + '%. Open the claim to approve it.">→ ' + c.proposal.score + '% ready to approve</span>';
       else if (V.proposalBusy(c.id)) st += ' <span class="mut">Althea building…</span>';
@@ -75,9 +75,11 @@
       else if (tab === 'note') body = e ? '<div class="note"><h4>Subjective</h4><p>' + E(e.s) + '</p><h4>Objective</h4><p>' + E(e.o) + '</p><h4>Assessment</h4><p>' + E(e.a) + '</p><h4>Plan</h4><p>' + E(e.p) + '</p>' + (e.addenda || []).filter(function (a) { return a.signed; }).map(function (a) { return '<h4>Addendum</h4><p>' + E(a.text) + '</p>'; }).join('') + '<p style="margin-top:8px">' + V.link('Open the visit', V.encHref(e.id)) + '</p></div>' : '<div class="blank">Entered by hand, no visit note linked.</div>';
       else body = '<div class="dp-sec kv">' + (c.hist || []).slice().reverse().map(function (h) { return '<div><span>' + new Date(h.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) + '</span><b style="font-weight:400;text-align:right">' + E(h.text) + '</b></div>'; }).join('') + '</div>';
       if (tab === 'edits') { setTimeout(function () { V.autoCheck(c, draw); }, 0); var cs = V.checkState(c.id); body = (!c.encId && !String(c.note || '').trim() && ['edits', 'ready'].indexOf(c.stage) >= 0 ? '<div class="dp-sec"><div class="edit amb"><div class="edit-h">' + U.warn + 'No visit note on this claim</div><div class="edit-b"><p>The claim check and Althea build from the visit documentation, and this claim has none, so it can’t score well. Paste the visit note and Althea builds the claim from it.</p><textarea class="ed" id="pastenote" rows="5" placeholder="Chief complaint, HPI, exam, assessment and plan"></textarea><div style="text-align:right;margin-top:6px"><button class="btn sm pri" id="savenote">Save Note</button></div></div></div></div>' : '') + V.proposalHtml(c) + V.checkHtml(c, cs.busy, cs.err) + body; }
-      foot = '<button class="btn" id="cms" style="margin-right:auto">View CMS-1500</button>' + (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<button class="btn" id="altfix">Althea: Fix To 90%</button>' : '');
+      var tools = '<button class="btn" id="cms">' + U.I.print + 'View CMS-1500</button>' + (['edits', 'ready'].indexOf(c.stage) >= 0 ? '<button class="btn ft-althea" id="altfix">Althea: Fix To 90%</button>' : '');
+      foot = '';
       V.ctx = { claim: c.id };
-      if (c.stage === 'ready') foot += '<button class="btn" id="back-edits">Re-check</button><button class="btn pri" id="submit1">Submit claim</button>';
+      if (c.stage === 'ready') foot += c.approvedAt ? '<button class="btn" id="back-edits">Re-Check</button><button class="btn pri" id="submit1">' + U.I.send + 'Submit Now</button>'
+        : '<button class="btn" id="back-edits">Re-Check</button><button class="btn" id="submit1">Submit Now</button><button class="btn pri" id="approve1">Sign And Approve</button>';
       else if (c.stage === 'submitted') foot += '<button class="btn" id="ack"' + (/accepted/i.test(c.status) ? ' disabled' : '') + '>Mark accepted (277CA)</button><button class="btn" id="deny">Record denial</button><button class="btn pri" id="pay">Post payment</button>';
       else if (c.stage === 'edits') foot += '<button class="btn" id="rescrub1">Re-check</button>' + (c.encId ? '' : '<button class="btn" id="delclaim">Delete</button>');
       else if (c.stage === 'denied') foot += '<a class="btn pri" style="display:inline-flex;align-items:center" href="/v4/revenue/denials?claim=' + c.id + '">Work denial</a>';
@@ -85,7 +87,7 @@
         '<div class="dp-sec"><div class="dp-title">' + E(p.name || '') + ' <span class="mut" style="font-weight:400;font-size:12.5px">' + E(p.sex || '') + ', ' + D.age(p.dob) + ', DOB ' + D.us(p.dob) + '</span></div>' +
         U.kv3([['Claim #', c.id], ['DOS', D.us(c.dos)], ['Charges', M(D.charge(c))], ['Payer', E(D.payer(c))], ['Rendering', E(D.provName(c.prov))], ['POS', E(c.pos || '11 Office')]]) + '</div>' +
         U.tabs([['edits', c.stage === 'edits' ? 'Edits' : 'Status', c.stage === 'edits' ? c.edits.length : ''], ['charges', 'Charges'], ['dx', 'Diagnoses'], ['note', 'Encounter note'], ['hist', 'History']], tab) +
-        '<div class="pbody">' + body + '</div>' + (foot ? '<div class="dp-f">' + foot + '</div>' : '') + '</section>';
+        '<div class="pbody">' + body + '</div>' + '<div class="ft">' + (c.stage === 'ready' && c.approvedAt ? '<div class="ft-ok">' + U.I.check + '<div><b>Approved by ' + E(c.approvedBy || 'provider') + '</b><small>' + (c.queuedAt ? 'Althais submits it today at ' + V.batchTime(c.submitAt) + '. Need it sooner? Submit Now.' : 'Queued for Althais’s submission') + '</small></div></div>' : '') + '<div class="ft-tools">' + tools + '</div>' + (foot ? '<div class="ft-acts">' + foot + '</div>' : '') + '</div></section>';
     }
     function signoffGrid(W) {
       return U.grid(['DOS', 'Patient', 'Provider', 'Payer', ['CPT', 'wrap'], ['Dx', 'wrap'], 'Claim check', ['Est. charge', 'num'], ''], W.map(function (e) {
@@ -105,7 +107,7 @@
         '<div class="dp-sec"><div class="dp-h">Codes <span class="sub">picked by Althea</span></div>' + U.grid(['Code', 'Description'], acc.map(function (x) { return { cells: ['<b class="mono">' + E(x.code) + (x.mod ? '-' + E(x.mod) : '') + '</b>', '<span class="wrap">' + E(x.desc || '') + '</span>'] }; })) +
           '<div style="display:flex;justify-content:space-between;padding:8px 2px 0"><span class="mut">Estimated charge</span><b>' + M(D.charge(c)) + '</b></div></div>' +
         (adds.length ? '<div class="dp-sec"><div class="dp-h">Added to the note when signed <span class="sub">' + adds.length + ', quoted from the visit</span></div>' + adds.map(function (a) { return '<div style="margin-bottom:6px"><span class="s-blue tc" style="font-size:11.5px">' + E(a.section) + '</span> ' + E(a.text) + '</div>'; }).join('') + '</div>' : '');
-      return U.pane('Claim detail', '', V.link('Open note', V.encHref(e.id)), body, { footer: '<button class="btn" id="vcms">View CMS-1500</button><button class="btn pri" data-signvisit="' + e.id + '" style="margin-left:auto">Sign And Approve Claim</button>' });
+      return U.pane('Claim detail', '', V.link('Open note', V.encHref(e.id)), body, { after: '<div class="ft"><div class="ft-acts"><button class="btn" id="vcms" style="margin-right:auto">' + U.I.print + 'View CMS-1500</button><button class="btn pri" data-signvisit="' + e.id + '">Sign And Approve Claim</button></div></div>' });
     }
     function draw() {
       var list = Q === 'lag' ? [] : S.claims.filter(QS[Q]).filter(fOK).sort(function (a, b) { return (b.dos || '').localeCompare(a.dos || ''); }), n = function (k) { return S.claims.filter(QS[k]).length; }, t = D.totals();
@@ -119,8 +121,9 @@
       var W = waiting(); if (Q === 'signoff' && (!vsel || !W.some(function (e) { return e.id === vsel; }))) vsel = W[0] ? W[0].id : '';
       var body = Q === 'signoff' ? signoffGrid(W) : Q === 'lag' ? U.grid(['DOS', 'Patient', 'MRN', 'Provider', 'Note', ''], lag().map(function (e) { return { cells: [D.us(e.date, 1), E(D.ptName(e.mrn)), '<span class="mono s-mut">' + e.mrn + '</span>', E(D.provName(e.prov)), 'Signed, no CPT accepted', V.link('Open note', V.encHref(e.id))] }; })).replace('<tbody></tbody>', '<tbody>' + U.empty(6, 'Every signed note has a claim.') + '</tbody>')
         : empty(S.claims.length ? 'None in this queue.' : 'No claims yet. Sign a visit note with an accepted CPT code, or use New claim.')(U.grid(COLS(Q === 'edits' ? 'Edit' : Q === 'ready' ? 'Edits' : 'Status'), list.map(row), { cb: 1, click: 1, selChecks: false }));
-      var mid = '<div class="ph">' + TITLES[Q] + ' <span class="sub">' + (Q === 'lag' ? lag().length + ' signed notes' : list.length + ' claim' + (list.length === 1 ? '' : 's') + ', ' + M(D.sum(list, D.charge))) + '</span></div>' + (Q === 'lag' ? '' : chips) + '<div class="pbody">' + body +
-        (Q === 'edits' ? U.sect('Ready To Submit', n('ready') + ' claims, ' + M(t.ready.amt) + ', passed all edits', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
+      var nPick = function () { return S.claims.filter(function (c) { return CHK[c.id] && c.stage === 'ready'; }).length; };
+      var mid = '<div class="ph">' + TITLES[Q] + (Q === 'ready' && n('ready') ? '<span class="end">' + '<button class="mini pri" id="subnow">' + U.I.send + 'Submit Now' + (nPick() ? ' (' + nPick() + ')' : '') + '</button>' + '</span>' : '') + '</div>' + (Q === 'lag' ? '' : chips) + '<div class="pbody">' + body +
+        (Q === 'edits' ? U.sect('Ready To Submit', '', empty('None ready yet.')(U.grid(COLS('Edits'), D.stage('ready').filter(fOK).map(row), { cb: 1, click: 1, selChecks: false })), n('ready') ? '<button class="mini pri" id="subnow">' + U.I.send + 'Submit Now' + (nPick() ? ' (' + nPick() + ')' : '') + '</button>' : '') : '') +
         ((Q === 'edits' || Q === 'ready') ? U.sect('Recently submitted', 'last 7 days', empty('Nothing submitted in the last 7 days.')(U.grid(COLS('Status'), recent.map(row), { cb: 1, click: 1, selChecks: false }))) : '') +
         '</div><div class="pf"><span id="nsel">' + picked.length + ' selected</span><span id="ssel">Selected charges <b>' + M(D.sum(picked, D.charge)) + '</b></span><span class="end">Showing ' + list.length + ' of ' + S.claims.length + '</span></div>';
       if (Q === 'signoff') mid = '<div class="ph">' + TITLES.signoff + ' <span class="sub">' + W.length + ' visit' + (W.length === 1 ? '' : 's') + ', ' + M(D.sum(W, function (e) { return D.charge(V.visitClaim(e)); })) + ', coded by Althea</span>' +
@@ -147,11 +150,50 @@
         V.proposeFor(low, function () { draw(); }); setTimeout(bg, 1500); return;
       }
       V.autoCheck(c, function () { draw(); setTimeout(bg, 800); }); })();
+    // claims Althais submitted: their latest clearinghouse and payer status, read from the server (Claim.MD responses)
+    (function track() {
+      S.claims.filter(function (c) { return c.stage === 'ready' && !c.imported && c.approvedAt && (!c.queuedAt || c.queueKey !== V.checkKey(c)); }).slice(0, 10).forEach(function (c) { V.queueClaim(c, function () { draw(); }); });
+      var list = S.claims.filter(function (c) { return (c.stage === 'submitted' || (c.stage === 'ready' && c.queuedAt)) && !c.imported && (!c.trackedAt || Date.now() - c.trackedAt > 120000); }).slice(0, 15);
+      list.forEach(function (c) {
+        c.trackedAt = Date.now();
+        fetch('/api/billing/claims/' + encodeURIComponent(c.id), { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (t) {
+          if (t && t.delivery === 'HELD' && c.stage === 'ready') { var hr = (t.blockers || []).map(function (b) { return b.title; }).join('; '); if (c.status !== 'Held: ' + hr) { c.status = 'Held: ' + hr; c.heldReasons = t.blockers; D.save(); draw(); } return; }
+          if (!t || t.delivery !== 'SENT') return;
+          if (c.stage === 'ready') { c.stage = 'submitted'; c.submittedOn = (t.sentAt || D.today()).slice(0, 10); c.ref = t.reference; c.status = 'Submitted by Althais'; D.history(c, 'Submitted by Althais' + (t.reference ? ', ref ' + t.reference : '')); }
+          var why = ((t.blockers || [])[0] || {}).reason || '', was = c.status;
+          if (t.ack === 'REJECTED') c.status = 'Rejected by clearinghouse' + (why ? ': ' + why : '');
+          else if (t.payerStatus === 'REJECTED') c.status = 'Rejected by payer' + (why ? ': ' + why : '');
+          else if (t.payerStatus === 'ACCEPTED') c.status = 'Accepted by payer';
+          else if (t.ack === 'ACCEPTED') c.status = 'Accepted by clearinghouse';
+          if (c.status !== was) { D.history(c, c.status); D.save(); draw(); }
+        }).catch(function () {});
+      });
+      setTimeout(track, 120000);
+    })();
     var C = function () { return findClaim(sel); };
     var after = function (c, text) { D.history(c, text); D.log(text + ': ' + c.id); D.save(); draw(); };
     U.on(app, 'tr[data-visit]', 'click', function (tr, ev) { if (ev.target.closest('button,a')) return; vsel = tr.dataset.visit; draw(); });
     U.on(app, '[data-signvisit]', 'click', function (b, ev) { ev.stopPropagation(); var e = D.enc(b.dataset.signvisit); if (!e) return;
       V.signVisit(e, function (made) { if (made && !waiting().length) { Q = made.stage; sel = made.id; } draw(); }); });
+    U.on(app, '#approve1', 'click', function () { var c = C(); if (!c) return;
+      var k = c.check, col = k ? V.scoreColor(k.score) : 'mut', p = D.pt(c.mrn) || {}, at = V.batchTime();
+      var row = function (code, desc) { return '<div class="so-code"><b>' + E(code) + '</b><span>' + E(desc || '') + '</span></div>'; };
+      var snap = V.claimSnap(c);
+      var body = '<div class="so">' +
+        '<div class="so-who">Approving as <b>' + E(S.clinic.user) + '</b> · ' + E(c.id) + '</div>' +
+        '<div class="so-sec"><div class="so-h">' + E(D.ptName(c.mrn)) + '<span>' + E(D.payer(c) || 'No payer') + ' · DOS ' + E(D.us(c.dos)) + '</span></div>' +
+          (k ? '<div class="so-score"><b class="s-' + col + '">' + k.score + '%</b><div class="so-bar"><i style="width:' + k.score + '%;background:var(--' + col + ')"></i></div><span>' + (k.score >= 85 ? 'Ready To Submit' : k.score >= 65 ? 'Usable, Some Risk' : 'Not Ready') + '</span></div>' : '') +
+          '<div class="so-codes">' + snap.cpts.map(function (x) { return row(x.code + (x.modifier ? '-' + x.modifier : ''), x.description); }).join('') + snap.icds.map(function (x) { return row(x.code, x.description); }).join('') + '</div>' +
+          '<div class="so-tot"><span>Estimated charge</span><b>' + M(D.charge(c)) + '</b></div></div>' +
+        '<div class="so-sec"><div class="so-h">Submission</div><div class="so-sub">' + U.I.send + '<div><b>Althais submits it today at ' + E(at) + '</b><small>With the end-of-day batch, through Althais’s clearinghouse. Track it in Claim Tracker.</small></div></div></div>' +
+        '<div class="so-foot">Approving is recorded with your name and the time. Need it out sooner? Use Submit Now.</div></div>';
+      var approve = function (now) {
+        c.approvedAt = new Date().toISOString(); c.approvedBy = S.clinic.user; D.history(c, 'Signed and approved by ' + S.clinic.user); D.save();
+        V.queueClaim(c, function () { draw(); if (!now) U.toast(c.id + ' approved. Althais submits it today at ' + at + '.'); if (now) V.transmit([c], function () { draw(); }); });
+        draw();
+      };
+      U.modal('Approve Claim', body, [['Cancel', '', function () {}], ['Approve And Submit Now', '', function () { approve(true); }], ['Sign And Approve', 'pri', function () { approve(false); }]], { width: 540 });
+    });
     U.on(app, '#vcms', 'click', function () { var e = D.enc(vsel); if (!e) return; var c = V.visitClaim(e); c.id = 'Draft, ' + D.us(e.date); c.payer = (D.pt(e.mrn) || {}).payer; V.cms1500(c); });
     U.on(app, '#signall', 'click', function () { var W = waiting(); if (!W.length) return;
       var tot = D.sum(W, function (e) { return D.charge(V.visitClaim(e)); });
@@ -163,7 +205,7 @@
     U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
     U.on(app, '#clrf', 'click', function (a, e) { e.preventDefault(); F = { dos: '', prov: '', payer: '', edit: '' }; draw(); });
     U.on(app, 'tr[data-claim]', 'click', function (tr, e) {
-      if (e.target.matches('input[type=checkbox]')) { CHK[tr.dataset.claim] = e.target.checked; var pk = S.claims.filter(function (c) { return CHK[c.id]; }); document.getElementById('nsel').textContent = pk.length + ' selected'; document.getElementById('ssel').innerHTML = 'Selected charges <b>' + M(D.sum(pk, D.charge)) + '</b>'; return; }
+      if (e.target.matches('input[type=checkbox]')) { CHK[tr.dataset.claim] = e.target.checked; var pk = S.claims.filter(function (c) { return CHK[c.id]; }); document.getElementById('nsel').textContent = pk.length + ' selected'; document.getElementById('ssel').innerHTML = 'Selected charges <b>' + M(D.sum(pk, D.charge)) + '</b>'; subLabel(); return; }
       e.preventDefault(); sel = tr.dataset.claim; tab = 'edits'; draw();
     });
     U.on(app, '[data-tab]', 'click', function (b) { tab = b.dataset.tab; draw(); });
@@ -189,6 +231,18 @@
       if (v === 'downcode') { var l = c.lines.filter(function (y) { return /^992/.test(y.code); })[0]; var old = l.code; l.code = String(+l.code - 1); D.scrub(c); return after(c, 'Level changed ' + old + ' to ' + l.code); }
       if (v === 'ask') { e.addenda = e.addenda || []; e.addenda.push({ text: 'Please document: ' + x.text, from: 'Billing (' + x.id + ')', signed: false }); c.waitingOn = x.id; c.resolved = c.resolved || {}; c.resolved[x.id] = 'Asked provider'; c.edits = c.edits.filter(function (y) { return y.id !== x.id; }); return after(c, 'Asked ' + D.provName(c.prov) + ' to document ' + x.id); }
       U.ask('Override ' + x.id, 'Reason (kept on the claim)', '', function (r) { c.resolved = c.resolved || {}; c.resolved[x.id] = r; D.scrub(c); after(c, 'Override ' + x.id + ': ' + r); }, { ok: 'Override', html: '<p class="cf" style="margin-bottom:10px">' + E(x.text || '') + '</p>' });
+    });
+    var subLabel = function () { var b = document.getElementById('subnow'); if (!b) return; var k = S.claims.filter(function (c) { return CHK[c.id] && c.stage === 'ready'; }).length;
+      b.innerHTML = U.I.send + 'Submit Now' + (k ? ' (' + k + ')' : ''); };
+    // tick every claim in a table at once
+    app.addEventListener('change', function (e) { if (!e.target.matches('[data-cball]')) return; var tb = e.target.closest('table');
+      tb.querySelectorAll('tr[data-claim] input[type=checkbox]').forEach(function (cb) { cb.checked = e.target.checked; CHK[cb.closest('tr').dataset.claim] = e.target.checked; });
+      var pk = S.claims.filter(function (c) { return CHK[c.id]; }); var ns = document.getElementById('nsel'); if (ns) ns.textContent = pk.length + ' selected'; var ss = document.getElementById('ssel'); if (ss) ss.innerHTML = 'Selected charges <b>' + M(D.sum(pk, D.charge)) + '</b>'; subLabel(); });
+    U.on(app, '#subnow', 'click', function (b, e) { e.stopPropagation();
+      var l = S.claims.filter(function (c) { return CHK[c.id] && c.stage === 'ready'; });
+      if (!l.length && findClaim(sel) && findClaim(sel).stage === 'ready') l = [findClaim(sel)];
+      if (!l.length) return U.toast('Select a claim in Ready To Submit, or tick the ones to send.', 'warn');
+      submit(l);
     });
     var submit = function (list) {   // the 837P steps, then the server's claim gate decides sent or held
       V.transmit(list, function () { list.forEach(function (c) { CHK[c.id] = false; }); draw(); });

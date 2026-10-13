@@ -31,13 +31,14 @@ import datetime as dt
 import hashlib
 import html as _html
 import json
+import os
 import re
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from sqlalchemy import DateTime, Integer, LargeBinary, String, Text, UniqueConstraint, select
+from sqlalchemy import func, DateTime, Integer, LargeBinary, String, Text, UniqueConstraint, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -45,7 +46,7 @@ import billing_registry as reg
 import clearinghouse as chx
 import credential_verification as cv
 import staff_onboarding as so
-from auth import Base, SessionLocal, User, engine, ensure_area, ensure_product, get_db, require_user, send_email, _email_html
+from auth import Base, SessionLocal, User, require_admin, engine, ensure_area, ensure_product, get_db, require_user, send_email, _email_html
 
 router = APIRouter()
 
@@ -719,7 +720,7 @@ def next_action(it: BillingItem, data: dict) -> str:
     if s == "APPROVED" and _date(it.effective_date) and _date(it.effective_date) > _today():
         return "Nothing to do. It becomes active on the effective date"
     if s == "NOT_CONNECTED":
-        return "Connect a clearinghouse"
+        return "Nothing for you to do: Althais submits your claims and is finishing its clearinghouse connection"
     if s in READY:
         return ""
     if r["verify"] == "nppes":
@@ -1249,7 +1250,7 @@ def provider_for(data, name: str):
     return None
 
 
-def claim_decision(db, org, env, data, user, c: dict, connector=None) -> dict:
+def claim_decision(db, org, env, data, user, c: dict, connector=None, by_althais=False) -> dict:
     connector = connector or chx.connector_for(org)
     blockers = [{"requirement": "claim_check", "title": "Claim check", "reason": p, "next": "Fix the claim, then send it again", "responsible": "biller"}
                 for p in validate_claim(c)]
@@ -1262,7 +1263,7 @@ def claim_decision(db, org, env, data, user, c: dict, connector=None) -> dict:
             a = None      # their role changed since access was granted: treated as no access until an owner looks again
     if a and a.status == "ACTIVE" and a.granted_via == "self" and not is_owner(user):
         a = None
-    if not a or a.status != "ACTIVE":
+    if not by_althais and (not a or a.status != "ACTIVE"):
         blockers.append({"requirement": "biller_access", "title": "Your claim submission access",
                          "reason": "You don't have claim submission access yet" if not a or a.status == "PENDING" else "Your claim submission access was turned off",
                          "next": "Finish your billing checklist; a clinic owner then approves access", "responsible": "owner"})
@@ -1273,7 +1274,7 @@ def claim_decision(db, org, env, data, user, c: dict, connector=None) -> dict:
     return {"ready": not blockers, "blockers": blockers, "payer": payer_key, "providerId": pv["id"] if pv else ""}
 
 
-def transmit(db, org, env, data, user, c: dict, release=False) -> dict:
+def transmit(db, org, env, data, user, c: dict, release=False, by_althais=False) -> dict:
     connector = chx.connector_for(org)
     h = content_hash(c)
     cid = str(c.get("claimId") or "")[:64]
@@ -1285,14 +1286,14 @@ def transmit(db, org, env, data, user, c: dict, release=False) -> dict:
                     "message": "This claim was already sent. It wasn't sent again."}
         return {"status": "duplicate_blocked", "blockers": [{"title": "Already sent", "reason": "This claim number was already sent with different details",
                                                              "next": "Send a corrected or replacement claim instead", "responsible": "biller"}]}
-    dec = claim_decision(db, org, env, data, user, c, connector)
-    hold = db.scalar(select(ClaimTransmission).where(ClaimTransmission.org_key == org, ClaimTransmission.claim_id == cid, ClaimTransmission.delivery == "HELD"))
+    dec = claim_decision(db, org, env, data, user, c, connector, by_althais=by_althais)
+    hold = db.scalar(select(ClaimTransmission).where(ClaimTransmission.org_key == org, ClaimTransmission.claim_id == cid, ClaimTransmission.delivery.in_(("HELD", "QUEUED"))))
     if not dec["ready"]:
         if not hold:
             hold = ClaimTransmission(org_key=org, claim_id=cid, content_hash=h, idempotency_key=f"{org}|{cid}|{h}|hold"[:191], payer=dec["payer"],
                                      provider_id=dec["providerId"], environment=env, user_id=user.id, held=1)
             db.add(hold)
-        hold.content_hash, hold.blockers, hold.snapshot, hold.user_id = h, json.dumps(dec["blockers"]), json.dumps(c), user.id
+        hold.content_hash, hold.blockers, hold.snapshot, hold.user_id, hold.delivery, hold.held = h, json.dumps(dec["blockers"]), json.dumps(c), user.id, "HELD", 1
         return {"status": "held", "blockers": dec["blockers"],
                 "message": "Saved and held. It wasn't sent. It'll be ready to send as soon as these are done."}
     key = f"{org}|{cid}|{h}"[:191]
@@ -1435,7 +1436,7 @@ def _item_json(db, it: BillingItem, data: dict, env: str, owner: bool) -> dict:
     return {"id": it.id, "requirement": it.requirement, "title": r.get("title", it.requirement), "scope": it.scope, "track": it.track,
             "payer": (py or {}).get("name", ""), "payerKey": it.payer, "provider": (pv or {}).get("name", ""), "providerId": it.provider_id,
             "transaction": it.transaction, "status": it.status, "statusLabel": STATUS_LABELS.get(it.status, it.status), "ready": ok, "why": why,
-            "next": nxt, "responsible": _resp_label(resp, data), "submittedAt": _iso(it.submitted_at.date()) if it.submitted_at else "",
+            "next": nxt, "responsible": "Althais" if r.get("id") == "clearinghouse_account" else _resp_label(resp, data), "submittedAt": _iso(it.submitted_at.date()) if it.submitted_at else "",
             "daysPending": days, "effectiveDate": it.effective_date, "expiresAt": it.expires_at, "reference": it.reference if owner else ("•••" if it.reference else ""),
             "evidence": {"documentId": it.evidence_document_id, "note": it.evidence_note if owner else "", "source": it.evidence_source,
                          "verifiedBy": it.verified_by, "verifiedAt": _iso(it.verified_at.date()) if it.verified_at else ""},
@@ -1488,9 +1489,7 @@ def overview(c: Ctx = Depends(ctx)):
     tasks = db.scalars(select(BillingTask).where(BillingTask.org_key == org, BillingTask.status == "open").order_by(BillingTask.created_at)).all()
     sigs = db.scalars(select(BillingSignature).where(BillingSignature.org_key == org, BillingSignature.status == "requested")).all()
     view = "owner" if c.owner else ("biller" if c.biller else ("provider" if any(p.get("personId") == c.person_id for p in data["providers"]) and c.person_id else "other"))
-    conn = chx.load_connection(org)
-    chd = dict(connector.describe(), partner=conn.get("partner") or "", last4=conn.get("last4") or "", connectedBy=conn.get("connectedBy") or "",
-               connectedAt=conn.get("connectedAt") or "", canConnect=bool(c.owner), partners=[{"key": k, "label": v[0], "built": v[1] is not None} for k, v in chx.PARTNERS.items()])
+    chd = dict(connector.describe(), byAlthais=True)
     out = {"view": view, "environment": c.env, "clearinghouse": chd, "registry": {"version": reg.VERSION, "review": reg.REVIEW},
            "myTasks": [_task_json(t) for t in tasks if t.assignee in mine],
            "mySignatures": [_sig_json(s) for s in sigs if s.signer in mine]}
@@ -2013,38 +2012,181 @@ def sync_now(c: Ctx = Depends(owner_ctx)):
 
 
 # ── claims ──
-@router.put("/api/billing/clearinghouse")
-async def connect_clearinghouse(request: Request, c: Ctx = Depends(ctx)):
-    """Connect the clinic's clearinghouse account (owners only). The key is tested with the clearinghouse first and stored
-    encrypted; it's never shown again (only its last 4 characters)."""
-    if not c.owner:
-        raise HTTPException(status_code=403, detail="Only a clinic owner or admin can connect the clearinghouse.")
+# ── Althais's clearinghouse account (admin console). Clinics send claims to Althais; Althais submits them. ──
+@router.get("/api/admin/clearinghouse")
+def admin_get_clearinghouse(db: Session = Depends(get_db), _: bool = Depends(require_admin)):
+    conn = chx.load_connection(chx.PLATFORM)
+    sent = db.scalar(select(func.count()).select_from(ClaimTransmission).where(ClaimTransmission.delivery == "SENT")) or 0
+    return {"partner": conn.get("partner") or "", "last4": conn.get("last4") or "", "connectedBy": conn.get("connectedBy") or "", "connectedAt": conn.get("connectedAt") or "",
+            "lastPoll": conn.get("lastPoll") or "", "pollError": conn.get("pollError") or "", "sent": sent}
+
+
+@router.put("/api/admin/clearinghouse")
+async def admin_put_clearinghouse(request: Request, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
     body = await request.json()
-    partner, key = str(body.get("partner") or "").strip().lower(), str(body.get("accountKey") or "").strip()
-    if partner != "claimmd":
-        raise HTTPException(status_code=400, detail="That clearinghouse isn't available yet. Claim.MD is.")
+    key = str(body.get("accountKey") or "").strip()
     if len(key) < 8:
-        raise HTTPException(status_code=400, detail="Paste your Claim.MD account key (Claim.MD > Settings > Account Settings).")
+        raise HTTPException(status_code=400, detail="Paste Althais's Claim.MD account key (Claim.MD > Settings > Account Settings).")
     res = await asyncio.to_thread(chx.ClaimMD(key).check_connection, {})
     if not res.ok or res.status != "CONNECTED":
         raise HTTPException(status_code=400, detail=res.message or "Claim.MD didn't accept that account key.")
-    chx.save_connection(c.db, c.org, {"partner": "claimmd", "key": chx.seal(key), "last4": key[-4:], "connectedBy": c.user.full_name or c.user.email,
-                                     "connectedAt": _now().isoformat()})
-    audit(c, c.org, c.user, "clearinghouse_connected", "Claim.MD account connected")
-    c.db.commit()
-    request_sync(c.db, c.org, "clearinghouse connected")
-    c.db.commit()
-    return {"ok": True, "label": "Claim.MD", "last4": key[-4:]}
+    chx.save_connection(db, chx.PLATFORM, {"partner": "claimmd", "key": chx.seal(key), "last4": key[-4:], "connectedBy": "Althais admin",
+                                          "connectedAt": _now().isoformat(), "lastResponseId": "0"})
+    db.commit()
+    for org in {r.org_key for r in db.scalars(select(BillingProfile))}:   # every clinic re-checks its readiness now
+        request_sync(db, org, "Althais clearinghouse connected")
+    db.commit()
+    return {"ok": True, "last4": key[-4:]}
 
 
-@router.delete("/api/billing/clearinghouse")
-def disconnect_clearinghouse(c: Ctx = Depends(ctx)):
-    if not c.owner:
-        raise HTTPException(status_code=403, detail="Only a clinic owner or admin can disconnect the clearinghouse.")
-    chx.save_connection(c.db, c.org, {})
-    audit(c, c.org, c.user, "clearinghouse_disconnected", "Clearinghouse disconnected")
-    c.db.commit()
+@router.delete("/api/admin/clearinghouse")
+def admin_delete_clearinghouse(db: Session = Depends(get_db), _: bool = Depends(require_admin)):
+    chx.save_connection(db, chx.PLATFORM, {})
+    db.commit()
     return {"ok": True}
+
+
+def poll_clearinghouse() -> int:
+    """Read Claim.MD's claim responses into each clinic's sent claims (acknowledged, rejected, payer messages)."""
+    conn = chx.load_connection(chx.PLATFORM)
+    if conn.get("partner") != "claimmd" or not conn.get("key"):
+        return 0
+    with SessionLocal() as db:
+        try:
+            rows, last = chx.ClaimMD(chx.unseal(conn["key"])).responses(conn.get("lastResponseId") or "0")
+        except Exception as e:
+            conn["pollError"], conn["lastPoll"] = str(e)[:200], _now().isoformat()
+            chx.save_connection(db, chx.PLATFORM, conn); db.commit()
+            return 0
+        n = 0
+        for r in rows:
+            tx = None
+            if r["claimmd_id"]:
+                tx = db.scalar(select(ClaimTransmission).where(ClaimTransmission.reference == r["claimmd_id"], ClaimTransmission.delivery == "SENT"))
+            if not tx and r["claimid"]:
+                tx = db.scalar(select(ClaimTransmission).where(ClaimTransmission.claim_id == r["claimid"], ClaimTransmission.delivery == "SENT").order_by(ClaimTransmission.id.desc()))
+            if not tx:
+                continue
+            text = "; ".join(m["message"] for m in r["messages"] if m["message"])[:500]
+            from_payer = bool(r["sender"]) and "claim.md" not in r["sender"].lower()
+            status = "REJECTED" if r["status"] == "R" else "ACCEPTED" if r["status"] == "A" else ""
+            if not status:
+                continue
+            if from_payer:
+                tx.payer_status, tx.payer_at = status, _now()
+            else:
+                tx.ack, tx.ack_at = status, _now()
+            if status == "REJECTED":
+                tx.blockers = json.dumps([{"title": "Rejected by " + (r["sender"] or "the clearinghouse"), "reason": text or "No reason given", "next": "Correct the claim and send it again", "responsible": "biller"}])
+            db.add(BillingEvent(org_key=tx.org_key, claim_id=tx.claim_id, kind="claim_response", to_status=status, source="clearinghouse",
+                                environment=tx.environment, reference=r["claimmd_id"], actor="Claim.MD", note=text[:1000]))
+            n += 1
+        conn["lastResponseId"], conn["lastPoll"], conn["pollError"] = last, _now().isoformat(), ""
+        chx.save_connection(db, chx.PLATFORM, conn)
+        db.commit()
+        return n
+
+
+# ── The daily batch: a signed (approved) claim is queued; Althais submits every queued claim at the end of the day.
+#    Anyone with claim access can still send one sooner (Submit Now = /api/billing/claims/transmit). ──
+BATCH_HOUR_UTC = int(os.environ.get("BILLING_BATCH_HOUR_UTC", "23"))   # 23:00 UTC = 6 PM Central (daylight time)
+
+
+def next_batch_at() -> dt.datetime:
+    now = dt.datetime.now(dt.timezone.utc)
+    at = now.replace(hour=BATCH_HOUR_UTC, minute=0, second=0, microsecond=0)
+    return at if now < at else at + dt.timedelta(days=1)
+
+
+@router.post("/api/billing/claims/queue")
+async def claims_queue(request: Request, c: Ctx = Depends(ctx)):
+    """A provider signed the claim: it's approved and waits for Althais's end-of-day submission."""
+    if (c.user.role or "") not in ("admin", "biller", "provider"):
+        raise HTTPException(status_code=403, detail="Only the clinic's providers, billers and admins can approve claims.")
+    body = await request.json()
+    claim = body.get("claim") if isinstance(body.get("claim"), dict) else {}
+    cid = str(claim.get("claimId") or "")[:64]
+    if not cid:
+        raise HTTPException(status_code=400, detail="The claim has no claim number.")
+    sent = c.db.scalar(select(ClaimTransmission).where(ClaimTransmission.org_key == c.org, ClaimTransmission.claim_id == cid, ClaimTransmission.delivery == "SENT"))
+    if sent:
+        return {"status": "already_sent", "reference": sent.reference}
+    tx = c.db.scalar(select(ClaimTransmission).where(ClaimTransmission.org_key == c.org, ClaimTransmission.claim_id == cid,
+                                                     ClaimTransmission.delivery.in_(("QUEUED", "HELD", "FAILED"))).order_by(ClaimTransmission.id.desc()))
+    h = content_hash(claim)
+    if not tx:
+        tx = ClaimTransmission(org_key=c.org, claim_id=cid, content_hash=h, idempotency_key=f"{c.org}|{cid}|{h}|queued"[:191], environment=c.env, user_id=c.user.id)
+        c.db.add(tx)
+    tx.delivery, tx.held, tx.blockers, tx.content_hash, tx.snapshot, tx.user_id = "QUEUED", 0, "[]", h, json.dumps(claim), c.user.id
+    tx.payer = reg.payer_key(claim.get("payer"))
+    c.db.add(BillingEvent(org_key=c.org, claim_id=cid, kind="claim_queued", to_status="QUEUED", source="emr", environment=c.env,
+                          actor=c.user.email, note=f"Approved by {c.user.full_name or c.user.email}"))
+    c.db.commit()
+    return {"status": "queued", "submitAt": next_batch_at().isoformat(),
+            "message": "Approved. Althais submits it with today's batch, or send it now from Claims."}
+
+
+def submit_queued(org: str = None) -> dict:
+    """Althais's end-of-day submission: every queued claim is checked again and sent, or held with its reasons."""
+    out = {"sent": 0, "held": 0, "failed": 0}
+    with SessionLocal() as db:
+        q = select(ClaimTransmission).where(ClaimTransmission.delivery == "QUEUED")
+        if org:
+            q = q.where(ClaimTransmission.org_key == org)
+        for tx in db.scalars(q).all():
+            u = db.get(User, tx.user_id)
+            if not u:
+                continue
+            _, data = load_profile(db, tx.org_key)
+            try:
+                r = transmit(db, tx.org_key, chx.environment_for(tx.org_key), data, u, json.loads(tx.snapshot or "{}"), by_althais=True)
+            except Exception:
+                r = {"status": "failed"}
+            out["sent" if r["status"] == "sent" else "held" if r["status"] == "held" else "failed"] += 1
+            db.commit()
+    return out
+
+
+_STEPS = [("signed", "Signed"), ("queued", "Queued"), ("submitted", "Submitted"), ("clearinghouse", "Accepted By Clearinghouse"),
+          ("payer", "Accepted By Payer"), ("paid", "Paid")]
+
+
+def _track_json(t, events):
+    snap = json.loads(t.snapshot or "{}")
+    iso = lambda d: d.isoformat() if d else ""
+    rejected = t.ack == "REJECTED" or t.payer_status == "REJECTED"
+    reached = {"signed": snap.get("signedAt") or iso(t.created_at), "queued": iso(t.created_at),
+               "submitted": iso(t.sent_at) if t.delivery == "SENT" else "",
+               "clearinghouse": iso(t.ack_at) if t.ack == "ACCEPTED" else "", "payer": iso(t.payer_at) if t.payer_status == "ACCEPTED" else "",
+               "paid": iso(t.paid_at) if t.payment == "PAID" else ""}
+    at = 0
+    for i, (k, _) in enumerate(_STEPS):
+        if reached[k]:
+            at = i
+    state = ("Rejected" if rejected else "Held" if t.delivery == "HELD" else "Not sent" if t.delivery == "FAILED" else
+             "Paid" if t.payment == "PAID" else "Denied" if t.payment == "DENIED" else _STEPS[at][1])
+    return {"claimId": t.claim_id, "patient": snap.get("patient", ""), "payer": snap.get("payer", ""), "provider": snap.get("provider", ""),
+            "dos": snap.get("svcDate", ""), "amount": snap.get("totalAmt"), "delivery": t.delivery, "ack": t.ack, "payerStatus": t.payer_status,
+            "payment": t.payment, "reference": t.reference, "environment": t.environment, "state": state, "step": at, "rejected": rejected,
+            "steps": [{"key": k, "label": l, "at": reached[k]} for k, l in _STEPS], "blockers": json.loads(t.blockers or "[]"),
+            "events": [{"at": iso(e.occurred_at or e.created_at), "kind": e.kind, "status": e.to_status, "source": e.source, "note": e.note or ""} for e in sorted(events, key=lambda e: e.occurred_at or e.created_at)]}
+
+
+@router.get("/api/billing/claims")
+def claims_track(c: Ctx = Depends(ctx)):
+    """Every claim Althais has for this clinic, with the step it's on from signing to payment."""
+    ensure_area(c.user, "claims")
+    rows = c.db.scalars(select(ClaimTransmission).where(ClaimTransmission.org_key == c.org).order_by(ClaimTransmission.id.desc())).all()
+    seen, out = set(), []
+    evs = {}
+    for e in c.db.scalars(select(BillingEvent).where(BillingEvent.org_key == c.org, BillingEvent.claim_id != "")).all():
+        evs.setdefault(e.claim_id, []).append(e)
+    for t in rows:
+        if t.claim_id in seen:
+            continue
+        seen.add(t.claim_id)
+        out.append(_track_json(t, evs.get(t.claim_id, [])))
+    return {"claims": out, "nextBatch": next_batch_at().isoformat(), "submitter": chx.connector_for(c.org).label}
 
 
 @router.post("/api/billing/claims/transmit")

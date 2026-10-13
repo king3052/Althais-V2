@@ -19,6 +19,22 @@
       totalAmt: D.charge(c), note: e ? D.noteText(e) : (c.note || ''), billing: { name: S.clinic.name, npi: S.clinic.npi, ein: S.clinic.ein, addr: S.clinic.addr, city: S.clinic.city, phone: S.clinic.phone } };
   };
 
+  // a signed claim is approved: it goes to Althais's queue and is submitted with the end-of-day batch (or sooner with Submit Now)
+  V.queueClaim = function (c, after) {
+    if (!c || c.stage !== 'ready' || c.imported || !c.approvedAt) return Promise.resolve(null);   // only a claim a provider signed and approved
+    var snap = V.claimSnap(c); snap.signedAt = c.created || new Date().toISOString();
+    return fetch('/api/billing/claims/queue', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claim: snap }) })
+      .then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j) return null;
+        if (j.status === 'queued') { c.queuedAt = new Date().toISOString(); c.submitAt = j.submitAt; c.queueKey = V.checkKey(c); D.history(c, 'Approved and queued for Althais’s end-of-day submission'); }
+        if (j.status === 'already_sent') { c.stage = 'submitted'; c.ref = j.reference; }
+        D.save(); if (after) after(j); return j;
+      }).catch(function () { return null; });
+  };
+  // Althais's end-of-day batch: 23:00 UTC unless the server says otherwise (billing_activation.BATCH_HOUR_UTC)
+  V.nextBatch = function () { var n = new Date(), at = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 23, 0, 0)); if (at <= n) at.setUTCDate(at.getUTCDate() + 1); return at.toISOString(); };
+  V.batchTime = function (iso) { var d = new Date(iso || V.nextBatch()); return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
+
   /* ---------- claim check: likelihood of acceptance ---------- */
   V.scoreColor = function (s) { return s >= 85 ? 'grn' : s >= 65 ? 'amb' : 'blue'; };
   var PERMANENT = /plan or role|Log in/;

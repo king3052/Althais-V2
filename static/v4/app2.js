@@ -48,8 +48,11 @@
         if (e.check) { c.check = e.check; c.checkKey = V.checkKey(c); }
         D.history(c, 'Built by Althea' + (e.check ? ' (' + e.check.score + '% claim check)' : '') + ', approved and signed by ' + S.clinic.user + ', ' + (c.stage === 'edits' ? c.edits.length + ' edit(s) to resolve' : 'all checks passed')); S.claims.push(c); made = c;
       }
-      D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save(); if (after) after(made);
-      if (!opts.silent) U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits To Resolve.' : ' is Ready To Submit.') : ''));
+      D.log('Note signed: ' + p.name + (made ? ', claim ' + made.id : '')); D.save();
+      if (made) { made.approvedAt = new Date().toISOString(); made.approvedBy = S.clinic.user; }
+      if (made && made.stage === 'ready' && V.queueClaim) V.queueClaim(made);   // approved: Althais submits it with today's batch
+      if (after) after(made);
+      if (!opts.silent) U.toast('Signed.' + (made ? ' Claim ' + made.id + (made.stage === 'edits' ? ' is in Edits To Resolve.' : ' is approved; Althais submits it today.') : ''));
       }
   };
 

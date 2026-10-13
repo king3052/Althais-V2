@@ -42,7 +42,7 @@
   var NAV = [
     ['overview', 'Overview', '/v4/overview', []],
     ['emr', 'EMR', '/v4/emr/schedule', [['schedule', 'Schedule', '/v4/emr/schedule'], ['patients', 'Patients', '/v4/emr/patients'], ['chart', 'Patient chart', '/v4/emr/chart'], ['encounter', 'Encounter', '/v4/emr/encounter'], ['documents', 'Documents', '/v4/emr/documents']]],
-    ['revenue', 'Revenue', '/v4/revenue/claims', [['claims', 'Claims', '/v4/revenue/claims'], ['denials', 'Denials', '/v4/revenue/denials'], ['rules', 'Payer rules', '/v4/revenue/payer-rules'], ['codenote', 'Code a Note', '/v4/revenue/code-a-note'], ['billing', 'Billing activation', '/v4/revenue/billing-activation']]],
+    ['revenue', 'Revenue', '/v4/revenue/claims', [['claims', 'Claims', '/v4/revenue/claims'], ['tracker', 'Claim Tracker', '/v4/revenue/claim-tracker'], ['denials', 'Denials', '/v4/revenue/denials'], ['rules', 'Payer rules', '/v4/revenue/payer-rules'], ['codenote', 'Code a Note', '/v4/revenue/code-a-note'], ['billing', 'Billing activation', '/v4/revenue/billing-activation']]],
     ['staff', 'Staff', '/v4/staff/team', []],
     ['settings', 'Settings', '/v4/settings', []],
   ];
@@ -95,7 +95,7 @@
   // cols: [label | [label, cls]], rows: [{cells, sel, attrs, checked}]
   U.grid = function (cols, rows, o) {
     o = o || {};
-    var head = '<thead><tr>' + (o.cb ? '<th class="cb"></th>' : '') + cols.map(function (c) { c = [].concat(c); return '<th class="' + (c[1] || '') + '">' + U.esc(c[0]) + '</th>'; }).join('') + '</tr></thead>';
+    var head = '<thead><tr>' + (o.cb ? '<th class="cb">' + (rows.length ? '<input type="checkbox" data-cball aria-label="Select all"' + (rows.length && rows.every(function (r) { return r.checked; }) ? ' checked' : '') + '>' : '') + '</th>' : '') + cols.map(function (c) { c = [].concat(c); return '<th class="' + (c[1] || '') + '">' + U.esc(c[0]) + '</th>'; }).join('') + '</tr></thead>';
     var body = '<tbody>' + rows.map(function (r) {
       return '<tr class="' + (r.sel ? 'sel ' : '') + (r.click !== false && o.click ? 'click' : '') + '"' + (r.attrs || '') + '>' + (o.cb ? '<td class="cb"><input type="checkbox"' + ((o.selChecks === false ? r.checked : r.sel || r.checked) ? ' checked' : '') + ' aria-label="Select row"></td>' : '') +
         r.cells.map(function (c, i) { var col = [].concat(cols[i]); return '<td class="' + (col[1] || '') + '">' + c + '</td>'; }).join('') + '</tr>';

@@ -419,6 +419,45 @@ html body #althea-fab .alt-panel #althea-hello { font-size: 12.5px; line-height:
 .ba-opt b { display: block; font-size: 12.5px; } .ba-opt small { display: block; color: var(--t2); font-size: 12px; margin-top: 2px; line-height: 1.45; }
 .g select.inl { height: 24px; border: 1px solid var(--b2); background: var(--surface); color: var(--t); }
 
+/* Revenue › Claim Tracker */
+.ct-bar { display: flex; gap: 3px; width: 132px; }
+.ct-bar i { flex: 1; height: 6px; background: var(--b2); }
+.ct-bar i.on { background: var(--blue); } .ct-bar i.grn { background: var(--grn); } .ct-bar i.red { background: var(--red); } .ct-bar i.amb { background: var(--amb); } .ct-bar i.blue { background: var(--blue); opacity: .5; }
+.ct-tl { position: relative; padding-left: 2px; }
+.ct-step { display: flex; gap: 10px; align-items: flex-start; padding: 0 0 14px; position: relative; }
+.ct-step:not(:last-child)::before { content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--b2); }
+.ct-step.done:not(:last-child)::before { background: var(--blue); }
+.ct-dot { width: 22px; height: 22px; flex-shrink: 0; border: 2px solid var(--b); background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--m); border-radius: 50%; }
+.ct-step.done .ct-dot { background: var(--blue); border-color: var(--blue); color: #fff; } .ct-step.done .ct-dot svg { width: 11px; height: 11px; }
+.ct-step.now .ct-dot { border-color: var(--blue); color: var(--blue); }
+.ct-step.bad .ct-dot { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+.ct-step b { display: block; font-size: 12.5px; } .ct-step small { color: var(--m); font-size: 11.5px; }
+.ct-step.now small { color: var(--blue); } .ct-step.bad small { color: var(--red); }
+.ct-prob { padding: 6px 8px; margin-bottom: 6px; border-left: 3px solid var(--red); background: var(--red-bg); font-size: 12.5px; }
+.ct-ev { font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--b2); }
+
+/* claim detail footer: tools on one row, the claim's actions on the next, never spilling out of the pane */
+.ft { flex-shrink: 0; border-top: 1px solid var(--b); background: var(--ph); padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; }
+.ft-tools, .ft-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ft-tools .btn { flex: 1 1 0; min-width: 0; justify-content: center; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-acts { justify-content: flex-end; align-items: center; }
+.ft-note { margin-right: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--grn); font-size: 12px; }
+.ft-acts .btn { display: inline-flex; align-items: center; justify-content: center; }
+.ft .btn { background: var(--surface); }
+.ft .btn.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+.ft .ft-althea { color: var(--blue); border-color: var(--edit-line); background: var(--tint); font-weight: 600; }
+.ft .ft-althea:hover { background: var(--tint2); }
+html[data-theme-resolved="dark"] .ft .btn.pri { background: var(--brand); border-color: var(--brand); color: var(--brand-on); }
+
+.so-sub { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; }
+.so-sub > svg { color: var(--blue); margin-top: 2px; flex-shrink: 0; }
+.so-sub b { display: block; font-size: 13px; } .so-sub small { display: block; color: var(--t2); font-size: 12px; margin-top: 2px; line-height: 1.45; }
+
+.ft-ok { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; background: var(--grn-bg); border: 1px solid var(--grn-line); color: var(--grn); }
+.ft-ok > svg { margin-top: 2px; flex-shrink: 0; }
+.ft-ok b { display: block; font-size: 12.5px; } .ft-ok small { display: block; color: var(--t2); font-size: 11.5px; margin-top: 1px; }
+.ft .btn svg { margin-right: 5px; }
+
 /* ================= Dark mode (Settings › Appearance). The clinic's color stays exactly as chosen: the top bar and
    primary buttons use it as-is; only surfaces, text, lines and status colors change. ================= */
 html[data-theme-resolved="dark"] {

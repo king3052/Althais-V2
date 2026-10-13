@@ -64,8 +64,8 @@ REQUIREMENTS = [
     # the practice itself
     _r("clinic_authorization", "Owner authorizes Althais to prepare enrollments and send claims", "clinic", "authorization", ALL, _ALTHAIS,
        evidence="Signed in Althais by a clinic owner or admin", sign="owner"),
-    _r("clearinghouse_account", "Clearinghouse account connected", "clinic", "connectivity", ALL, _CH, depends=("clinic_authorization",),
-       evidence="A successful connection check from the clearinghouse (or its written confirmation)", verify="clearinghouse"),
+    _r("clearinghouse_account", "Althais claim submission connected", "clinic", "connectivity", ALL, _CH, depends=("clinic_authorization",),
+       evidence="A successful connection check of Althais's clearinghouse account (Althais submits claims for the clinic)", verify="clearinghouse"),
     # the billing entity
     _r("entity_npi", "Organization NPI (Type 2) is active", "entity", "identity", ALL, _NPPES,
        evidence="NPI Registry lookup", verify="nppes", prefill=("npi", "legal_name")),
