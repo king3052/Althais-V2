@@ -506,10 +506,10 @@
   };
   V.proposalHtml = function (c) {
     var pr = c.proposal;
-    if (busy[c.id]) return '<div class="dp-sec"><div class="edit" style="border-color:#b9cdee;background:#eef4fc"><div class="edit-h" style="border:0">Althea is building this claim to 90% or better…</div></div></div>';
+    if (busy[c.id]) return '<div class="dp-sec"><div class="edit" style="border-color:var(--sel);background:var(--tint)"><div class="edit-h" style="border:0">Althea is building this claim to 90% or better…</div></div></div>';
     if (!pr || pr.error || !pr.changed || pr.score <= (c.check ? c.check.score : 0)) return '';
     var col = V.scoreColor(pr.score);
-    return '<div class="dp-sec"><div class="edit" style="border-color:#b9cdee;background:#eef4fc"><div class="edit-h">Althea built this claim: <span class="s-' + col + '" style="margin-left:4px">' + pr.score + '%</span>' + (pr.from != null ? '<span class="end">was ' + pr.from + '%</span>' : '') + '</div><div class="edit-b">' +
+    return '<div class="dp-sec"><div class="edit" style="border-color:var(--sel);background:var(--tint)"><div class="edit-h">Althea built this claim: <span class="s-' + col + '" style="margin-left:4px">' + pr.score + '%</span>' + (pr.from != null ? '<span class="end">was ' + pr.from + '%</span>' : '') + '</div><div class="edit-b">' +
       '<div class="b" style="margin-bottom:3px">Codes</div><div class="mono" style="font-size:12px;margin-bottom:6px">' + E(c.lines.map(function (l) { return l.code + (l.mod ? '-' + l.mod : ''); }).concat(c.dx).join(', ')) + '  →  <b>' + E(pr.codes.map(function (x) { return x.code + (x.mod ? '-' + x.mod : ''); }).join(', ')) + '</b></div>' +
       pr.codes.filter(function (x) { return x.reason; }).map(function (x) { return '<div class="mut" style="font-size:11.5px"><b>' + E(x.code) + '</b>: ' + E(x.reason) + '</div>'; }).join('') +
       (pr.adds.length ? '<div class="b" style="margin:8px 0 3px">Added to the record when you approve</div>' + pr.adds.map(function (a) { return '<div class="box"><div class="box-b prop">' + E(a.text) + '<div class="mut" style="font-size:11.5px;margin-top:3px">Source: “' + E(a.source_quote) + '”</div></div></div>'; }).join('') : '') +
