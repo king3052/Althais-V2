@@ -458,6 +458,65 @@ html[data-theme-resolved="dark"] .ft .btn.pri { background: var(--brand); border
 .ft-ok b { display: block; font-size: 12.5px; } .ft-ok small { display: block; color: var(--t2); font-size: 11.5px; margin-top: 1px; }
 .ft .btn svg { margin-right: 5px; }
 
+/* toolbar button with more choices on hover (Schedule › New Appointment › Book With Althea) */
+.tb-dd { position: relative; display: inline-flex; }
+.tb-menu { display: none; position: absolute; top: 100%; left: 0; z-index: 40; min-width: 200px; background: var(--surface); border: 1px solid var(--b); padding: 4px 0; box-shadow: 0 6px 16px rgba(15,17,22,.12); }
+.tb-dd:hover .tb-menu, .tb-dd:focus-within .tb-menu { display: block; }
+.tb-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 7px 12px; font-size: 12.5px; color: var(--t); cursor: pointer; text-align: left; text-transform: capitalize; }
+.tb-menu button:hover { background: var(--hover); }
+.tb-menu button svg { color: var(--blue); }
+
+/* New Patient › Scan To Autofill (app7.js) */
+.pi-choice { display: grid; gap: 10px; }
+.pi-opt { display: block; text-align: left; border: 1px solid var(--b); background: var(--surface); padding: 14px 16px; cursor: pointer; color: var(--t); }
+.pi-opt:hover { border-color: var(--blue); background: var(--hover); }
+.pi-opt.pri { border-color: var(--blue); background: var(--tint); }
+.pi-opt b { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 4px; }
+.pi-opt b svg { color: var(--blue); }
+.pi-opt span { color: var(--t2); font-size: 12.5px; line-height: 1.45; }
+.pi-drop { border: 2px dashed var(--b); padding: 22px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--zebra); }
+.pi-drop.on { border-color: var(--blue); background: var(--tint); }
+.pi-drop b { font-size: 14px; } .pi-drop span { color: var(--t2); font-size: 12.5px; }
+.pi-dicon svg { width: 22px; height: 22px; color: var(--blue); }
+.pi-btns { display: flex; gap: 8px; margin-top: 8px; }
+.pi-btns .btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.pi-list { margin-top: 12px; border: 1px solid var(--b); }
+.pi-item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-top: 1px solid var(--b2); }
+.pi-item:first-child { border-top: 0; }
+.pi-thumb { width: 56px; height: 40px; flex-shrink: 0; background: var(--ph); border: 1px solid var(--b2); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 11px; color: var(--m); }
+.pi-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.pi-meta { flex: 1; min-width: 0; } .pi-meta b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pi-meta small { color: var(--m); }
+.pi-item select { height: 27px; border: 1px solid var(--b); background: var(--surface); color: var(--t); }
+.pi-review { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; height: min(70vh, 720px); }
+.pi-form { overflow: auto; padding-right: 4px; }
+.pi-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--t2); margin-bottom: 8px; }
+.pi-sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 1px solid; vertical-align: -1px; }
+.pi-sw.low { background: #fff6d6; border-color: #e3c25c; } .pi-sw.conflict { background: var(--red-bg); border-color: var(--red); }
+.pi-sec h4 { margin: 10px 0 6px; font-size: 12.5px; color: var(--t2); text-transform: uppercase; letter-spacing: .04em; }
+.pi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.pi-f.s2 { grid-column: span 2; }
+.pi-f label { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--t2); margin-bottom: 3px; text-transform: capitalize; }
+.pi-f input, .pi-f select, .pi-f textarea { width: 100%; height: 28px; border: 1px solid var(--b); padding: 0 7px; background: var(--surface); color: var(--t); font: inherit; }
+.pi-f textarea { height: auto; padding: 5px 7px; resize: vertical; }
+.pi-f.pi-low input, .pi-f.pi-low select, .pi-f.pi-low textarea { background: #fff6d6; border-color: #e3c25c; }
+.pi-f.pi-conflict input, .pi-f.pi-conflict select, .pi-f.pi-conflict textarea { background: var(--red-bg); border-color: var(--red); }
+.pi-f.pi-bad input, .pi-f.pi-bad select, .pi-f.pi-bad textarea { border-color: var(--red); }
+.pi-src { margin-left: auto; font-size: 11px; color: var(--blue); cursor: pointer; text-transform: none; }
+.pi-src:hover { text-decoration: underline; }
+.pi-err { color: var(--red); font-size: 11.5px; min-height: 0; }
+.pi-opts { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 4px; font-size: 11.5px; color: var(--red); }
+.pi-opts .mini small { color: var(--m); }
+.pi-doc { display: flex; flex-direction: column; border: 1px solid var(--b); min-height: 0; }
+.pi-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--b); background: var(--ph); flex-wrap: wrap; }
+.pi-tabs button { border: 0; background: none; padding: 7px 10px; cursor: pointer; font-size: 12px; color: var(--t2); border-bottom: 2px solid transparent; }
+.pi-tabs button.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+.pi-view { flex: 1; overflow: auto; background: var(--bg); display: flex; align-items: flex-start; justify-content: center; padding: 10px; }
+.pi-view iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.pi-img { position: relative; display: inline-block; max-width: 100%; }
+.pi-img img { display: block; max-width: 100%; height: auto; }
+.pi-box { position: absolute; border: 2px solid var(--blue); background: rgb(var(--brand-rgb, 29 91 184) / .15); box-shadow: 0 0 0 2000px rgba(0,0,0,.12); pointer-events: none; }
+html[data-theme-resolved="dark"] .pi-sw.low, html[data-theme-resolved="dark"] .pi-f.pi-low input, html[data-theme-resolved="dark"] .pi-f.pi-low select, html[data-theme-resolved="dark"] .pi-f.pi-low textarea { background: #3a3110; border-color: #8f7a2b; }
+
 /* ================= Dark mode (Settings › Appearance). The clinic's color stays exactly as chosen: the top bar and
    primary buttons use it as-is; only surfaces, text, lines and status colors change. ================= */
 html[data-theme-resolved="dark"] {

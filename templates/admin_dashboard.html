@@ -928,7 +928,7 @@
 
     // ── members and start date ──
     let EMP_KEY = null;
-    const ROLE_OPTS = [['provider', 'Provider'], ['biller', 'Biller'], ['admin', 'Manager'], ['viewer', 'Viewer']];
+    const ROLE_OPTS = [['provider', 'Provider'], ['biller', 'Biller'], ['admin', 'Manager'], ['front_desk', 'Front Desk'], ['viewer', 'Viewer']];
     function memberRow() {
       return `<div class="grid grid-cols-[1fr_1.3fr_auto] gap-2" data-mrow><input class="flt" placeholder="Full name" data-k="name" aria-label="Full name">
         <input class="flt" type="email" placeholder="Work email" data-k="email" aria-label="Work email"><select class="flt" data-k="role" aria-label="Role">${ROLE_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>`;

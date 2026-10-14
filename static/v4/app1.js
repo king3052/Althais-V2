@@ -19,8 +19,9 @@
   V.refresh = function () { if (V.redraw) V.redraw(); };
 
   /* ---------- shared forms ---------- */
-  V.patientForm = function (p, after) {
-    var isNew = !p; p = p || { sex: 'F', payer: 'Medicare B', status: 'New' };
+  U.on(document.body, '#ptalthea', 'click', function () { U.askAlthea('New patient ', /schedule/.test(location.pathname) ? 'e.g. New patient Maria Rivera, DOB 4/18/1962, Aetna PPO W2840, tomorrow at 10 for knee pain' : 'e.g. New patient Maria Rivera, DOB 4/18/1962, female, Aetna PPO W2840'); });
+  V.patientForm = function (p, after, preset) {
+    var isNew = !p; p = p || Object.assign({ sex: 'F', payer: 'Medicare B', status: 'New' }, preset || {});
     if (isNew && !D.providers().length) U.toast('Tip: add a provider in Staff › Team so patients can have a PCP.');
     U.form(isNew ? 'New patient' : 'Edit patient', [
       { k: 'name', label: 'Name (Last, First)', req: 1, span: 2, ph: 'Garcia, Daniel' }, { k: 'dob', label: 'Date of birth', type: 'date', req: 1 }, { k: 'sex', label: 'Sex', type: 'select', options: ['F', 'M', 'X'] },
@@ -139,7 +140,7 @@
       var rulesNow = D.RULES.filter(function (r) { return Math.abs(D.daysBetween(today, r.eff)) <= 45; });
       var alerts = []; S.staff.forEach(function (s) { (s.creds || []).forEach(function (cr) { var d = cr.exp ? D.daysBetween(today, cr.exp) : 999; if (d <= 60) alerts.push([s.name, cr.name + (d < 0 ? ' expired ' : ' expires ') + D.us(cr.exp, 1), d < 0 ? 'red' : 'amb']); }); if (s.status === 'Invited') alerts.push([s.name, 'Onboarding ' + (s.steps || []).filter(function (x) { return x[1]; }).length + ' of ' + (s.steps || []).length + ' steps complete', '']); });
       app.innerHTML = U.header('overview') +
-        U.toolbar('Overview', [['Start Visit', 'mic', { pri: 1, id: 'start' }], ['New Patient', 'plus', { id: 'newpt' }], ['Submit Claims', '', { href: '/v4/revenue/claims?q=ready' }], '|', ['Print', 'print', { id: 'print' }]], D.longDate(today)) +
+        U.toolbar('Overview', [['Start Visit', 'mic', { pri: 1, id: 'start' }], ['New Patient', 'plus', { id: 'newpt' , menu: [['New Patient', 'newpt2', 'user'], ['Add With Althea', 'ptalthea', '<svg class="ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/></svg>']] }], ['Submit Claims', '', { href: '/v4/revenue/claims?q=ready' }], '|', ['Print', 'print', { id: 'print' }]], D.longDate(today)) +
         U.strip([['Patients today', seen + ' of ' + appts.length, (appts.length - seen) + ' remaining'], ['Unsigned notes', drafts.length, ''], ['Edits To Resolve', t.edits.n, M(t.edits.amt) + ' held', t.edits.n ? 'red' : ''],
           ['Ready To Submit', t.ready.n, M(t.ready.amt)], ['Collected MTD', M(t.collected), t.paidN + ' claims paid'], ['Denial rate, 90 days', t.r90 ? U.pct(t.d90 / t.r90) : '0.0%', t.d90 + ' of ' + t.r90]]) +
         '<div class="main" style="grid-template-columns:1.08fr 1.08fr .74fr"><div class="col">' +
@@ -178,6 +179,7 @@
     U.on(app, 'tr[data-href]', 'click', function (tr, e) { if (!e.target.closest('a')) location.href = tr.dataset.href; });
     U.on(app, '#start', 'click', function () { V.pickPatient('Start visit for', function (mrn) { V.startVisit(mrn); }); });
     U.on(app, '#newpt', 'click', function () { V.patientForm(); });
+    U.on(app, '#newpt2', 'click', function () { V.patientForm(); });
   };
   V.apptStatus = function (a) {
     var e = a.encId && D.enc(a.encId);
@@ -245,7 +247,7 @@
         }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(5, 'Nothing booked.') + '</tbody>')) +
         '</div><div class="pf"><span>' + (sel ? 1 : 0) + ' selected</span><span class="end">Showing ' + rows.length + ' of ' + all.length + '</span></div></section>';
       app.innerHTML = U.header('schedule') +
-        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New appointment', 'plus', { id: 'newappt' }], ['New Patient', 'user', { id: 'newpt' }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }], ['Import CSV', 'upload', { id: 'importcsv' }]]) +
+        U.toolbar('Schedule', [['Start Virtual SOAP', 'mic', { pri: 1, id: 'start' }], ['New Appointment', 'plus', { id: 'newappt', menu: [['New Appointment', 'newappt2', 'plus'], ['Book With Althea', 'bookalthea', '<svg class="ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/></svg>']] }], ['New Patient', 'user', { id: 'newpt' , menu: [['New Patient', 'newpt2', 'user'], ['Book With Althea', 'ptalthea', '<svg class="ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/></svg>']] }], '|', ['Scheduler', 'cal', { id: 'week' }], ['Fax / Msg', 'fax', { id: 'faxmsg' }], ['Print', 'print', { id: 'print' }], ['Import CSV', 'upload', { id: 'importcsv' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr) 330px">' +
           U.pane('Providers', '', '', U.queue([
             { h: 'Day, ' + D.us(V.day).slice(0, 5), items: [{ key: 'all', label: 'All providers', n: all.length, color: 'blue' }].concat(provs.map(function (id) { return { key: 'p:' + id, label: D.provName(id), n: cnt(function (a) { return a.prov === id; }), color: 'lblue' }; })) },
@@ -265,7 +267,10 @@
     U.on(app, '[data-view]', 'click', function (b) { view = b.dataset.view; draw(); });
     U.on(app, '#week', 'click', function () { view = view === 'week' ? 'day' : 'week'; draw(); });
     U.on(app, '#newappt', 'click', function () { V.apptForm(null, function (a) { sel = a.id; V.day = a.date; draw(); }); });
+    U.on(app, '#newappt2', 'click', function () { V.apptForm(null, function (a) { sel = a.id; V.day = a.date; draw(); }); });
+    U.on(app, '#bookalthea', 'click', function () { U.askAlthea('Book ', 'e.g. Book Maria Rivera tomorrow at 2:30 for a diabetes follow-up'); });
     U.on(app, '#newpt', 'click', function () { V.patientForm(null, function (p) { V.apptForm(null, function (a) { sel = a.id; V.day = a.date; draw(); }, { mrn: p.mrn }); }); });
+    U.on(app, '#newpt2', 'click', function () { V.patientForm(null, function (p) { V.apptForm(null, function (a) { sel = a.id; V.day = a.date; draw(); }, { mrn: p.mrn }); }); });
     U.on(app, '#start', 'click', function () { var a = A(); if (a) V.startVisit(a.mrn, a.id); else V.pickPatient('Start Virtual SOAP for', function (mrn) { V.startVisit(mrn); }); });
     U.on(app, '#faxmsg', 'click', function () { var a = A(); if (a) V.sendMessage(a.mrn); else V.pickPatient('Message which patient?', V.sendMessage); });
     U.on(app, '[data-act]', 'click', function (b) {
@@ -301,7 +306,7 @@
       var rows = S.patients.filter(f).sort(function (a, b) { return a.name.localeCompare(b.name); }), n = function (k) { return S.patients.filter(L[k]).length; };
       var nsel = Object.keys(sel).filter(function (k) { return sel[k]; }).length;
       app.innerHTML = U.header('patients') +
-        U.toolbar('Patients', [['New Patient', 'user', { pri: 1, id: 'newpt' }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]]) +
+        U.toolbar('Patients', [['New Patient', 'user', { pri: 1, id: 'newpt' , menu: [['New Patient', 'newpt2', 'user'], ['Add With Althea', 'ptalthea', '<svg class="ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/></svg>']] }], ['Import CSV', 'upload', { id: 'import' }], ['Run eligibility', 'refresh', { id: 'elig' }], '|', ['Export', 'download', { id: 'export' }], ['Print', 'print', { id: 'print' }]]) +
         '<div class="main" style="grid-template-columns:215px minmax(0,1fr)">' +
           U.pane('Patient lists', '', '', U.queue([
             { items: [{ key: 'all', label: 'All active', n: n('all'), color: 'blue' }, { key: 'week', label: 'Seen this week', n: n('week') }, { key: 'today', label: 'Scheduled today', n: n('today') }, { key: 'new', label: 'New this month', n: n('new') }] },
@@ -326,6 +331,7 @@
     U.on(app, '[data-f]', 'change', function (s) { F[s.dataset.f] = s.value; draw(); });
     U.on(app, 'tr[data-mrn]', 'dblclick', function (tr) { location.href = V.chartHref(tr.dataset.mrn); });
     U.on(app, '#newpt', 'click', function () { V.patientForm(); });
+    U.on(app, '#newpt2', 'click', function () { V.patientForm(); });
     U.on(app, '#deact', 'click', function (a, e) { e.preventDefault(); Object.keys(sel).forEach(function (k) { if (sel[k]) D.pt(k).status = 'Inactive'; }); sel = {}; D.save(); draw(); });
     U.on(app, '#react', 'click', function (a, e) { e.preventDefault(); Object.keys(sel).forEach(function (k) { if (sel[k]) D.pt(k).status = 'Active'; }); sel = {}; D.save(); draw(); });
     U.on(app, '#elig', 'click', function () {
@@ -371,12 +377,13 @@
   V.pages.chart = function () {
     var mrn = q.get('mrn');
     if (!D.pt(mrn)) {
-      app.innerHTML = U.header('chart') + U.toolbar('Patient chart', [['New Patient', 'user', { pri: 1, id: 'newpt' }]], '') + '<div class="main" style="grid-template-columns:minmax(0,1fr)">' + U.pane('Choose a patient', '', '', '<div class="pick"><input id="pk" placeholder="Search name, MRN or DOB" autofocus><div id="pkl"></div></div>') + '</div>';
+      app.innerHTML = U.header('chart') + U.toolbar('Patient chart', [['New Patient', 'user', { pri: 1, id: 'newpt' , menu: [['New Patient', 'newpt2', 'user'], ['Add With Althea', 'ptalthea', '<svg class="ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor"/></svg>']] }]], '') + '<div class="main" style="grid-template-columns:minmax(0,1fr)">' + U.pane('Choose a patient', '', '', '<div class="pick"><input id="pk" placeholder="Search name, MRN or DOB" autofocus><div id="pkl"></div></div>') + '</div>';
       U.fit(); U.search();
       var dr = function () { var s = (document.getElementById('pk').value || '').toLowerCase(); document.getElementById('pkl').innerHTML = U.grid(['Patient', 'MRN', 'DOB', 'Payer'], S.patients.filter(function (p) { return (p.name + p.mrn + p.dob).toLowerCase().indexOf(s) >= 0; }).map(function (p) { return { attrs: ' data-href="' + V.chartHref(p.mrn) + '"', cells: [E(p.name), p.mrn, D.us(p.dob), E(p.payer || '')] }; }), { click: 1 }).replace('<tbody></tbody>', '<tbody>' + U.empty(4, S.patients.length ? 'No match' : 'No patients yet.') + '</tbody>'); };
       dr(); document.getElementById('pk').oninput = dr;
       U.on(app, 'tr[data-href]', 'click', function (tr) { location.href = tr.dataset.href; });
       U.on(app, '#newpt', 'click', function () { V.patientForm(null, function (p) { location.href = V.chartHref(p.mrn); }); });
+      U.on(app, '#newpt2', 'click', function () { V.patientForm(null, function (p) { location.href = V.chartHref(p.mrn); }); });
       return;
     }
     function draw() {
@@ -408,9 +415,10 @@
             '<div class="dp-sec"><div class="dp-h">Care team</div>' + U.kv([['PCP', E(D.provName(p.pcp) || 'None')]]) + '</div>' +
             '<div class="dp-sec"><div class="dp-h">Upcoming</div>' + (up.length ? U.kv(up.map(function (a) { return [D.us(a.date, 1) + ' ' + V.fmtT(a.time), E(a.reason || 'Visit') + ', ' + E(D.provName(a.prov))]; })) : '<span class="mut">Nothing booked</span> · <a href="#" id="book">Book</a>') + '</div>' +
             '<div class="dp-sec" id="docs"><div class="dp-h">Documents <span class="end">' + V.link('Open', '/v4/emr/documents?mrn=' + mrn) + '</span></div>' + (docs.slice(0, 5).map(function (d) { return '<div>' + E(d.name) + ' <span class="mut">' + D.us(d.rec, 1) + '</span></div>'; }).join('') || '<span class="mut">None</span>') + '</div>' +
+            '<div class="dp-sec"><div class="dp-h">Scanned At Registration</div><div id="pt-scans" class="lst"><span class="mut">Loading…</span></div></div>' +
             '<div class="dp-sec" id="msgs"><div class="dp-h">Messages</div>' + (S.messages.filter(function (m) { return m.mrn === mrn; }).slice(0, 4).map(function (m) { return '<div><span class="mut">' + D.us(m.at.slice(0, 10), 1) + ' ' + m.via + ':</span> ' + E(m.text) + '</div>'; }).join('') || '<span class="mut">None</span>') + '</div>') +
         '</div>';
-      U.fit(); U.search();
+      U.fit(); U.search(); if (V.patientScans) V.patientScans(mrn, document.getElementById('pt-scans'));
     }
     V.redraw = draw; draw();
     U.on(app, 'tr[data-href]', 'click', function (tr, e) { if (!e.target.closest('a')) location.href = tr.dataset.href; });

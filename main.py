@@ -40,6 +40,7 @@ app.mount("/videos", StaticFiles(directory="public/videos"), name="videos")
 templates = Jinja2Templates(directory="templates")
 
 from auth import (
+    require_any_role,
     router as auth_router, current_user, require_user, COOKIE_NAME,
     current_admin, require_biller, require_admin_role, require_role,
     get_db, Base, engine, _org_namespace, OrgPatient, OrgClaim,
@@ -73,6 +74,8 @@ import staff_assistant
 app.include_router(staff_assistant.router)
 import billing_activation
 app.include_router(billing_activation.router)
+import patient_intake
+app.include_router(patient_intake.router)
 import demo_data
 app.include_router(demo_data.router)
 import platform_pages
@@ -897,7 +900,7 @@ def api_list_patients(user=Depends(require_user), db: Session = Depends(get_db))
 
 
 @app.post("/api/patients")
-async def api_save_patient(request: Request, user=Depends(require_biller), db: Session = Depends(get_db)):
+async def api_save_patient(request: Request, user=Depends(require_any_role("admin", "biller", "provider", "front_desk")), db: Session = Depends(get_db)):
     ensure_product(user, db)   # full suite (the EMR)
     ensure_area(user, "patients", "schedule")
     body = await request.json()

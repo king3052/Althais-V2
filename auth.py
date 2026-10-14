@@ -443,7 +443,7 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 # ── Role-based access control ──────────────────────────────────────────────
-ROLE_LEVELS = {"viewer": 0, "provider": 1, "biller": 2, "admin": 3}
+ROLE_LEVELS = {"viewer": 0, "front_desk": 0, "provider": 1, "biller": 2, "admin": 3}   # front desk: viewer level, plus patient intake and registration (require_any_role)
 
 
 def _role_level(user: User) -> int:
@@ -459,6 +459,16 @@ def require_role(min_role: str):
                 status_code=403,
                 detail=f"Your role ({user.role}) does not have permission for this action."
             )
+        return user
+    return _check
+
+
+def require_any_role(*roles: str):
+    """Dependency for actions a fixed set of roles may take, outside the level ladder (e.g. front desk registers patients)."""
+    def _check(user: User = Depends(require_user)):
+        if (user.role or "viewer") not in roles:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail=f"Your role ({user.role}) does not have permission for this action.")
         return user
     return _check
 
@@ -851,7 +861,7 @@ def remove_team_member(
 #  Althais logins - invite, role, provider name, which tools, pause, reset
 #  password, remove. A clinic always keeps at least one active admin.
 # ──────────────────────────────────────────────────────────────────────────
-ROLE_LABELS = {"admin": "Admin", "biller": "Biller", "provider": "Provider", "viewer": "Viewer"}
+ROLE_LABELS = {"admin": "Admin", "biller": "Biller", "provider": "Provider", "front_desk": "Front Desk", "viewer": "Viewer"}
 
 
 def _require_clinic_admin(user: User, db: Session):

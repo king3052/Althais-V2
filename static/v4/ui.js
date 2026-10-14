@@ -60,12 +60,20 @@
         return sec && sec[3].length ? '<nav class="snav">' + sec[3].map(function (s) { return '<a href="' + s[2] + '" class="' + (s[0] === page ? 'on' : '') + '">' + s[1] + '</a>'; }).join('') + '</nav>' : ''; })();
   };
   // actions: [label, icon, {pri, id, href}]
+  U.askAlthea = function (start, hint) {
+    var fab = document.getElementById('althea-fab'), panel = fab && fab.querySelector('.alt-panel');
+    if (!fab) return U.toast('Althea isn’t available on this page.', 'warn');
+    if (!panel || panel.offsetParent === null || panel.classList.contains('hidden')) { var l = fab.querySelector('.alt-launch'); if (l) l.click(); }
+    setTimeout(function () { var i = document.getElementById('althea-text-input'); if (!i) return; i.value = start || ''; if (hint) i.placeholder = hint; i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250);
+  };
   U.toolbar = function (title, actions, end) {
     var html = '<div class="tb"><span class="tb-title">' + U.esc(title) + '</span><span class="tb-sep"></span>';
     actions.forEach(function (a) {
       if (a === '|') { html += '<span class="tb-sep"></span>'; return; }
       var o = a[2] || {}, tag = o.href ? 'a' : 'button';
-      html += '<' + tag + (o.href ? ' href="' + o.href + '"' : ' type="button"') + ' class="act' + (o.pri ? ' pri' : '') + '"' + (o.id ? ' id="' + o.id + '"' : '') + '>' + (U.I[a[1]] || '') + U.esc(a[0]) + '</' + tag + '>';
+      var btn = '<' + tag + (o.href ? ' href="' + o.href + '"' : ' type="button"') + ' class="act' + (o.pri ? ' pri' : '') + '"' + (o.id ? ' id="' + o.id + '"' : '') + '>' + (U.I[a[1]] || '') + U.esc(a[0]) + '</' + tag + '>';
+      // {menu: [[label, id, icon]]}: more choices on hover, under the button
+      html += o.menu ? '<span class="tb-dd">' + btn + '<span class="tb-menu">' + o.menu.map(function (m) { return '<button type="button" id="' + m[1] + '">' + (U.I[m[2]] || m[2] || '') + U.esc(m[0]) + '</button>'; }).join('') + '</span></span>' : btn;
     });
     return html + '<span class="tb-end">' + (end || '') + '</span></div>';
   };

@@ -713,8 +713,10 @@ def role_access(doc: dict, role_name: str) -> dict:
         level = "admin"
     elif perms.get("claims") or perms.get("coding") or perms.get("revenue"):
         level = "biller"
-    elif perms.get("patients") or perms.get("notes"):
+    elif perms.get("notes"):
         level = "provider"
+    elif perms.get("patients"):
+        level = "front_desk"   # registration and scheduling; no coding, notes or claims
     else:
         level = "viewer"
     return {"app_access": app, "role": level, "blocked": ",".join(sorted(set(AREAS) - allowed)),
