@@ -62,3 +62,31 @@ body.rcx .form-card { align-self: start; }
 body.rcx .form-actions { margin-top: 26px; }
 body.rcx .fine { font-family: var(--rsans); }
 body.rcx .demo-copy h1.display { font-size: clamp(40px, 4.2vw, 64px); }
+
+/* login: plain white page, the sign-in card centered */
+body.login-page.rcx { background: #fff; }
+body.rcx .lg-shell { display: block; min-height: calc(100dvh - 77px); }
+body.rcx .lg-left { min-height: calc(100dvh - 77px); align-items: center; justify-content: center; padding: 0 20px; }
+body.rcx .lg-main { width: 100%; padding: 40px 0; }
+body.rcx .lg-form { margin: 0 auto; width: min(440px, 100%); background: #fff; border: 1px solid #e6e6e6 !important; padding: 40px 38px !important; }
+body.rcx .lg-title { font-size: 38px; }
+
+/* book a demo / pilot: everything in one screen — copy and the numbered list on the left, the form on the right, all on the dark band */
+@media (min-width: 961px) {
+  body.rcx .rx-main { background: #0b0f17; min-height: calc(100dvh - 77px); display: flex; align-items: center; }
+  body.rcx .demo-grid { width: 100%; padding-block: 40px; align-items: center; gap: 64px; }
+  body.rcx .demo-copy h1.display { font-size: clamp(38px, 3.6vw, 56px); }
+  body.rcx .demo-copy .lede { margin-top: 18px; font-size: 16.5px; }
+  body.rcx .dm-block { margin-top: 32px; }
+  body.rcx .dm-block .eyebrow { color: #6aa6ff; }
+  body.rcx .dm-list { border-top-color: rgba(255,255,255,.12); margin-top: 10px; }
+  body.rcx .dm-list li { padding: 12px 0; border-bottom-color: rgba(255,255,255,.12); }
+  body.rcx .dm-list i { color: #6aa6ff; }
+  body.rcx .dm-list b { color: #fff; }
+  body.rcx .dm-list span { color: rgba(255,255,255,.66); }
+  body.rcx .form-card { padding: 28px 30px 24px; }
+  body.rcx .form-card .field { margin-bottom: 12px; }
+  body.rcx .form-card .field input { height: 42px; }
+  body.rcx .form-card .form-title { margin-bottom: 14px; }
+  body.rcx .form-actions { margin-top: 16px; }
+}

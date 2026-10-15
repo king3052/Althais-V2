@@ -1040,3 +1040,47 @@ body.rcl .band { padding-top: 56px; padding-bottom: 40px; }
 body.rcl .band-top { margin-bottom: 18px; }
 body.rcl .sx { padding-top: 88px; }
 @media (max-width: 860px) { body.rcl .band { padding-top: 40px; padding-bottom: 28px; } }
+
+/* ===== phones ===== */
+@media (max-width: 760px) {
+  /* Althea: just the round icon, so it never covers the page */
+  .ask { width: 56px !important; height: 56px; padding: 8px !important; border-radius: 50% !important; gap: 0 !important; justify-content: center; right: 14px !important; bottom: 14px !important; }
+  .ask .ask-tx, .ask .ask-go { display: none !important; }
+
+  /* solutions: the three tabs become one swipeable row */
+  .sx { padding-top: 64px !important; }
+  .sx-tabs { display: flex !important; gap: 8px !important; overflow-x: auto; scrollbar-width: none; margin-top: 32px !important; padding: 0 20px 4px !important; }
+  .sx-tabs::-webkit-scrollbar { display: none; }
+  .sx-tab { flex: none; padding: 10px 16px 12px !important; border: 1px solid #e3e3e3; border-radius: 999px; }
+  .sx-tab .sx-k, .sx-tab .sx-s { display: none; }
+  .sx-tab b { margin: 0 !important; font-size: 16px !important; white-space: nowrap; }
+  .sx-tab.on { background: var(--accent); border-color: var(--accent); }
+  .sx-tab.on b { color: #fff !important; }
+  .sx-bar { display: none; }
+  .sx-panels { margin-top: 20px; }
+  .sx-copy { padding: 40px 20px 28px !important; }
+  .sx-copy h3 { font-size: 38px !important; }
+  .sx-prob { margin-top: 28px !important; padding-bottom: 24px !important; }
+  .sx-appr p, .sx-appr ul { padding-left: 0 !important; }
+  .sx-media.shot { padding: 0 16px 32px !important; background: none !important; }
+  .sx-head h2 { font-size: 36px !important; }
+
+  /* who we work with: caption under the photo, not on top of it */
+  .wc { padding-top: 64px !important; margin-top: 64px !important; }
+  .wc-wrap { margin-top: 32px !important; }
+  .wc-track { grid-auto-columns: 80% !important; gap: 12px !important; padding: 0 20px !important; scroll-padding: 0 20px; }
+  .wc-card { padding-bottom: 0 !important; background: #f4f3f1; }
+  .wc-card img { aspect-ratio: 4 / 3 !important; }
+  .wc-cap { position: static !important; width: auto !important; padding: 18px 18px 20px !important; }
+  .wc-cap h3 { font-size: 21px !important; }
+  .wc-cap p { font-size: 14px !important; }
+
+  /* results */
+  .rs { margin-top: 64px !important; padding: 64px 0 72px !important; }
+  .rs-grid { width: calc(100% - 40px) !important; margin-top: 32px !important; }
+  .rs-card { padding: 28px 22px 22px !important; }
+  .rs-card blockquote { font-size: 18px !important; }
+
+  /* trusted by + hero spacing */
+  body.rcl .hero-vid h1.display { font-size: 42px !important; }
+}

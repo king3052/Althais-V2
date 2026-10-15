@@ -50,7 +50,7 @@
       {% endfor %}
     </nav>
     <div class="nav-end">
-      {% if nav_style == "rc" %}<a href="/login" class="btn nav-login">Login</a>{% endif %}
+      {% if nav_style == "rc" and not hide_login %}<a href="/login" class="btn nav-login">Login</a>{% endif %}
       <a href="/demo" class="btn btn-dark nav-cta">{{ nav_cta | default("Book A Demo") }}
         <svg class="arr" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
       </a>

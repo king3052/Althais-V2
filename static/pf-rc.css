@@ -50,3 +50,9 @@ body.pfx .cta .btn-pill { background: var(--accent); color: #fff; border-radius:
 /* cards in the dark hero keep dark text */
 body.pfx .pf-hero .card { color: #111; }
 body.pfx .pf-hero .card .rows .row > span:first-child, body.pfx .pf-hero .card b, body.pfx .pf-hero .card small { color: #3d3d3d; }
+@media (max-width: 760px) {
+  /* wide tables scroll sideways inside their own box instead of pushing the page */
+  body.pfx .pf-table, body.pfx .pf-matrix { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  body.pfx .pf-sub .wrap { padding-right: 20px; }
+  body.pfx .pf-hero h1.display { font-size: 40px; }
+}
