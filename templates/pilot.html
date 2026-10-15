@@ -19,22 +19,14 @@
   <link rel="stylesheet" href="/static/althais-landing.css" />
   <link rel="stylesheet" href="/static/althais-demo.css" />
   <link rel="stylesheet" href="/static/althais-dark.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=Inter:wght@600&display=swap" />
+  <link rel="stylesheet" href="/static/auth-rc.css" />
 </head>
-<body class="demo-page">
+<body class="demo-page rcl rcx">
 
-<header class="nav" id="top">
-  <div class="wrap nav-in">
-    <a href="/" class="logo" aria-label="Althais home"><svg width="24" height="24" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="25" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8" stroke-linecap="butt"/></svg><span>Althais</span></a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="/" class="btn btn-ghost">
-        <svg class="arr" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3M7 4L3 8l4 4"/></svg>
-        Return To Home
-      </a>
-    </nav>
-  </div>
-</header>
+{% set nav_style = "rc" %}{% include "_site_nav.html" %}
 
-<main>
+<main class="rx-main">
   <div class="wrap demo-grid">
 
     <div class="demo-copy">
@@ -104,11 +96,7 @@
   </div>
 </main>
 
-<footer class="foot">
-  <div class="wrap foot-in">
-    <div class="l"><a href="/" class="logo" aria-label="Althais home"><svg width="24" height="24" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="25" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8" stroke-linecap="butt"/></svg><span>Althais</span></a><span>© 2026 Althais Health, Inc.</span></div>
-  </div>
-</footer>
+{% include "_site_footer.html" %}
 
 <script src="/static/althais-demo.js"></script>
 </body>

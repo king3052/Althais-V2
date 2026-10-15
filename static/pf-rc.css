@@ -1,0 +1,52 @@
+/* Shared site pages (templates/platform_page.html) in the landing page's look: dark hero under a transparent header,
+   Inter Tight headings, the section tabs over the hero, gray rules between sections, white footer. */
+body.pfx { --rsans: "Inter Tight", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif; background: #fff; }
+body.pfx main { background: #fff; }
+body.pfx .wrap { max-width: 1168px; }
+
+/* dark hero, starting under the transparent header */
+body.pfx .pf-hero { position: relative; margin-top: -77px; padding: 200px 0 110px; background: #0b0f17; color: #fff; isolation: isolate; overflow: hidden; }
+body.pfx .pf-hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(70% 90% at 85% 10%, rgba(53,112,201,.35) 0%, rgba(11,15,23,0) 60%), linear-gradient(180deg, #0b0f17 0%, #0d1320 100%); }
+body.pfx .pf-hero .eyebrow { color: #6aa6ff; font-size: 17px; font-weight: 500; }
+body.pfx .pf-hero h1.display { color: #fff; font-family: var(--rsans); font-weight: 400; font-size: clamp(44px, 5.4vw, 80px); line-height: 1.02; letter-spacing: -.04em; margin-top: 18px; }
+body.pfx .pf-hero h1 .em { color: #6aa6ff; font-style: normal; }
+body.pfx .pf-hero .lede { color: rgba(255,255,255,.84); font-size: 18px; }
+body.pfx .pf-hero .btn-dark { background: var(--accent); color: #fff; border-radius: 3px; font-weight: 700; }
+body.pfx .pf-hero .btn-ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,.35); border-radius: 3px; }
+body.pfx .pf-hero .btn-ghost:hover { background: rgba(255,255,255,.08); }
+body.pfx .pf-hero .card { border-color: rgba(255,255,255,.12); }
+
+/* section tabs sit over the top of the hero, under the header */
+body.pfx .pf-sub { position: absolute; top: 77px; left: 0; right: 0; z-index: 40; background: transparent !important; border: 0 !important; }
+body.pfx .pf-sub .wrap { gap: 6px; }
+body.pfx .pf-sub a { color: rgba(255,255,255,.72) !important; background: rgba(255,255,255,.06) !important; border: 1px solid rgba(255,255,255,.12) !important; border-radius: 999px; }
+body.pfx .pf-sub a:hover { color: #fff !important; }
+body.pfx .pf-sub a.on { background: #fff !important; color: #111 !important; border-color: #fff !important; }
+
+/* headings and big numbers in the grotesque */
+body.pfx .pf-copy h2, body.pfx .pf-grid h3, body.pfx .pf-tier h3, body.pfx .pf-table tbody th, body.pfx .pf-linkcard h3, body.pfx .pf-case blockquote,
+body.pfx .pf-big, body.pfx .pf-person b, body.pfx .pf-story p, body.pfx .pf-stats b, body.pfx .pf-time h3, body.pfx .pf-rec h3, body.pfx .pf-faq summary,
+body.pfx .quote blockquote, body.pfx .cta h2 { font-family: var(--rsans) !important; letter-spacing: -.03em; }
+body.pfx .pf-copy h2 { font-weight: 400; }
+body.pfx .em { font-style: normal; color: var(--accent); }
+body.pfx .eyebrow { font-family: var(--rsans); text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--accent); font-weight: 500; }
+body.pfx .card .eyebrow { font-size: 12px; color: #8a857f; }
+
+/* squarer cards and buttons, gray rules between sections */
+body.pfx .card, body.pfx .pf-linkcard, body.pfx .pf-tier, body.pfx .pf-case { border-radius: 4px; box-shadow: none; }
+body.pfx .btn { border-radius: 3px; }
+body.pfx main > .block + .block, body.pfx main > section.block { border-top: 1px solid #ececec; }
+body.pfx main > .pf-hero + section.block, body.pfx main > .pf-hero + .block { border-top: 0; }
+body.pfx .block { padding-top: 110px; padding-bottom: 10px; }
+
+/* dark call to action at the end: square, full width */
+body.pfx .cta { margin: 120px 0 0; border-radius: 0; background: #050505; }
+body.pfx .cta .btn-pill { background: var(--accent); color: #fff; border-radius: 3px; font-weight: 700; }
+
+@media (max-width: 860px) {
+  body.pfx .pf-hero { margin-top: -69px; padding: 160px 0 64px; }
+  body.pfx .pf-sub { top: 69px; }
+}
+/* cards in the dark hero keep dark text */
+body.pfx .pf-hero .card { color: #111; }
+body.pfx .pf-hero .card .rows .row > span:first-child, body.pfx .pf-hero .card b, body.pfx .pf-hero .card small { color: #3d3d3d; }

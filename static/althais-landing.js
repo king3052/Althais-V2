@@ -153,7 +153,7 @@
   ];
   var scnShare = $("#scn-share"), scnNote = $("#scn-note"), chatBody = $("#chat-body");
   function renderScn(i) {
-    var s = SCN[i]; if (!s) return;
+    var s = SCN[i]; if (!s || !scnShare) return;
     scnShare.innerHTML = s.share.map(function (r) {
       return '<div class="share-row"><span class="d ' + (r[0] === "o" ? "o" : "") + '"></span><span class="k">' + esc(r[1]) + '</span><span class="val ' + (r[0] === "o" ? "dimv" : "") + '">' + esc(r[2]) + '</span></div>';
     }).join("");

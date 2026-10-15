@@ -190,10 +190,12 @@
       .pf-faq summary { font-size: 22px; }
     }
   </style>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600&display=swap" />
+  <link rel="stylesheet" href="/static/pf-rc.css?v={{ asset_v }}" />
 </head>
-<body>
+<body class="vhero rcl pfx">
 
-{% include "_site_nav.html" %}
+{% set nav_style = "rc" %}{% include "_site_nav.html" %}
 <nav class="pf-sub" aria-label="{{ section }}">
   <div class="wrap">{% for name, href in nav_items %}<a href="{{ href }}"{% if href == here %} class="on" aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}</div>
 </nav>
@@ -203,7 +205,7 @@
 <section class="hero pf-hero">
   <div class="wrap hero-grid">
     <div class="rv">
-      <span class="eyebrow"><i class="dot"></i> {{ section }} · {{ page.eyebrow }}</span>
+      <span class="eyebrow">{{ section }} · {{ page.eyebrow }}</span>
       <h1 class="display">{{ page.title }}<br /><span class="em">{{ page.em }}</span></h1>
       <p class="lede">{{ page.lede }}</p>
       {% if ctas %}<div class="hero-cta">{% for label, href in ctas %}<a href="{{ href }}" class="btn {{ 'btn-dark' if loop.first else 'btn-ghost' }} btn-lg">{{ label }}{% if loop.first %}
@@ -522,6 +524,14 @@
     if (!("IntersectionObserver" in window)) { els.forEach(function (e) { e.classList.add("in"); }); return; }
     var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }); }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
     els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
+<script>
+  // header: transparent at the top, frosted over the dark hero, white after it
+  (function () {
+    var hero = document.querySelector('.pf-hero'); if (!hero) return;
+    var on = function () { document.body.classList.toggle('vhero-scroll', scrollY > 4); document.body.classList.toggle('vhero-past', scrollY > hero.offsetHeight - 77); };
+    addEventListener('scroll', on, { passive: true }); on();
   })();
 </script>
 </body>

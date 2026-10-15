@@ -17,55 +17,39 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon/althais-tab.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Inter:wght@600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Inter:wght@600&family=Inter+Tight:wght@300;400;500;600&display=swap" />
   <script src="/static/js/theme.js?v={{ asset_v }}"></script>
   <link rel="stylesheet" href="/static/althais-landing.css?v={{ asset_v }}" />
   <link rel="stylesheet" href="/static/althais-dark.css?v={{ asset_v }}" />
   <script>document.documentElement.classList.add("js");</script>
 </head>
-<body>
+<body class="vhero rcl">
 
-{% set logo_href = "#top" %}{% include "_site_nav.html" %}
+{% set logo_href = "#top" %}{% set nav_style = "rc" %}{% include "_site_nav.html" %}
 
 <main>
 
-<!-- HERO -->
-<section class="hero">
-  <div class="wrap hero-grid">
-    <div class="rv">
-      <h1 class="display">From encounter,<br /><span class="em">to <span id="hero-rot" class="rot">reimbursement</span>.</span></h1>
-      <p class="lede">Speak the visit or type the note. Althais writes the SOAP, suggests the ICD-10 and CPT codes, checks them against real CMS edits, and hands you a claim ready for your review.</p>
-      <div class="hero-cta">
-        <a href="/pilot" class="btn btn-dark btn-lg">Join the Pilot
-          <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-        </a>
-        <a href="#how" class="btn btn-ghost btn-lg">Explore Althais</a>
-      </div>
+<!-- HERO: full-screen clips that cross-fade behind the headline (static/media/hero, Mixkit free license). The script at the
+     bottom of the page plays one clip at a time; with reduced motion only the first frame shows. -->
+<section class="hero hero-vid" aria-label="Althais">
+  <div class="hv-media" aria-hidden="true">
+    <video class="hv-clip on" muted playsinline preload="auto" poster="/static/media/hero/hero-1.jpg" data-src="/static/media/hero/hero-1.mp4"></video>
+    <video class="hv-clip" muted playsinline preload="none" poster="/static/media/hero/hero-2.jpg" data-src="/static/media/hero/hero-2.mp4"></video>
+    <div class="hv-shade"></div>
+  </div>
+  <div class="hv-in">
+    <div class="hv-top">
+      <div class="hv-eyebrow">AI Scribe, Coding &amp; Claims In One Platform</div>
+      <h1 class="display">From encounter,<br /><span class="hv-l2">to <span id="hero-rot" class="rot">reimbursement</span>.</span></h1>
     </div>
-
-    <div class="stack rv" aria-label="Example: a dictated visit turned into a coded claim">
-      <div class="card card-pad">
-        <div class="eyebrow">You dictate</div>
-        <div class="chips">
-          <span class="chip">Chest pain</span><span class="chip">Emergency dept</span><span class="chip">2 hr onset</span>
-        </div>
-        <hr class="hr" />
-        <div class="bignum"><b>99285</b><span>suggested CPT, 94% confidence</span></div>
-      </div>
-      <div class="card result">
-        <div class="result-head"><span class="eyebrow"><i class="dot"></i> Coded &amp; Checked</span><span class="eyebrow">Ready For Review</span></div>
-        <div class="person">
-          <span class="avatar">DM</span>
-          <div><b>Demo Patient, 54</b><span>Emergency Dept · 47 Min Documented</span></div>
-        </div>
-        <div class="kv"><span class="k">CPT</span><span class="g">99285 · ED Visit, High Complexity</span></div>
-        <div class="kv"><span class="k">ICD-10</span><span class="g">R07.9 · Chest Pain</span></div>
-        <div class="kv"><span class="k">ICD-10</span><span>R06.00 · Dyspnea</span></div>
-        <div class="kv"><span class="k">NCCI</span><span class="g">0 Bundling Conflicts</span></div>
-        <div class="kv"><span class="k">Duration</span><span>47 Min · Verified</span></div>
-        <div class="kv-lock">
-          <div class="kv"><span class="k">Payer</span><span class="v"><i>••••••••</i> Verified At Filing</span></div>
-          <div class="kv"><span class="k">Claim</span><span class="v"><i>••••••••</i> CMS-1500 Assembled</span></div>
+    <div class="hv-foot">
+      <div class="hv-left"><p class="hv-cred"><b>Built for</b> physician practices, hospitals and revenue cycle teams</p>
+        <a href="/roi-calculator" class="hv-link hv-roi">See what denials cost you. Calculate your ROI <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a></div>
+      <div class="hv-right">
+        <p class="lede">Speak the visit or type the note. Althais writes the SOAP, suggests the ICD-10 and CPT codes, checks them against real CMS edits, and hands you a claim ready for your review.</p>
+        <div class="hero-cta">
+          <a href="/pilot" class="btn btn-accent hv-btn">Join the Pilot <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
+          <a href="#how" class="hv-link">Explore Althais <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
         </div>
       </div>
     </div>
@@ -103,443 +87,109 @@
   </div>
 </div>
 
-<!-- HOW IT WORKS -->
-<section class="block" id="how">
-  <div class="wrap">
-    <div class="sec-head rv">
-      <div class="eyebrow">How Althais works</div>
-      <h2>Say the visit.<br /><span class="em">We code it and check it.</span></h2>
-      <p><b>Tell it what happened in the room</b>, spoken or typed, and Althais does the documentation, the coding and the checking, then puts a finished claim in front of you.</p>
-    </div>
-
-    <div class="steps">
-      <div class="steps-left">
-        <div class="step-copy on" data-step="0"><span class="eyebrow">Step one</span><h3>You tell it about the visit.</h3><p>Dictate it or type it, however you already work. Althais structures it into a full SOAP note (chief complaint, assessment, plan, duration) instead of leaving you a free-text box to fix later.</p></div>
-        <div class="step-copy" data-step="1"><span class="eyebrow">Step two</span><h3>See the codes, with confidence.</h3><p>Every ICD-10 and CPT suggestion comes with a confidence score, so you see at a glance what is solid and what deserves a second look. Accept, reject, or add your own.</p></div>
-        <div class="step-copy" data-step="2"><span class="eyebrow">Step three</span><h3>It is checked before it leaves.</h3><p>Each claim is compared against the CMS procedure-to-procedure edit table, so bundling errors are caught before a denial, not weeks after the fact.</p></div>
-        <div class="step-copy" data-step="3"><span class="eyebrow">Step four</span><h3>You review. Then it is tracked.</h3><p>Nothing is submitted without a person approving it. After that, every claim is followed from submission to payment, and denials surface with an appeal letter already drafted.</p></div>
-        <ol class="timeline" aria-label="Steps">
-          <li class="on"><i>01</i>Tell it about the visit</li>
-          <li><i>02</i>See the codes and confidence</li>
-          <li><i>03</i>Check against CMS edits</li>
-          <li><i>04</i>Review, submit, track</li>
-        </ol>
-      </div>
-
-      <div class="steps-right">
-        <div class="step-card" data-step="0">
-          <div class="step-mobile"><span class="eyebrow">Step one</span><h3>You tell it about the visit.</h3><p>Dictate or type it. Althais structures the SOAP note for you.</p></div>
-          <div class="card card-pad">
-            <div class="eyebrow">Dictate or type</div>
-            <div class="tarea" id="tw" data-text="58-year-old with chest pain and shortness of breath for two hours. BP 148/92, HR 88. EKG normal sinus rhythm, troponin pending. Rule out ACS, serial troponins, cardiology consult."><span id="tw-out"></span><span class="caret"></span></div>
-            <div class="hint"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1v3M8 12v3M1 8h3M12 8h3M3.3 3.3l2 2M10.7 10.7l2 2M12.7 3.3l-2 2M5.3 10.7l-2 2"/></svg>Say it the way you would tell a colleague. Nothing to memorize.</div>
-          </div>
-          <div class="card soft card-pad">
-            <div class="eyebrow">Structured note</div>
-            <div class="rows">
-              <div class="row"><span>Chief complaint</span><span class="r">Chest pain, SOB</span></div>
-              <div class="row"><span>Assessment</span><span class="r">Rule out ACS</span></div>
-              <div class="row"><span>Plan</span><span class="r">Troponins, cardiology</span></div>
-              <div class="row"><span>Provider time</span><span class="r g">47 min · verified</span></div>
-            </div>
-          </div>
+<!-- SOLUTIONS: three tabs, each with the problem, how Althais solves it, and a photo -->
+<section class="sx" id="how">
+  <div class="sx-head">
+    <h2>One platform, start to finish.</h2>
+    <p>Built for <span class="sx-rot" data-words="physician practices|emergency departments|direct primary care clinics|revenue cycle teams">physician practices</span>.</p>
+  </div>
+  <div class="sx-tabs" role="tablist"><button type="button" class="sx-tab on" role="tab" aria-selected="true" data-sx="0"><span class="sx-k">Speak it, don't type it</span><b>AI Scribe</b><span class="sx-s">Notes from the visit</span><i class="sx-bar"><em></em></i></button><button type="button" class="sx-tab" role="tab" aria-selected="false" data-sx="1"><span class="sx-k">Codes with the reasons behind them</span><b>Smart Coding</b><span class="sx-s">ICD-10 and CPT</span><i class="sx-bar"><em></em></i></button><button type="button" class="sx-tab" role="tab" aria-selected="false" data-sx="2"><span class="sx-k">Checked before it is filed</span><b>Clean Claims</b><span class="sx-s">Edits, submission and tracking</span><i class="sx-bar"><em></em></i></button></div>
+  <div class="sx-panels"><div class="sx-panel on" role="tabpanel" data-sx="0">
+        <div class="sx-copy">
+          <div class="eyebrow">Speak it, don't type it</div>
+          <h3>AI Scribe</h3>
+          <div class="sx-prob"><b>The problem</b><p>Notes get written after the last patient leaves, from memory, and details that support the right code get lost.</p></div>
+          <div class="sx-appr"><b><svg class="rx" width="15" height="15" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="11"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="11"/></svg>How Althais solves it</b><p>Althais listens to the visit, spoken or typed, and turns it into a structured SOAP note you edit and sign.</p><ul><li>Chief complaint, assessment and plan, already organized</li><li>Provider time captured from the visit</li><li>Nothing is filed until you sign</li></ul></div>
         </div>
-
-        <div class="step-card" data-step="1">
-          <div class="step-mobile"><span class="eyebrow">Step two</span><h3>See the codes, with confidence.</h3><p>Every suggestion carries a confidence score.</p></div>
-          <div class="card card-pad">
-            <div class="eyebrow">Suggested codes</div>
-            <div class="code-line"><span class="t">CPT</span><div><b>99285</b><span>ED visit, high complexity</span></div><span class="pct">95%</span></div>
-            <div class="code-line"><span class="t">ICD-10</span><div><b>R07.9</b><span>Chest pain, unspecified</span></div><span class="pct">90%</span></div>
-            <div class="code-line"><span class="t">ICD-10</span><div><b>R06.02</b><span>Shortness of breath</span></div><span class="pct">85%</span></div>
-          </div>
-          <div class="card soft card-pad">
-            <div class="eyebrow">Your call on every one</div>
-            <div class="chips"><span class="tag">Accept</span><span class="tag n">Reject</span><span class="tag n">Add your own</span></div>
-          </div>
+        <div class="sx-media shot"><img src="/static/media/landing/app-scribe.jpg" alt="The Althais encounter screen: a SOAP progress note written from the visit, beside the patient chart" loading="lazy"></div>
+      </div><div class="sx-panel" role="tabpanel" data-sx="1" aria-hidden="true">
+        <div class="sx-copy">
+          <div class="eyebrow">Codes with the reasons behind them</div>
+          <h3>Smart Coding</h3>
+          <div class="sx-prob"><b>The problem</b><p>Coding from a free-text note means guessing at levels and modifiers, and undercoding quietly costs the practice.</p></div>
+          <div class="sx-appr"><b><svg class="rx" width="15" height="15" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="11"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="11"/></svg>How Althais solves it</b><p>Althais reads the note and suggests ICD-10 and CPT codes, each with a confidence score and the documentation behind it.</p><ul><li>A confidence score on every code</li><li>Accept, reject or add your own</li><li>Modifier and specificity prompts</li></ul></div>
         </div>
-
-        <div class="step-card" data-step="2">
-          <div class="step-mobile"><span class="eyebrow">Step three</span><h3>It is checked before it leaves.</h3><p>Compared against the CMS procedure-to-procedure edit table.</p></div>
-          <div class="card card-pad">
-            <div class="eyebrow">The check</div>
-            <div class="rows">
-              <div class="row"><span>NCCI bundling conflicts</span><span class="r g">0 found</span></div>
-              <div class="row"><span>CMS PTP edit table</span><span class="r">checked</span></div>
-              <div class="row"><span>Required fields</span><span class="r">present</span></div>
-              <div class="row"><span>Documentation completeness</span><span class="r g">complete</span></div>
-            </div>
-          </div>
-          <div class="card soft card-pad">
-            <div class="eyebrow">Checked at the time of filing</div>
-            <div class="rows">
-              <div class="row"><span>Payer rules</span><span class="r">applied</span></div>
-              <div class="row"><span>Modifier review</span><span class="r a">flagged if needed</span></div>
-            </div>
-          </div>
+        <div class="sx-media shot"><img src="/static/media/landing/app-coding.jpg" alt="The Althais coding panel: a 95% claim check, the CPT and ICD-10 codes, and the note lines each code rests on" loading="lazy"></div>
+      </div><div class="sx-panel" role="tabpanel" data-sx="2" aria-hidden="true">
+        <div class="sx-copy">
+          <div class="eyebrow">Checked before it is filed</div>
+          <h3>Clean Claims</h3>
+          <div class="sx-prob"><b>The problem</b><p>Bundling conflicts and missing fields are found after a denial, weeks later, when the visit is long forgotten.</p></div>
+          <div class="sx-appr"><b><svg class="rx" width="15" height="15" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="11"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="11"/></svg>How Althais solves it</b><p>Every claim is checked against CMS NCCI edits while the note is still open, then tracked from submission to payment.</p><ul><li>NCCI edits checked on every claim</li><li>Sent only after your team approves it</li><li>Denials flagged, with an appeal letter drafted</li></ul></div>
         </div>
+        <div class="sx-media shot"><img src="/static/media/landing/app-claims.jpg" alt="The Althais claim detail: a 95% claim check, the codes picked for the visit, and Sign And Approve Claim" loading="lazy"></div>
+      </div></div>
+</section>
 
-        <div class="step-card claims" data-step="3">
-          <div class="step-mobile"><span class="eyebrow">Step four</span><h3>You review. Then it is tracked.</h3><p>A person approves every claim; Althais follows it to payment.</p></div>
-          <div class="card card-pad">
-            <div class="eyebrow">Claims overview</div>
-            <div class="rows">
-              <div class="row"><div><span class="id">CHC-2026-00412</span><small>Smith, John · 99291</small></div><span class="tag">Submitted</span></div>
-              <div class="row"><div><span class="id">CHC-2026-00411</span><small>Patel, R. · 99285</small></div><span class="tag">Paid</span></div>
-              <div class="row"><div><span class="id">CHC-2026-00409</span><small>Torres, M. · 99283</small></div><span class="tag w">Denied</span></div>
-              <div class="row"><div><span class="id">CHC-2026-00408</span><small>Kim, S. · 99284</small></div><span class="tag">Paid</span></div>
-            </div>
-          </div>
-          <div class="card soft card-pad">
-            <div class="eyebrow">Denied claims</div>
-            <div class="rows"><div class="row"><span>Appeal letter generated for CHC-2026-00409</span><span class="r g">ready</span></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
+<!-- WHO WE WORK WITH: photo carousel -->
+<section class="wc" id="serve">
+  <div class="sx-head">
+    <div class="eyebrow">Purpose-built</div>
+    <h2>Who we work with</h2>
+    <p>Built for <span class="sx-rot" data-words="physician practices|hospitals and emergency care|small and direct care clinics|revenue cycle teams">physician practices</span>.</p>
+  </div>
+  <div class="wc-wrap">
+    <button type="button" class="wc-arrow prev" aria-label="Previous"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3M7 4L3 8l4 4"/></svg></button>
+    <div class="wc-track"><a class="wc-card" href="/solutions/private-practices"><img src="/static/media/landing/serve-practices.jpg" alt="A doctor talking with a young patient and her mother" loading="lazy"><div class="wc-cap"><h3>Physician practices</h3><p>Notes written while you talk, codes suggested before you sign.</p></div></a><a class="wc-card" href="/solutions/hospital-systems"><img src="/static/media/landing/serve-hospitals.jpg" alt="A doctor at a patient's hospital bedside" loading="lazy"><div class="wc-cap"><h3>Emergency &amp; hospital care</h3><p>High-acuity visits coded with the reasons behind each code.</p></div></a><a class="wc-card" href="/solutions/private-practices"><img src="/static/media/landing/serve-clinics.jpg" alt="A nurse charting on a tablet at a patient's bedside" loading="lazy"><div class="wc-cap"><h3>Small &amp; direct care clinics</h3><p>A billing team's work, without hiring a billing team.</p></div></a><a class="wc-card" href="/solutions/revenue-cycle-teams"><img src="/static/media/landing/tool-althea.jpg" alt="A care team reviewing a tablet together" loading="lazy"><div class="wc-cap"><h3>Revenue cycle teams</h3><p>Clean claims out the door, and fewer denials coming back.</p></div></a></div>
+    <button type="button" class="wc-arrow next" aria-label="Next"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
   </div>
 </section>
 
-<!-- WHAT IS SLIPPING THROUGH -->
-<section class="block" id="catch">
-  <div class="wrap">
-    <div class="rule-head rv"><span class="eyebrow">What slips through</span><span class="eyebrow">Illustrative example, not measured data</span></div>
-    <div class="sec-head rv">
-      <h2 style="margin-top:44px">Pick a visit type.<br /><span class="g2">See what gets caught.</span></h2>
-    </div>
-
-    <div class="chips-rows rv">
-      <span class="eyebrow">Visit type</span>
-      <div class="chips" id="vt-chips">
-        <button class="chip-btn on" data-vt="office">Office visit</button>
-        <button class="chip-btn" data-vt="ed">Emergency</button>
-        <button class="chip-btn" data-vt="urgent">Urgent care</button>
-        <button class="chip-btn" data-vt="tele">Telehealth</button>
-        <button class="chip-btn" data-vt="proc">Procedures</button>
-        <button class="chip-btn" data-vt="crit">Critical care</button>
-      </div>
-    </div>
-
-    <div class="board rv">
-      <div class="board-l">
-        <div class="n" id="bd-n">21%</div>
-        <div class="lead" id="bd-lead">of office-visit claims in this example carried a fixable issue.</div>
-        <div class="sub">Each of these is caught while the note is still open, before the claim is filed. Example figures for illustration only.</div>
-      </div>
-      <div class="board-r">
-        <div class="board-top"><span>Issues found before filing</span><span>Bars are to scale</span></div>
-        <div id="bd-bars"></div>
-      </div>
-    </div>
-
-    <div class="pillband rv">
-      <div class="eyebrow">A few of the checks, running on every claim</div>
-      <div class="pills-marq" aria-hidden="true">
-        <div class="pills-track">
-          <span class="pill"><b>99285</b><em>ED visit · high complexity</em><i>verified</i></span>
-          <span class="pill"><b>NCCI</b><em>bundling conflict</em><i>0 found</i></span>
-          <span class="pill"><b>Modifier 25</b><em>separate E/M</em><i>review</i></span>
-          <span class="pill"><b>99213</b><em>Office visit · established</em><i>verified</i></span>
-          <span class="pill"><b>99291</b><em>Critical care · 30 min threshold</em><i>document</i></span>
-          <span class="pill"><b>R07.9</b><em>Chest pain, unspecified</em><i>94%</i></span>
-          <span class="pill"><b>Timely filing</b><em>payer deadline</em><i>on track</i></span>
-          <span class="pill"><b>99285</b><em>ED visit · high complexity</em><i>verified</i></span>
-          <span class="pill"><b>NCCI</b><em>bundling conflict</em><i>0 found</i></span>
-          <span class="pill"><b>Modifier 25</b><em>separate E/M</em><i>review</i></span>
-          <span class="pill"><b>99213</b><em>Office visit · established</em><i>verified</i></span>
-          <span class="pill"><b>99291</b><em>Critical care · 30 min threshold</em><i>document</i></span>
-          <span class="pill"><b>R07.9</b><em>Chest pain, unspecified</em><i>94%</i></span>
-          <span class="pill"><b>Timely filing</b><em>payer deadline</em><i>on track</i></span>
-        </div>
-        <div class="pills-track rev">
-          <span class="pill"><b>J20.9</b><em>Acute bronchitis</em><i>92%</i></span>
-          <span class="pill"><b>Prior auth</b><em>status</em><i>checked</i></span>
-          <span class="pill"><b>R06.00</b><em>Dyspnea, unspecified</em><i>91%</i></span>
-          <span class="pill"><b>Medical necessity</b><em>supported by note</em><i>ok</i></span>
-          <span class="pill"><b>CMS-1500</b><em>claim form</em><i>assembled</i></span>
-          <span class="pill"><b>Duration</b><em>provider time</em><i>verified</i></span>
-          <span class="pill"><b>Appeal</b><em>denied claim</em><i>drafted</i></span>
-          <span class="pill"><b>J20.9</b><em>Acute bronchitis</em><i>92%</i></span>
-          <span class="pill"><b>Prior auth</b><em>status</em><i>checked</i></span>
-          <span class="pill"><b>R06.00</b><em>Dyspnea, unspecified</em><i>91%</i></span>
-          <span class="pill"><b>Medical necessity</b><em>supported by note</em><i>ok</i></span>
-          <span class="pill"><b>CMS-1500</b><em>claim form</em><i>assembled</i></span>
-          <span class="pill"><b>Duration</b><em>provider time</em><i>verified</i></span>
-          <span class="pill"><b>Appeal</b><em>denied claim</em><i>drafted</i></span>
-        </div>
-      </div>
-    </div>
+<!-- RESULTS: what pilot clinicians and leaders said (their words only) -->
+<section class="rs" id="voices">
+  <div class="sx-head">
+    <div class="eyebrow">From our pilots</div>
+    <h2>Clinicians are already seeing the difference</h2>
   </div>
-</section>
-
-<!-- ALTHEA AI (dark) -->
-<section class="dark" id="althea">
-  <div class="wrap">
-    <div class="eyebrow rv">Meet Althea</div>
-    <h2 class="display rv" style="margin-top:22px">Ask Althea.<br /><span class="em-dark">It already read the chart.</span></h2>
-    <p class="lede2 rv">Althea is the AI inside Althais. It reads the note, the codes and the claim, and answers in plain language, hands-free, mid-visit, without touching the keyboard. Ask it to code a visit, check a claim, or tell you what is at risk today.</p>
-
-    <div class="scn-tabs rv" role="tablist">
-      <button class="scn-tab on" role="tab" data-scn="0">Chest pain visit</button>
-      <button class="scn-tab" role="tab" data-scn="1">Follow-up visit</button>
-      <button class="scn-tab" role="tab" data-scn="2">Missing documentation</button>
-    </div>
-
-    <div class="scn">
-      <div class="share">
-        <span class="eyebrow">What Althea read</span>
-        <div id="scn-share"></div>
-        <p class="note" id="scn-note"></p>
-      </div>
-      <div class="chat" aria-live="polite">
-        <div class="chat-head">
-          <span class="spark"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
-          <div><b>Althea</b><span>Clinical AI &middot; reading the demo chart</span></div>
-          <i class="dot live"></i>
-        </div>
-        <div class="chat-body" id="chat-body"></div>
-        <div class="chat-foot"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15"/></svg>Voice on &middot; hands-free, mid-visit</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- TESTIMONIALS: what pilot clinicians and leaders said (their words only), a featured quote that rotates plus all three as cards -->
-<section class="block tm" id="voices" data-tm-root>
-  <div class="wrap">
-    <div class="sec-head rv">
-      <div class="eyebrow">From our pilots</div>
-      <h2>In their words.</h2>
-      <p>Clinicians and revenue cycle leaders at practices using Althais, on what it catches and who it’s for.</p>
-    </div>
-
-    <figure class="tm-feature rv">
-      <svg class="tm-mark" width="40" height="32" viewBox="0 0 40 32" aria-hidden="true"><path fill="currentColor" d="M0 32V19.2C0 8.6 5.4 2.2 16.2 0l1.6 4.2C12 6 9.2 9.4 8.8 14.4H16V32H0Zm22 0V19.2C22 8.6 27.4 2.2 38.2 0l1.6 4.2C34 6 31.2 9.4 30.8 14.4H38V32H22Z"/></svg>
-      <blockquote class="tm-fade" id="tm-text">The coding engine caught a bundling error I would have missed, the kind that comes back as a denial two weeks later when you’ve already moved on.</blockquote>
-      <figcaption class="tm-fade" id="tm-cap">
-        <span class="avatar tm-av" id="tm-av">JT</span>
-        <div class="tm-who"><b id="tm-name">Dr. James Tarin</b><span id="tm-role">Tarin Health DPC · Pecos, TX</span></div>
-        <span class="tm-sep" aria-hidden="true"></span>
-        <span class="tm-org" id="tm-org"><img class="tm-logo" src="/static/logos/tarin-health.png" alt="Tarin Health" loading="lazy"></span>
-      </figcaption>
-      <div class="tm-nav">
-        <button type="button" class="tm-arrow" data-tm-step="-1" aria-label="Previous quote"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3M7 4L3 8l4 4"/></svg></button>
-        <div class="tm-progress" aria-hidden="true"><i class="on"><b></b></i><i class=""><b></b></i><i class=""><b></b></i></div>
-        <button type="button" class="tm-arrow" data-tm-step="1" aria-label="Next quote"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
-      </div>
+  <div class="rs-grid">
+    <figure class="rs-card accent">
+      <div class="rs-top"><svg class="rs-q" width="34" height="26" viewBox="0 0 34 26" aria-hidden="true"><path d="M0 26V15C0 6.7 4.4 1.7 13 0l1.6 3.4C9.8 5 7.6 8 7.4 12H14v14zm19 0V15c0-8.3 4.4-13.3 13-15l1.6 3.4C28.8 5 26.6 8 26.4 12H33v14z" fill="currentColor"/></svg><span class="rs-org"><span class="rs-txt">MCH</span></span></div>
+      <blockquote>“NCCI real-time checking is something I’ve been asking vendors to build for years. Most practices don’t find out about bundling conflicts until after the rejection.”</blockquote>
+      <figcaption><span class="rs-av">BC</span><span class="rs-who"><b>Bryan Cox</b><span>Director, Revenue Cycle · MCH, Odessa, TX</span></span></figcaption>
     </figure>
-
-    <div class="tm-cards rv">
-      <article class="card tm-card on" data-tm="0" tabindex="0" role="button" aria-label="Show Dr. James Tarin's quote">
-        <span class="tag">Caught a bundling error</span>
-        <p>“The coding engine caught a bundling error I would have missed, the kind that comes back as a denial two weeks later when you’ve already moved on.”</p>
-        <div class="tm-by"><span class="avatar">JT</span><div><b>Dr. James Tarin</b><span>Tarin Health DPC · Pecos, TX</span></div></div>
-        <a class="tm-try" href="/platform/medical-coding#demo">Try the Coding Check <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
-      </article>
-      <article class="card tm-card" data-tm="1" tabindex="0" role="button" aria-label="Show Bryan Cox's quote">
-        <span class="tag">Real-time NCCI checks</span>
-        <p>“NCCI real-time checking is something I’ve been asking vendors to build for years. Most practices don’t find out about bundling conflicts until after the rejection.”</p>
-        <div class="tm-by"><span class="avatar">BC</span><div><b>Bryan Cox</b><span>Director, Revenue Cycle · MCH Odessa, TX</span></div></div>
-        <a class="tm-try" href="/platform/claims-insurance#demo">Try the Claim Check <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
-      </article>
-      <article class="card tm-card" data-tm="2" tabindex="0" role="button" aria-label="Show Dr. Ashish Gupta, MD MBA's quote">
-        <span class="tag">Built for lean clinics</span>
-        <p>“Small clinics running lean can’t afford a billing department. Althais is built for exactly that setting, and the Althea voice layer is something I haven’t seen anywhere else.”</p>
-        <div class="tm-by"><span class="avatar">AG</span><div><b>Dr. Ashish Gupta, MD MBA</b><span>Deputy CMO · Hamilton Health Box</span></div></div>
-        <a class="tm-try" href="/platform/althea#demo">Try Althea <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
-      </article>
-    </div>
-    <template id="tm-orgs"><div data-org="0"><img class="tm-logo" src="/static/logos/tarin-health.png" alt="Tarin Health" loading="lazy"></div><div data-org="1"><span class="tm-logo tm-org-text">MCH</span></div><div data-org="2"><img class="tm-logo" src="/static/logos/hamilton-healthbox.png" alt="Hamilton HealthBox" loading="lazy"></div></template>
-  </div>
-</section>
-
-<!-- WHAT IT SAVES -->
-<section class="block" id="saves">
-  <div class="wrap">
-    <div class="sec-head rv">
-      <div class="eyebrow">What it saves you</div>
-      <h2>Days of billing rework,<br />down to a review.</h2>
-      <p>By hand, a batch of 100 claims is days of work: writing the notes, choosing the codes, checking for bundling, assembling the forms, chasing denials. Althais does the busywork. What is left is reading what it produced before it goes out.</p>
-    </div>
-    <div class="save rv">
-      <div><div class="eyebrow">By hand &middot; 100 claims</div><div class="n d roll">20 hr</div><p>Two and a half working days, for one batch.</p></div>
-      <div><div class="eyebrow" style="color:var(--accent)">With Althais</div><div class="n g roll">1 hr 30 min</div><p>Dictate, then review each claim before it is filed.</p></div>
-      <div><div class="eyebrow">You get back</div><div class="n roll">18 hr 30 min</div><p>92% of it.</p></div>
-    </div>
-    <div class="cmp rv" id="cmp">
-      <div class="cmp-head"><span style="margin-right:30px">By hand</span><b>Althais</b></div>
-      <div class="cmp-row" data-h="400" data-a="30"><div><b>Writing the note</b><small>Typing the SOAP after the visit is over</small></div><div class="cmp-bars"><div class="b"><i></i></div></div><span class="h">6 hr 40 min</span><span class="a">30 min</span></div>
-      <div class="cmp-row" data-h="300" data-a="15"><div><b>Choosing the codes</b><small>ICD-10 and CPT, modifiers, specificity</small></div><div class="cmp-bars"><div class="b"><i></i></div></div><span class="h">5 hr</span><span class="a">15 min</span></div>
-      <div class="cmp-row" data-h="200" data-a="5"><div><b>Checking for bundling</b><small>Looking things up in the edit tables</small></div><div class="cmp-bars"><div class="b"><i></i></div></div><span class="h">3 hr 20 min</span><span class="a">5 min</span></div>
-      <div class="cmp-row" data-h="150" data-a="10"><div><b>Assembling the claim</b><small>Forms, fields, payer requirements</small></div><div class="cmp-bars"><div class="b"><i></i></div></div><span class="h">2 hr 30 min</span><span class="a">10 min</span></div>
-      <div class="cmp-row" data-h="150" data-a="30"><div><b>Reviewing and chasing denials</b><small>One read before filing, then rework and appeals</small></div><div class="cmp-bars"><div class="b"><i></i></div></div><span class="h">2 hr 30 min</span><span class="a">30 min</span></div>
-    </div>
-    <p class="foot-note rv">Illustrative estimate for a typical 100-claim batch, shown to explain the shape of the savings. Your own numbers will differ.</p>
-  </div>
-</section>
-
-<!-- FITS INTO YOUR PRACTICE: the systems Althais works with -->
-<div class="band band-2">
-  <div class="wrap">
-    <div class="band-top">
-      <span class="eyebrow">Fits into your practice · Works with the systems you already know.</span>
-    </div>
-    <!-- the EHRs Althais works with (static/logos), scrolling the opposite way to Trusted by. The set repeats four times so the
-         loop is seamless on wide screens; add a new logo to every copy. --h evens out each logo's visual weight -->
-    <div class="marq marq-logos rev">
-      <div class="marq-track">
-        <img src="/static/logos/athenahealth.png" alt="athenahealth" style="--h:32px">
-        <img src="/static/logos/epic.png" alt="Epic" style="--h:46px">
-        <img src="/static/logos/nextgen.png" alt="NextGen Healthcare" style="--h:56px">
-        <img src="/static/logos/eclinicalworks.png" alt="eClinicalWorks" style="--h:30px">
-        <img src="/static/logos/athenahealth.png" alt="" data-name="athenahealth" style="--h:32px" aria-hidden="true">
-        <img src="/static/logos/epic.png" alt="" data-name="Epic" style="--h:46px" aria-hidden="true">
-        <img src="/static/logos/nextgen.png" alt="" data-name="NextGen Healthcare" style="--h:56px" aria-hidden="true">
-        <img src="/static/logos/eclinicalworks.png" alt="" data-name="eClinicalWorks" style="--h:30px" aria-hidden="true">
-        <img src="/static/logos/athenahealth.png" alt="" data-name="athenahealth" style="--h:32px" aria-hidden="true">
-        <img src="/static/logos/epic.png" alt="" data-name="Epic" style="--h:46px" aria-hidden="true">
-        <img src="/static/logos/nextgen.png" alt="" data-name="NextGen Healthcare" style="--h:56px" aria-hidden="true">
-        <img src="/static/logos/eclinicalworks.png" alt="" data-name="eClinicalWorks" style="--h:30px" aria-hidden="true">
-        <img src="/static/logos/athenahealth.png" alt="" data-name="athenahealth" style="--h:32px" aria-hidden="true">
-        <img src="/static/logos/epic.png" alt="" data-name="Epic" style="--h:46px" aria-hidden="true">
-        <img src="/static/logos/nextgen.png" alt="" data-name="NextGen Healthcare" style="--h:56px" aria-hidden="true">
-        <img src="/static/logos/eclinicalworks.png" alt="" data-name="eClinicalWorks" style="--h:30px" aria-hidden="true">
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- GETTING STARTED: three setup steps, tabs advance on their own (althais-landing.js) -->
-<section class="block" id="setup">
-  <div class="wrap">
-    <div class="sec-head rv">
-      <div class="eyebrow">EMR and tool integration</div>
-      <h2>Set up Althais<br /><span class="em">in three steps.</span></h2>
-      <p>We handle the setup. You make it your own.</p>
-    </div>
-
-    <div class="su rv" data-setup>
-      <div class="su-tabs" role="tablist" aria-label="Setup steps">
-        <button class="su-tab on" role="tab" aria-selected="true" data-su="0"><span class="su-n">1</span>Connect<i class="su-bar"><b></b></i></button>
-        <button class="su-tab" role="tab" aria-selected="false" data-su="1"><span class="su-n">2</span>Personalize<i class="su-bar"><b></b></i></button>
-        <button class="su-tab" role="tab" aria-selected="false" data-su="2"><span class="su-n">3</span>Go live<i class="su-bar"><b></b></i></button>
-      </div>
-
-      <div class="su-panel card">
-        <div class="su-slide on" data-su="0" role="tabpanel">
-          <div class="su-copy">
-            <span class="su-count">01 / 03</span>
-            <h3>Keep your EHR,<br />or replace it.</h3>
-            <p>Buy only the tools you need and Althais sits on top of the EHR and clearinghouse you already use. Or choose the Full Suite and run your whole practice on Althais, EMR included.</p>
-            <ul class="su-paths">
-              <li><b>Add to your EHR</b><span>Pick any of Scribe, Coding, Claims &amp; Insurance or Team. Pay for what you use.</span></li>
-              <li><b>Full Suite</b><span>Patients, charts, schedule and every tool in one place. Replaces your EMR.</span></li>
-            </ul>
-          </div>
-          <div class="su-stage">
-            <div class="su-win" data-mode="addon">
-              <div class="su-win-head"><span class="su-brand"><svg width="20" height="20" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8"/></svg>Althais</span>
-                <span class="su-switch" role="group" aria-label="How you use Althais">
-                  <button type="button" class="on" data-mode-btn="addon" aria-pressed="true">Add to your EHR</button>
-                  <button type="button" data-mode-btn="suite" aria-pressed="false">Full Suite</button>
-                </span>
-              </div>
-
-              <div class="su-modes">
-              <div class="su-mode on" data-mode-panel="addon">
-                <div class="su-link">
-                  <div class="su-node"><span class="su-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/></svg></span><b>Your EHR</b><small>Stays as it is</small></div>
-                  <div class="su-wire"><i></i><span><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></span></div>
-                  <div class="su-node"><span class="su-ico on"><svg width="26" height="26" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="7" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="7"/></svg></span><b>Althais</b><small>Only what you buy</small></div>
-                </div>
-                <div class="su-pick">
-                  <span class="su-pick-l">Choose your tools</span>
-                  <div class="su-tools">
-                    <span class="su-tool on">✓ Scribe</span><span class="su-tool on">✓ Coding</span><span class="su-tool on">✓ Claims &amp; Insurance</span><span class="su-tool">+ Team</span>
-                  </div>
-                </div>
-                <div class="su-sync"><div class="su-sync-top"><span>Getting everything in sync</span><span class="su-pct" data-pct>0%</span></div><div class="su-meter"><b data-meter></b></div>
-                  <div class="su-sync-items"><span class="ok">✓ Patient records</span><span class="ok">✓ Payer list</span><span class="wait">Provider NPIs</span></div></div>
-              </div>
-
-              <div class="su-mode" data-mode-panel="suite" aria-hidden="true">
-                <div class="su-suite">
-                  <div class="su-old"><span class="su-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/></svg></span><div><b>Your current EMR</b><small>Patients and history move over</small></div><span class="tag n">Replaced</span></div>
-                  <div class="su-down" aria-hidden="true">↓</div>
-                  <div class="su-new"><span class="su-ico on"><svg width="26" height="26" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="7" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="7"/></svg></span><div><b>Althais Full Suite</b><small>Everything in one place</small></div><span class="tag">All tools</span></div>
-                </div>
-                <div class="su-grid">
-                  <span>EMR &amp; charts</span><span>Schedule</span><span>Scribe</span><span>Coding</span><span>Claims &amp; Insurance</span><span>Team</span><span>Analytics</span><span>Althea</span>
-                </div>
-              </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="su-slide" data-su="1" role="tabpanel" aria-hidden="true">
-          <div class="su-copy">
-            <span class="su-count">02 / 03</span>
-            <h3>Make it<br />your own.</h3>
-            <p>Add your providers and staff, set each role's access, and tune coding to your specialty mix. Turn on the tools you want, and leave the rest off.</p>
-          </div>
-          <div class="su-stage">
-            <div class="su-win">
-              <div class="su-win-head"><span class="su-brand"><svg width="20" height="20" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8"/></svg>Althais</span><span class="su-status"><i class="dot"></i>Your clinic settings</span></div>
-              <div class="rows su-rows">
-                <div class="row"><span>Specialty</span><span class="r">Family medicine</span></div>
-                <div class="row"><span>Locations</span><span class="r">2 clinics</span></div>
-                <div class="row"><span>Providers</span><span class="r">4 added</span></div>
-                <div class="row"><span>Staff</span><span class="r">6 invited</span></div>
-                <div class="row"><span>Roles</span><span class="r">Provider · Biller · Front desk</span></div>
-                <div class="row"><span>Coding</span><span class="r">Tuned to your specialty mix</span></div>
-                <div class="row"><span>Tools</span><span class="su-toggles"><span class="tag">Scribe</span><span class="tag">Coding</span><span class="tag">Claims</span><span class="tag n">Team</span></span></div>
-                <div class="row"><span>Althea assistant</span><span class="r g">On</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="su-slide" data-su="2" role="tabpanel" aria-hidden="true">
-          <div class="su-copy">
-            <span class="su-count">03 / 03</span>
-            <h3>Go live,<br />starting with a pilot.</h3>
-            <p>Start with a provider pilot on your own documentation. When your team is confident, roll Althais out to everyone. Most practices are live within 30 to 60 days.</p>
-          </div>
-          <div class="su-stage">
-            <div class="su-win">
-              <div class="su-win-head"><span class="su-brand"><svg width="20" height="20" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8"/></svg>Althais</span><span class="su-status"><i class="dot live"></i>Live</span></div>
-              <div class="rows su-rows">
-                <div class="row"><span>EHR &amp; clearinghouse connected</span><span class="r g">complete</span></div>
-                <div class="row"><span>Payer enrollments</span><span class="r g">complete</span></div>
-                <div class="row"><span>Provider pilot</span><span class="r g">complete</span></div>
-                <div class="row"><span>Team trained</span><span class="r g">complete</span></div>
-                <div class="row"><span>First claims reviewed</span><span class="r g">complete</span></div>
-                <div class="row"><span>Rollout to all providers</span><span class="r a">in progress</span></div>
-                <div class="row"><span>Ongoing support</span><span class="r">included</span></div>
-              </div>
-              <p class="su-foot">Example timeline. Your rollout is planned with you.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- FINAL CTA -->
-<section class="cta">
-  <div class="wrap">
-    <div class="eyebrow">The last step</div>
-    <h2>The claims you file are one encounter away.</h2>
-    <p>Tell it about the visit. Althais codes it, checks it, and hands you a claim to review.</p>
-    <a href="/demo" class="btn btn-pill">Book A Demo
-      <svg class="arr" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-    </a>
+    <figure class="rs-card ">
+      <div class="rs-top"><svg class="rs-q" width="34" height="26" viewBox="0 0 34 26" aria-hidden="true"><path d="M0 26V15C0 6.7 4.4 1.7 13 0l1.6 3.4C9.8 5 7.6 8 7.4 12H14v14zm19 0V15c0-8.3 4.4-13.3 13-15l1.6 3.4C28.8 5 26.6 8 26.4 12H33v14z" fill="currentColor"/></svg><span class="rs-org"><img src="/static/logos/tarin-health.png" alt="Tarin Health" loading="lazy"></span></div>
+      <blockquote>“The coding engine caught a bundling error I would have missed, the kind that comes back as a denial two weeks later when you’ve already moved on.”</blockquote>
+      <figcaption><span class="rs-av">JT</span><span class="rs-who"><b>Dr. James Tarin</b><span>Tarin Health DPC · Pecos, TX</span></span></figcaption>
+    </figure>
+    <figure class="rs-card ">
+      <div class="rs-top"><svg class="rs-q" width="34" height="26" viewBox="0 0 34 26" aria-hidden="true"><path d="M0 26V15C0 6.7 4.4 1.7 13 0l1.6 3.4C9.8 5 7.6 8 7.4 12H14v14zm19 0V15c0-8.3 4.4-13.3 13-15l1.6 3.4C28.8 5 26.6 8 26.4 12H33v14z" fill="currentColor"/></svg><span class="rs-org"><img src="/static/logos/hamilton-healthbox.png" alt="Hamilton Health Box" loading="lazy"></span></div>
+      <blockquote>“Small clinics running lean can’t afford a billing department. Althais is built for exactly that setting, and the Althea voice layer is something I haven’t seen anywhere else.”</blockquote>
+      <figcaption><span class="rs-av">AG</span><span class="rs-who"><b>Dr. Ashish Gupta</b><span>MD MBA, Deputy CMO · Hamilton Health Box</span></span></figcaption>
+    </figure>
   </div>
 </section>
 
 </main>
+<script>
+  // solutions tabs: click to switch, advance on their own every 8 seconds; rotating words under the headings
+  (function () {
+    var root = document.querySelector('.sx'); if (!root) return;
+    var tabs = [].slice.call(root.querySelectorAll('.sx-tab')), panels = [].slice.call(root.querySelectorAll('.sx-panel')), i = 0, t;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function show(n) {
+      i = n; tabs.forEach(function (b, k) { b.classList.toggle('on', k === n); b.setAttribute('aria-selected', k === n ? 'true' : 'false'); var e = b.querySelector('em'); e.style.animation = 'none'; void e.offsetWidth; e.style.animation = ''; });
+      panels.forEach(function (p, k) { p.classList.toggle('on', k === n); if (k === n) p.removeAttribute('aria-hidden'); else p.setAttribute('aria-hidden', 'true'); });
+      clearTimeout(t); if (!reduce) t = setTimeout(function () { show((i + 1) % tabs.length); }, 8000);
+    }
+    tabs.forEach(function (b, k) { b.addEventListener('click', function () { show(k); }); });
+    root.classList.toggle('still', !!reduce); show(0);
+  })();
+  (function () {
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; if (reduce) return;
+    [].forEach.call(document.querySelectorAll('.sx-rot'), function (el) {
+      var w = el.getAttribute('data-words').split('|'), k = 0;
+      setInterval(function () { if (document.hidden) return; el.classList.add('out'); setTimeout(function () { k = (k + 1) % w.length; el.textContent = w[k]; el.classList.remove('out'); }, 300); }, 2800);
+    });
+  })();
+  // who we work with: arrows scroll the cards one at a time
+  (function () {
+    var tr = document.querySelector('.wc-track'); if (!tr) return;
+    var step = function (d) { var c = tr.querySelector('.wc-card'); tr.scrollBy({ left: d * (c.getBoundingClientRect().width + 14), behavior: 'smooth' }); };
+    document.querySelector('.wc-arrow.prev').addEventListener('click', function () { step(-1); });
+    document.querySelector('.wc-arrow.next').addEventListener('click', function () { step(1); });
+  })();
+</script>
 
 {% include "_site_footer.html" %}
 
@@ -572,5 +222,37 @@
 
 
 <script src="/static/althais-landing.js?v={{ asset_v }}"></script>
+<script>
+  // Hero clips: play one at a time, cross-fade to the next when it ends; load each clip only when it's up next.
+  (function () {
+    var hero = document.querySelector('.hero-vid'); if (!hero) return;
+    var clips = [].slice.call(hero.querySelectorAll('.hv-clip')), i = 0, timer;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var load = function (v) { if (!v.src) { v.src = v.dataset.src; v.preload = 'auto'; } };
+    clips.forEach(function (v, n) {
+      v.addEventListener('ended', function () { if (n === i) go((i + 1) % clips.length); });
+    });
+    function go(n) {
+      clearTimeout(timer);
+      var cur = clips[i], next = clips[n]; i = n;
+      load(next); load(clips[(n + 1) % clips.length]);
+      try { next.currentTime = 0; } catch (e) {}
+      var p = next.play(); if (p && p.catch) p.catch(function () {});
+      clips.forEach(function (v) { v.classList.toggle('on', v === next); });
+      if (cur !== next) setTimeout(function () { cur.pause(); }, 1300);
+      timer = setTimeout(function () { go((i + 1) % clips.length); }, 11000);   // in case a clip never fires "ended"
+    }
+    // the header sits on the video until you scroll past it
+    // three header states: transparent at the very top, dark frosted glass while scrolling over the video, white after it
+    var onScroll = function () {
+      document.body.classList.toggle('vhero-scroll', window.scrollY > 4);
+      document.body.classList.toggle('vhero-past', window.scrollY > hero.offsetHeight - 77);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+    if (reduce) return;
+    load(clips[0]); go(0);
+    document.addEventListener('visibilitychange', function () { var v = clips[i]; if (document.hidden) v.pause(); else { var p = v.play(); if (p && p.catch) p.catch(function () {}); } });
+  })();
+</script>
 </body>
 </html>

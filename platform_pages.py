@@ -205,8 +205,14 @@ PAGES = {
 }
 
 
+import product_pages_rc as _rc
+
+
 def _view(slug):
     async def view(request: Request, user=Depends(current_user)):
+        if slug in _rc.PRODUCTS:   # the product pages, in the landing page's look
+            return _templates.TemplateResponse(request, "product_rc.html", {"user": user, "p": _rc.PRODUCTS[slug], "here": f"/platform/{slug}",
+                                                                            "nav": NAV, "steps": _rc.STEPS, "quotes": _rc.QUOTES, "slug": slug})
         return render(request, user, PAGES[slug], f"/platform/{slug}", "Platform", NAV,
                       ctas=[("Try the demo", "#demo"), ("See the details", "#specs")])
     view.__name__ = "platform_" + slug.replace("-", "_")

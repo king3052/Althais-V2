@@ -228,15 +228,13 @@ async def reset_password_page():
 
 
 @app.get("/demo")
-async def demo_page():
-    with open("templates/demo.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+async def demo_page(request: Request):
+    return templates.TemplateResponse(request, "demo.html", {})
 
 
 @app.get("/pilot")
-async def pilot_page():
-    with open("templates/pilot.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+async def pilot_page(request: Request):
+    return templates.TemplateResponse(request, "pilot.html", {})
 
 
 # ── Admin pages ──────────────────────────────────────────────────────────────
@@ -443,8 +441,7 @@ async def login(request: Request, user=Depends(current_user)):
     if user:
         return RedirectResponse(url=_home_for_user(user), status_code=302)
     # The "Forgot password?" link and the sign-in / create-account toggle live in the template itself.
-    with open("templates/login.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return templates.TemplateResponse(request, "login.html", {})
 
 
 def _user_products(user) -> set:
