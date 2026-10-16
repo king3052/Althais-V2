@@ -23,7 +23,7 @@ SECTIONS = {
                   ("Revenue Cycle Teams", "/solutions/revenue-cycle-teams"), ("All Solutions", "/solutions")],
     "Resources": [("Resources", "/resources"), ("Case Studies", "/case-studies"), ("Walkthrough", "/walkthrough"),
                   ("ROI Calculator", "/roi-calculator"), ("FAQs", "/faq")],
-    "Company": [("Our Story", "/about"), ("Careers", "/careers"), ("Contact Us", "/contact"), ("Book A Demo", "/demo"), ("Join Us", "/pilot")],
+    "Company": [("Our Story", "/about"), ("Careers", "/careers"), ("Contact Us", "/contact"), ("Book A Demo", "/demo"), ("Join Althais", "/pilot")],
 }
 
 
