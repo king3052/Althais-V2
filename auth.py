@@ -2339,10 +2339,10 @@ def request_pilot(
     # 3. Confirm to the requester
     send_email(
         email,
-        "We received your Althais pilot request",
+        "We received your request to join Althais",
         _email_html(
             "Thanks for your interest in Althais",
-            f"Hi {n}, we received your request to join the Althais pilot for <strong>{pr}</strong>. Someone from our team will reach out within 1 business day.",
+            f"Hi {n}, we received your request to join Althais for <strong>{pr}</strong>. Someone from our team will reach out within 1 business day.",
             "https://althais.com",
             "Visit Althais",
         ),
