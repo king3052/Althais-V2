@@ -90,3 +90,11 @@ body.rcx .lg-title { font-size: 38px; }
   body.rcx .form-card .form-title { margin-bottom: 14px; }
   body.rcx .form-actions { margin-top: 16px; }
 }
+
+/* sign-out page */
+body.rcx .lg-actions .lg-submit { width: 100%; justify-content: center; }
+body.rcx .lo-home { display: block; margin-top: 14px; text-align: center; font-size: 14.5px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+body.rcx #lo-count { margin-top: 26px; }
+body.rcx .lo-bar { height: 3px; background: #ececec; border-radius: 0; overflow: hidden; }
+body.rcx .lo-bar i { display: block; height: 100%; width: 100%; background: var(--accent); }
+body.rcx .lo-note { margin-top: 10px; text-align: center; }

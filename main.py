@@ -299,21 +299,17 @@ async def admin_report(kind: str, request: Request):
 
 
 @app.post("/logout")
-async def logout():
+async def logout(request: Request):
     """Clear the session cookie and serve the signed-out page."""
-    with open("templates/logout.html", "r", encoding="utf-8") as f:
-        content = f.read()
-    resp = HTMLResponse(content=content)
+    resp = templates.TemplateResponse(request, "logout.html", {})
     resp.delete_cookie(COOKIE_NAME, path="/")
     return resp
 
 
 @app.get("/logout")
-async def logout_get():
+async def logout_get(request: Request):
     """Handle direct GET visits to /logout (e.g. typing the URL)."""
-    with open("templates/logout.html", "r", encoding="utf-8") as f:
-        content = f.read()
-    resp = HTMLResponse(content=content)
+    resp = templates.TemplateResponse(request, "logout.html", {})
     resp.delete_cookie(COOKIE_NAME, path="/")
     return resp
 

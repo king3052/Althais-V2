@@ -19,18 +19,15 @@
   <link rel="stylesheet" href="/static/althais-landing.css" />
   <link rel="stylesheet" href="/static/althais-auth.css" />
   <link rel="stylesheet" href="/static/althais-dark.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=Inter:wght@600&display=swap" />
+  <link rel="stylesheet" href="/static/auth-rc.css" />
 </head>
-<body class="login-page">
+<body class="login-page rcl rcx">
+{% set nav_style = "rc" %}{% include "_site_nav.html" %}
 
 <div class="lg-shell">
   <section class="lg-left">
-    <header class="lg-top">
-      <a href="/" class="logo" aria-label="Althais home"><svg width="24" height="24" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="8" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="25" fill="none"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="8" stroke-linecap="butt"/></svg><span>Althais</span></a>
-      <a href="/" class="btn btn-ghost">
-        <svg class="arr" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3M7 4L3 8l4 4"/></svg>
-        Return To Home
-      </a>
-    </header>
+
 
     <main class="lg-main">
       <div class="lg-form">
@@ -43,6 +40,8 @@
         <div class="lg-actions">
           <a href="/login" class="btn btn-dark btn-lg lg-submit">Sign In Again <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
         </div>
+
+        <a href="/" class="lo-home">Return to the home page</a>
 
         <div id="lo-count">
           <div class="lo-bar" aria-hidden="true"><i id="lo-bar"></i></div>
