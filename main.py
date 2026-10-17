@@ -90,6 +90,8 @@ import more_pages
 app.include_router(more_pages.router)
 import demo_api
 app.include_router(demo_api.router)
+import emr_connect   # connect-your-EMR: upload now, live connectors later (emr_connect.py)
+app.include_router(emr_connect.router)
 
 
 # ── Staff Portal lockdown ─────────────────────────────────────────────────────
