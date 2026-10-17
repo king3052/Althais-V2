@@ -113,12 +113,16 @@
       try {
         const { emrs } = await api('/api/integrations/emrs');
         $('emr-cards').innerHTML = emrs.map(e =>
-          '<button type="button" data-emr="' + esc(e.key) + '" class="emr text-left border border-line rounded-sm px-3 py-2.5 bg-white hover:bg-shell">' +
+          '<div><button type="button" data-emr="' + esc(e.key) + '" class="emr w-full text-left border border-line rounded-sm px-3 py-2.5 bg-white hover:bg-shell">' +
           '<div class="flex items-center justify-between"><span class="text-[13px] font-semibold text-ink-900">' + esc(e.label) + '</span>' +
-          '<span class="pill" style="background:' + (e.live ? '#d8f5e3;color:#0c8a4f' : '#eceef2;color:#4a505c') + '">' + (e.live ? 'Live' : 'Upload') + '</span></div>' +
+          '<span class="pill" style="background:' + (e.live ? '#d8f5e3;color:#0c8a4f' : '#eceef2;color:#4a505c') + '">' + (e.live ? 'Connected' : 'Upload') + '</span></div>' +
           '<div class="text-[11px] text-ink-500 mt-0.5">' + esc(e.segment) + '</div>' +
-          '<div class="text-[11px] text-ink-600 mt-1.5">Live connection: ' + esc(e.live_state) + '</div></button>').join('');
-        document.querySelectorAll('.emr').forEach(b => b.addEventListener('click', () => pick(b.dataset.emr)));
+          '<div class="text-[11px] text-ink-600 mt-1.5">Live connection: ' + esc(e.live_state) + '</div></button>' +
+          (e.actions && e.actions.length ? '<div class="flex gap-1.5 flex-wrap mt-1.5">' + e.actions.map(a => a.kind === 'link'
+            ? '<a href="' + esc(a.url) + '" class="text-[12px] px-2.5 py-1 rounded-sm bg-med-600 text-white hover:bg-med-700">' + esc(a.label) + '</a>'
+            : '<button type="button" data-act="' + esc(a.kind) + '" data-emr="' + esc(e.key) + '" data-days="' + (a.days || '') + '" class="act text-[12px] px-2.5 py-1 rounded-sm border border-line bg-white text-ink-700 hover:bg-shell">' + esc(a.label) + '</button>').join('') + '</div>' : '') + '</div>').join('');
+        document.querySelectorAll('button.emr').forEach(b => b.addEventListener('click', () => pick(b.dataset.emr)));
+        document.querySelectorAll('button.act').forEach(b => b.addEventListener('click', () => act(b.dataset.emr, b.dataset.act, +b.dataset.days || 30)));
         pick(EMR);
       } catch (e) { say(e.message, true); }
     }
@@ -153,7 +157,7 @@
       $('results').style.display = '';
       $('sum').innerHTML = [['Claims', s.total, '#eceef2', '#4a505c'], ['Clean', s.clean, '#d8f5e3', '#0c8a4f'], ['Review', s.review, '#fff0d6', '#b86a00'], ['Fix first', s.fix, '#ffe1e1', '#c83838'], ['Charges at risk', money(s.at_risk), '#eceef2', '#1a1d24']]
         .map(x => '<span class="pill" style="background:' + x[2] + ';color:' + x[3] + ';font-size:12px;padding:3px 9px">' + x[0] + ' · ' + x[1] + '</span>').join('');
-      $('unmapped').textContent = p.unmapped_columns.length ? ('Columns not used: ' + p.unmapped_columns.join(', ')) : '';
+      $('unmapped').textContent = (p.notes && p.notes.length ? p.notes.join(' ') + ' ' : '') + (p.unmapped_columns.length ? ('Columns not used: ' + p.unmapped_columns.join(', ')) : '');
       $('rows').innerHTML = p.claims.map(c => {
         const v = VERDICT[c.verdict];
         const fl = c.flags.filter(f => f.severity !== 'info');
@@ -174,6 +178,18 @@
       try { render(await api('/api/integrations/import/preview', { method: 'POST', body: fd })); say(''); }
       catch (e) { say(e.message, true); }
     }
+    async function act(emr, kind, days) {
+      try {
+        if (kind === 'sync') {
+          say('Pulling the last ' + days + ' days from DrChrono. This can take a minute…'); EMR = emr;
+          render(await api('/api/integrations/' + emr + '/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: days }) }));
+          say('Review the preview below. DrChrono field names haven\'t been tested on a real account yet, so compare a few claims with DrChrono before saving.'); loadEmrs();
+        } else if (kind === 'disconnect') {
+          await api('/api/integrations/' + emr + '/disconnect', { method: 'POST' }); say('Disconnected.'); loadEmrs();
+        }
+      } catch (e) { say(e.message, true); }
+    }
+    (function () { const q = new URLSearchParams(location.search).get('drchrono'); if (q === 'connected') say('DrChrono connected. Pull recent claims from its card above.'); else if (q === 'failed') say('DrChrono connection failed. Try again, or check the app credentials and redirect address.', true); })();
     $('file').addEventListener('change', e => { upload(e.target.files[0]); e.target.value = ''; });
     ['dragover', 'drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop') upload(e.dataTransfer.files[0]); }));
 

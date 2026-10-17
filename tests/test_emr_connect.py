@@ -149,3 +149,82 @@ def test_page_and_emr_list(client):
     assert client.get("/api/integrations/emrs").json()["emrs"][0]["live"] is False
     r = client.get("/revenue/connect")
     assert r.status_code == 200 and "Connect your EMR" in r.text
+
+
+# ---- DrChrono: OAuth plumbing and the record reader, with DrChrono itself faked ----
+def test_drchrono_reader_tolerates_field_names():
+    import drchrono as dc
+    appt = {"id": 77, "scheduled_time": "2026-10-10T09:30:00", "status": "Complete", "icd10_codes": ["R07.9", {"code": "R06.00"}]}
+    items = [{"code": "99284", "price": "400.00", "quantity": 1, "modifier1": "25"}, {"code": "93005", "price": "50", "quantity": 1}]
+    pat = {"id": 5, "first_name": "Jane", "last_name": "Doe", "date_of_birth": "1980-01-31", "chart_id": "MRN5", "primary_insurance": {"insurance_company": "Aetna"}}
+    c = dc.to_canonical(appt, items, pat, {"first_name": "Ann", "last_name": "Smith"})
+    assert c["claim_id"] == "DC-77" and c["patient_name"] == "Jane Doe" and c["dos"] == "2026-10-10" and c["payer"] == "Aetna"
+    assert c["cpt"] == ["99284", "93005"] and c["icd"] == ["R07.9", "R06.00"] and c["modifiers"] == ["25"] and c["amount"] == 450 and c["provider"] == "Ann Smith"
+    assert ec.verdict_for(ec.claim_check(c, today=TODAY)) == "clean"
+
+
+def test_drchrono_off_until_configured(client, monkeypatch):
+    monkeypatch.delenv("DRCHRONO_CLIENT_ID", raising=False)
+    cards = {e["key"]: e for e in client.get("/api/integrations/emrs").json()["emrs"]}
+    assert cards["drchrono"]["live"] is False and "aren't set" in cards["drchrono"]["live_state"] and cards["drchrono"]["actions"] == []
+    assert client.get("/api/integrations/drchrono/connect", follow_redirects=False).status_code == 400
+
+
+def test_drchrono_connect_callback_sync_disconnect(client, monkeypatch):
+    import drchrono as dc
+    monkeypatch.setenv("DRCHRONO_CLIENT_ID", "cid"); monkeypatch.setenv("DRCHRONO_CLIENT_SECRET", "sec")
+    r = client.get("/api/integrations/drchrono/connect", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"].startswith("https://app.drchrono.com/o/authorize/") and "client_id=cid" in r.headers["location"]
+    state = client.cookies.get("drc_state")
+    assert state and f"state={state}" in r.headers["location"]
+
+    class Resp:
+        def __init__(self, code, body): self.status_code, self._b = code, body
+        def json(self): return self._b
+
+    posted = {}
+    def fake_post(url, data=None, **kw):
+        posted.update(data); return Resp(200, {"access_token": "AT", "refresh_token": "RT", "expires_in": 172800})
+    monkeypatch.setattr(dc.requests, "post", fake_post)
+    bad = client.get("/api/integrations/drchrono/callback?code=abc&state=wrong", follow_redirects=False)
+    assert "failed" in bad.headers["location"] and not posted                       # a wrong state never reaches DrChrono
+    ok = client.get(f"/api/integrations/drchrono/callback?code=abc&state={state}", follow_redirects=False)
+    assert "connected" in ok.headers["location"] and posted["grant_type"] == "authorization_code" and posted["code"] == "abc"
+    cards = {e["key"]: e for e in client.get("/api/integrations/emrs").json()["emrs"]}
+    assert cards["drchrono"]["live"] is True and {a["kind"] for a in cards["drchrono"]["actions"]} == {"sync", "disconnect"}
+
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    def fake_get(url, params=None, headers=None, **kw):
+        assert headers["Authorization"] == "Bearer AT"
+        if url.endswith("/appointments"):
+            return Resp(200, {"results": [{"id": 1, "patient": 5, "doctor": 9, "status": "Complete", "scheduled_time": today + "T09:00:00", "icd10_codes": ["R07.9"]}], "next": None})
+        if url.endswith("/line_items"):
+            return Resp(200, {"results": [{"code": "99284", "price": "400", "quantity": 1}], "next": None})
+        if "/patients/" in url:
+            return Resp(200, {"id": 5, "first_name": "Jane", "last_name": "Doe", "chart_id": "M5", "primary_insurance": {"insurance_company": "Aetna"}})
+        if "/doctors/" in url:
+            return Resp(200, {"first_name": "Ann", "last_name": "Smith"})
+        return Resp(404, {})
+    monkeypatch.setattr(dc.requests, "get", fake_get)
+    s = client.post("/api/integrations/drchrono/sync", json={"days": 7})
+    assert s.status_code == 200, s.text
+    j = s.json()
+    assert j["summary"]["total"] == 1 and j["claims"][0]["claim_id"] == "DC-1" and j["claims"][0]["verdict"] == "clean"
+    # a sync only previews: nothing is in the worklist until the person saves it
+    assert client.get("/api/integrations/worklist").json()["claims"] == [] or all(c["id"] != "DC-1" for c in client.get("/api/integrations/worklist").json()["claims"])
+    client.post("/api/integrations/import/commit", json={"emr": "drchrono", "claims": j["claims"]})
+    assert any(c["id"] == "DC-1" for c in client.get("/api/integrations/worklist").json()["claims"])
+    assert client.post("/api/integrations/drchrono/disconnect").json()["ok"]
+    assert client.get("/api/integrations/emrs").json()["emrs"][1]["live"] is False
+
+
+def test_landing_page_renders_with_honest_claims(client):
+    import auth, main
+    main.app.dependency_overrides.pop(auth.current_user, None)      # logged out: the landing page, not the app
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Keep your EMR" in html and "Works with exports from" in html and "no endorsement or partnership is implied" in html
+    low = html.lower()
+    assert "hipaa compliant" not in low and "hipaa-compliant" not in low          # nothing here claims a compliance status
+    assert "integrates with" not in low and "seamless integration" not in low        # nothing claims a live integration that doesn't exist

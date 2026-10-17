@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Althais | Revenue · Payment files</title>
+  <script>var __ALTHAIS_USER__ = {{ user_json|safe }};</script>
+</head>
+<body class="bg-shell">
+  {% include "_nav.html" %}
+
+  <div class="max-w-[1560px] mx-auto">
+    <main class="min-w-0">
+
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-line bg-panel flex-wrap gap-2">
+        <div>
+          <h1 class="text-[15px] font-semibold text-ink-900">Payment files</h1>
+          <p class="text-[11.5px] text-ink-500 mt-0.5">Upload the 835 payment file from your payer or clearinghouse. Althais marks claims paid or denied, shows why, and drafts appeals.</p>
+        </div>
+        <a href="/revenue/connect" class="text-[12px] px-2.5 py-1 rounded-sm border border-line bg-white text-ink-700 hover:bg-shell">Back to Connect EMR</a>
+      </div>
+
+      <!-- Numbers from every payment file saved so far -->
+      <div class="bg-panel border-b border-line">
+        <div class="flex flex-wrap">
+          <div class="kpi"><div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold">Payments read</div><div id="k-pay" class="text-[20px] font-semibold text-ink-900 num mt-0.5">0</div><div id="k-paid" class="text-[10.5px] text-ink-400 mt-0.5">$0 paid</div></div>
+          <div class="kpi"><div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold">Denial rate</div><div id="k-rate" class="text-[20px] font-semibold text-ink-900 num mt-0.5">0%</div><div id="k-den" class="text-[10.5px] text-ink-400 mt-0.5">0 denied</div></div>
+          <div class="kpi"><div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold">Denied dollars</div><div id="k-amt" class="text-[20px] font-semibold text-ink-900 num mt-0.5">$0</div><div class="text-[10.5px] text-ink-400 mt-0.5">adjusted off, excluding normal write-offs</div></div>
+          <div class="kpi"><div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold">Short-paid</div><div id="k-short" class="text-[20px] font-semibold text-ink-900 num mt-0.5">0</div><div class="text-[10.5px] text-ink-400 mt-0.5">paid, with a non-routine cut</div></div>
+        </div>
+      </div>
+
+      <section class="bg-panel border-b border-line px-4 py-4">
+        <div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold mb-2">1 · Upload a payment file</div>
+        <label id="drop" class="block border border-dashed border-line rounded-sm px-4 py-8 text-center cursor-pointer hover:bg-shell">
+          <input id="file" type="file" accept=".835,.edi,.txt,.x12,.era" class="hidden" />
+          <div class="text-[13px] font-semibold text-ink-900">Drop an 835 file here, or click to choose</div>
+          <div class="text-[11.5px] text-ink-500 mt-1">The standard X12 835 (also called an ERA), up to 5 MB. Nothing is saved until you press Save.</div>
+        </label>
+        <div id="msg" class="text-[12px] mt-2" role="status"></div>
+      </section>
+
+      <section id="results" class="bg-panel border-b border-line px-4 py-4" style="display:none">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div id="file-title" class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold">2 · What the file says</div>
+          <button id="save" type="button" class="text-[12px] px-2.5 py-1 rounded-sm bg-med-600 text-white hover:bg-med-700">Save and update claims</button>
+        </div>
+        <div id="sum" class="flex flex-wrap gap-2 mb-3"></div>
+        <div class="overflow-x-auto thin-scroll">
+          <table class="w-full text-left border-collapse">
+            <thead><tr class="border-b border-line text-[10.5px] uppercase tracking-wider text-ink-500">
+              <th class="td font-semibold">Result</th><th class="td font-semibold">Claim</th><th class="td font-semibold">Patient</th><th class="td font-semibold">Service</th>
+              <th class="td font-semibold text-right">Billed</th><th class="td font-semibold text-right">Paid</th><th class="td font-semibold">Why, and what to do</th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bg-panel border-b border-line px-4 py-4">
+        <div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold mb-2">Why claims are denied</div>
+        <div class="overflow-x-auto thin-scroll">
+          <table class="w-full text-left border-collapse">
+            <thead><tr class="border-b border-line text-[10.5px] uppercase tracking-wider text-ink-500"><th class="td font-semibold">Code</th><th class="td font-semibold">Reason</th><th class="td font-semibold text-right">Claims</th><th class="td font-semibold text-right">Dollars</th><th class="td font-semibold">What to do</th></tr></thead>
+            <tbody id="reasons"><tr><td class="td text-ink-500" colspan="5">No payment files saved yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bg-panel border-b border-line px-4 py-4">
+        <div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold mb-2">By payer</div>
+        <div class="overflow-x-auto thin-scroll">
+          <table class="w-full text-left border-collapse">
+            <thead><tr class="border-b border-line text-[10.5px] uppercase tracking-wider text-ink-500"><th class="td font-semibold">Payer</th><th class="td font-semibold text-right">Claims</th><th class="td font-semibold text-right">Denied</th><th class="td font-semibold text-right">Denial rate</th><th class="td font-semibold text-right">Denied dollars</th><th class="td font-semibold text-right">Paid</th></tr></thead>
+            <tbody id="payers"><tr><td class="td text-ink-500" colspan="6">No payment files saved yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bg-panel border-b border-line px-4 py-4">
+        <div class="text-[10.5px] uppercase tracking-wider text-ink-500 font-semibold mb-2">Open denials and appeal drafts</div>
+        <div id="denials" class="grid gap-2"><div class="text-[12px] text-ink-500">No open denials.</div></div>
+        <p class="text-[11.5px] text-ink-500 mt-3">Appeal letters are drafts with a blank for the clinical argument. A person must write that part, and check the payer's own appeal deadline: the 60 days shown in Althais is a cautious default, not the payer's rule.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+    const money = (n) => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    const money2 = (n) => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const STAGE = { paid: ['#d8f5e3', '#0c8a4f', 'Paid'], denied: ['#ffe1e1', '#c83838', 'Denied'], other: ['#eceef2', '#4a505c', 'Other'] };
+    let FILE = null;
+
+    async function api(url, opts) {
+      const r = await fetch(url, Object.assign({ credentials: 'same-origin' }, opts || {}));
+      let j = {}; try { j = await r.json(); } catch (e) {}
+      if (!r.ok) throw new Error(j.error || j.detail || ('Request failed (' + r.status + ')'));
+      return j;
+    }
+    const say = (t, bad) => { const m = $('msg'); m.textContent = t || ''; m.style.color = bad ? '#c83838' : '#4a505c'; };
+
+    function render(p) {
+      const s = p.summary; $('results').style.display = '';
+      $('file-title').textContent = '2 · What the file says' + (p.payer ? ' · ' + p.payer : '') + (p.check_no ? ' · check/trace ' + p.check_no : '');
+      $('sum').innerHTML = [['Payments', s.payments, '#eceef2', '#4a505c'], ['Paid', s.paid, '#d8f5e3', '#0c8a4f'], ['Denied', s.denied, '#ffe1e1', '#c83838'],
+        ['Matched to your claims', s.matched, '#dbeafe', '#1d4ed8'], ['Not found in Althais', s.unmatched, '#fff0d6', '#b86a00'], ['Already saved', s.duplicates, '#eceef2', '#4a505c'], ['Paid total', money(s.paid_total), '#eceef2', '#1a1d24']]
+        .map(x => '<span class="pill" style="background:' + x[2] + ';color:' + x[3] + ';font-size:12px;padding:3px 9px">' + x[0] + ' · ' + x[1] + '</span>').join('');
+      $('rows').innerHTML = p.payments.map(c => {
+        const st = STAGE[c.stage] || STAGE.other;
+        const why = c.stage === 'denied' || c.short_paid.length ? '<div class="font-semibold">' + esc(c.carc) + ' · ' + esc(c.reason) + '</div><div class="text-ink-600">' + esc(c.next) + '</div>' : c.reversal ? 'Reversal of an earlier payment. Check this one by hand.' : '<span class="text-ink-400">Paid' + (c.patient_resp ? ', patient owes ' + money2(c.patient_resp) : '') + '</span>';
+        const tags = (c.matched ? '' : '<div style="color:#b86a00">Not found in Althais</div>') + (c.duplicate ? '<div class="text-ink-500">Already saved</div>' : '') + (c.short_paid.length ? '<div style="color:#b86a00">Short-paid: ' + esc(c.short_paid.join(', ')) + '</div>' : '');
+        return '<tr class="border-b border-line align-top"><td class="td"><span class="pill" style="background:' + st[0] + ';color:' + st[1] + '">' + st[2] + '</span></td><td class="td num">' + esc(c.claim_id) + '</td><td class="td">' + esc(c.patient) + '</td><td class="td num">' + esc(c.dos || '—') + '</td>' +
+          '<td class="td text-right num">' + money2(c.charge) + '</td><td class="td text-right num">' + money2(c.paid) + '</td><td class="td">' + why + tags + '</td></tr>';
+      }).join('');
+      $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function loadAnalytics() {
+      try {
+        const a = await api('/api/remit/analytics');
+        $('k-pay').textContent = a.payments; $('k-paid').textContent = money(a.paid_total) + ' paid';
+        $('k-rate').textContent = a.denial_rate + '%'; $('k-den').textContent = a.denied + ' denied';
+        $('k-amt').textContent = money(a.denied_amount); $('k-short').textContent = a.short_paid;
+        if (a.reasons.length) $('reasons').innerHTML = a.reasons.map(r => '<tr class="border-b border-line align-top"><td class="td num font-semibold">' + esc(r.carc) + '</td><td class="td">' + esc(r.reason) + '</td><td class="td text-right num">' + r.count + '</td><td class="td text-right num">' + money(r.amount) + '</td><td class="td text-ink-600">' + esc(r.next) + '</td></tr>').join('');
+        if (a.payers.length) $('payers').innerHTML = a.payers.map(p => '<tr class="border-b border-line"><td class="td">' + esc(p.payer) + '</td><td class="td text-right num">' + p.claims + '</td><td class="td text-right num">' + p.denied + '</td><td class="td text-right num">' + p.denial_rate + '%</td><td class="td text-right num">' + money(p.denied_amount) + '</td><td class="td text-right num">' + money(p.paid) + '</td></tr>').join('');
+        $('denials').innerHTML = a.open_denials.length ? a.open_denials.map((d, i) =>
+          '<div class="border border-line rounded-sm bg-white"><div class="flex items-center justify-between px-3 py-2 flex-wrap gap-2"><div class="text-[12.5px]"><span class="font-semibold">' + esc(d.id) + '</span> · ' + esc(d.patient) + ' · ' + esc(d.payer) + ' · ' + money(d.amount) + ' · <span style="color:#c83838">' + esc(d.carc) + '</span></div>' +
+          (d.letter ? '<button type="button" data-i="' + i + '" class="copy text-[12px] px-2.5 py-1 rounded-sm border border-line bg-white text-ink-700 hover:bg-shell">Copy draft letter</button>' : '<span class="text-[11.5px] text-ink-500">No appeal draft: see "what to do" above</span>') + '</div>' +
+          (d.letter ? '<pre class="px-3 pb-3 text-[11.5px] text-ink-700 whitespace-pre-wrap" style="font-family:inherit">' + esc(d.letter) + '</pre>' : '') + '</div>').join('') : '<div class="text-[12px] text-ink-500">No open denials.</div>';
+        document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', () => { navigator.clipboard.writeText(a.open_denials[b.dataset.i].letter).then(() => { b.textContent = 'Copied'; }); }));
+      } catch (e) {}
+    }
+
+    async function upload(f) {
+      if (!f) return; FILE = f; say('Reading ' + f.name + '…');
+      const fd = new FormData(); fd.append('file', f);
+      try { render(await api('/api/remit/preview', { method: 'POST', body: fd })); say(''); } catch (e) { FILE = null; say(e.message, true); }
+    }
+    $('file').addEventListener('change', e => { upload(e.target.files[0]); e.target.value = ''; });
+    ['dragover', 'drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop') upload(e.dataTransfer.files[0]); }));
+    $('save').addEventListener('click', async () => {
+      if (!FILE) return; say('Saving…');
+      const fd = new FormData(); fd.append('file', FILE);
+      try { const r = await api('/api/remit/commit', { method: 'POST', body: fd }); const s = r.summary;
+        const drafts = r.payments.filter(x => x.letter).length;
+        say('Saved ' + (s.payments - s.duplicates) + ' payments. ' + s.matched + ' matched claims in Althais and were marked paid or denied' + (s.unmatched ? '; ' + s.unmatched + ' weren\'t found in Althais' : '') + (drafts ? '; ' + drafts + ' appeal draft' + (drafts === 1 ? '' : 's') + ' ready below' : '') + '.');
+        $('results').style.display = 'none'; FILE = null; loadAnalytics();
+      } catch (e) { say(e.message, true); }
+    });
+    loadAnalytics();
+  </script>
+</body>
+</html>

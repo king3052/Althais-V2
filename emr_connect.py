@@ -67,6 +67,10 @@ class EmrConnector:
     def configured(self) -> bool:
         return all(os.environ.get(v) for v in self.env_needed)
 
+    def status(self, db, org_key: str) -> dict:
+        """{"state": unavailable|ready|connected, "text": ..., "actions": [...]} for this clinic. Subclasses override."""
+        return {"state": "unavailable", "text": "Live connection isn't built yet.", "actions": []}
+
     def fetch_claims(self, account: dict, since: str):
         """Return a list of raw records from the EMR for this clinic. Implemented per vendor, against its documentation."""
         raise NotSupported(f"{self.label}: live claim pull isn't built yet.")
@@ -110,13 +114,14 @@ EMRS = {
 }
 
 
-def emr_cards():
+def emr_cards(db=None, org=None):
     out = []
     for key, e in EMRS.items():
         live = e["live"]
-        connected = bool(live and live().configured())
-        out.append({"key": key, "label": e["label"], "segment": e["segment"], "access": e["access"],
-                    "upload": True, "live": connected, "live_state": "Connected" if connected else e["live_state"]})
+        st = live().status(db, org) if (live and db is not None) else None
+        connected = bool(st and st["state"] == "connected")
+        out.append({"key": key, "label": e["label"], "segment": e["segment"], "access": e["access"], "upload": True, "live": connected,
+                    "live_state": st["text"] if st else e["live_state"], "actions": st["actions"] if st else []})
     return out
 
 
@@ -422,7 +427,7 @@ def _public(c):
 @router.get("/api/integrations/emrs")
 def api_emrs(user=Depends(require_user), db: Session = Depends(get_db)):
     _gate(user, db)
-    return {"emrs": emr_cards()}
+    return {"emrs": emr_cards(db, _org_namespace(user))}
 
 
 @router.get("/api/integrations/template.csv")
@@ -494,13 +499,16 @@ async def api_commit(request: Request, user=Depends(require_biller), db: Session
             updated += 1
             row.patient_name, row.mrn, row.payer = c["patient_name"], c["mrn"], c["payer"]
             row.codes, row.amount, row.score, row.flags = json.dumps(codes), c["amount"], c["score"], json.dumps(flags)
+            row.dos, row.provider = c["dos"], c["provider"]
+            if not row.source:
+                row.source = "import"
             if not keep_status:
                 row.status = STATUS_FOR[c["verdict"]]
         else:
             made += 1
             db.add(OrgClaim(org_key=org, claim_id=cid, patient_name=c["patient_name"], mrn=c["mrn"], payer=c["payer"],
                             codes=json.dumps(codes), note=note, amount=c["amount"], status=STATUS_FOR[c["verdict"]],
-                            score=c["score"], flags=json.dumps(flags)))
+                            score=c["score"], flags=json.dumps(flags), dos=c["dos"], provider=c["provider"], source=("drchrono" if emr == "drchrono" else "import")))
     record_activity(db, user, "codes", made + updated)
     db.commit()
     return {"ok": True, "created": made, "updated": updated, "skipped": skipped, "summary": summarize(checked)}
@@ -544,3 +552,10 @@ async def connect_page(request: Request, user=Depends(current_user)):
     import main as _main      # reuse the app's own template setup and user payload
     ctx = {"user": user, "verified": None, "user_json": _main._app_user_json(user)}
     return _main.templates.TemplateResponse(request, "integrations.html", ctx)
+
+
+# live connectors register themselves here (imported last, because they build on the names above)
+from drchrono import DrChrono   # noqa: E402
+
+EMRS["drchrono"]["live"] = DrChrono
+EMRS["drchrono"]["live_state"] = "Built, but not switched on until the DrChrono app credentials are set."

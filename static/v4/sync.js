@@ -118,6 +118,12 @@
     (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { var have = o && o.id && D.claim(o.id);
       if (have && have.imported && (!have.dx.length || !have.lines.length)) { var cd = codesFrom(o);
         if ((!have.dx.length && cd.dx.length) || (!have.lines.length && cd.cpts.length)) { if (!have.dx.length) have.dx = cd.dx; if (!have.lines.length) have.lines = cd.cpts; delete have.check; D.history(have, 'Codes restored from the previous EMR'); if (have.stage === 'edits' || have.stage === 'ready') D.scrub(have); n++; } } });
+    // a payment file (835) uploaded in Connect EMR settled a claim this browser already has: show it as paid or denied here too
+    (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { var c = o && o.id && D.claim(o.id), r = o && o.remit; if (!c || !r || !r.at || c.remitOn === r.at) return;
+      if (r.stage === 'paid' && c.stage !== 'paid') { c.stage = 'paid'; c.paid = Number(r.paid) || 0; c.paidOn = r.paidOn || D.today(); c.submittedOn = c.submittedOn || c.dos; c.status = 'Paid'; }
+      else if (r.stage === 'denied' && c.stage !== 'denied' && c.stage !== 'paid') { c.stage = 'denied'; c.carc = r.carc || 'CO-16'; c.reason = r.reason || 'Denied'; c.dstatus = 'Needs review'; c.deniedOn = r.paidOn || D.today();
+        c.appealBy = D.addDays(c.deniedOn, +r.appealDays || 60); c.everDenied = true; c.submittedOn = c.submittedOn || c.dos; c.status = 'Denied'; if (o.appealLetter && !c.letter) c.letter = o.appealLetter; }
+      c.remitOn = r.at; D.history(c, 'Payment file (835): ' + (r.stage === 'paid' ? 'paid ' + (Number(r.paid) || 0) : 'denied ' + (r.carc || ''))); n++; });
     (Array.isArray(res[1]) ? res[1] : []).forEach(function (o) { if (o && o.id && !D.claim(o.id)) { var c = claimFrom(o); if (!c.prov) c.prov = defProv(); S.claims.push(c); n++; } });
     // remember what the server already has so unchanged records aren't sent back
     (Array.isArray(res[0]) ? res[0] : []).forEach(function (o) { if (o && o.mrn && D.pt(o.mrn)) sent['p:' + o.mrn] = sent['p:' + o.mrn] || 'server'; });
@@ -143,7 +149,7 @@
   function claimOut(c) {
     return { id: c.id, patientName: D.ptName(c.mrn), mrn: c.mrn, payer: D.payer(c), amount: Math.round(D.charge(c)), status: c.stage === 'denied' && c.dstatus === 'Appealed' ? 'Appealed' : STATUS[c.stage] || 'Draft',
       codes: c.lines.map(function (l) { return { code: l.code, type: 'CPT', modifier: l.mod || '', units: l.units || 1 }; }).concat(c.dx.map(function (d) { return { code: d, type: 'ICD-10' }; })),
-      flags: (c.edits || []).map(function (x) { return x.id; }), appealLetter: c.letter || '', createdAt: c.created || '' };
+      flags: (c.edits || []).map(function (x) { return x.id; }), appealLetter: c.letter || '', createdAt: c.created || '', dos: c.dos || '', provider: (D.staff(c.prov) || {}).name || '' };
   }
   function push() {
     if (!ready) return;

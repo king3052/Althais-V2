@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Althais</title>
-  <meta name="description" content="Althais turns a patient encounter into a coded, checked, ready-to-review claim: AI SOAP notes, ICD-10 and CPT suggestions, real NCCI edit checks, and claim tracking in one platform." />
+  <meta name="description" content="Althais checks claims before they go out, on top of the EMR you already use: codes, NCCI bundling edits and missing details, then payment files, denial reasons and appeal drafts. Built for small ER and urgent care clinics." />
   <meta property="og:title" content="Althais" />
-  <meta property="og:description" content="Speak the visit. Althais writes the note, codes it, checks it against CMS edits, and hands you a claim to review." />
+  <meta property="og:description" content="Keep your EMR. Althais checks every claim before it goes out, then shows why claims get denied and drafts the appeals." />
   <meta property="og:type" content="website" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/althais-tab-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/althais-tab-16.png" />
@@ -22,6 +22,19 @@
   <link rel="stylesheet" href="/static/althais-landing.css?v={{ asset_v }}" />
   <link rel="stylesheet" href="/static/althais-dark.css?v={{ asset_v }}" />
   <script>document.documentElement.classList.add("js");</script>
+  <style>
+    .ec { padding: 96px 0 24px; }
+    .ec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; max-width: 1152px; margin: 44px auto 0; padding-inline: 24px; }
+    .ec-card { background: var(--card, #fff); border: 1px solid var(--line); border-radius: 14px; padding: 26px 24px; }
+    .ec-card h3 { margin: 14px 0 8px; font-size: 22px; font-weight: 500; letter-spacing: -.02em; }
+    .ec-card p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.55; }
+    .ec-n { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 13px; }
+    .ec-emr { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; max-width: 1152px; margin: 30px auto 0; padding-inline: 24px; }
+    .ec-lab { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-right: 6px; }
+    .ec-chip { border: 1px solid var(--line); background: var(--card, #fff); border-radius: 999px; padding: 7px 16px; font-size: 15px; font-weight: 500; }
+    .ec-soft { background: transparent; font-weight: 400; color: var(--ink-2); }
+    .ec-note { max-width: 760px; margin: 18px auto 0; padding-inline: 24px; text-align: center; font-size: 13.5px; line-height: 1.55; color: var(--faint); }
+  </style>
 </head>
 <body class="vhero rcl">
 
@@ -39,17 +52,17 @@
   </div>
   <div class="hv-in">
     <div class="hv-top">
-      <div class="hv-eyebrow">AI Scribe, Coding &amp; Claims In One Platform</div>
+      <div class="hv-eyebrow">Claim Checks For Small ER &amp; Urgent Care Clinics</div>
       <h1 class="display">From encounter,<br /><span class="hv-l2">to <span id="hero-rot" class="rot">reimbursement</span>.</span></h1>
     </div>
     <div class="hv-foot">
-      <div class="hv-left"><p class="hv-cred"><b>Built for</b> physician practices, hospitals and revenue cycle teams</p>
+      <div class="hv-left"><p class="hv-cred"><b>Built for</b> small ER, urgent care and independent clinics</p>
         <a href="/roi-calculator" class="hv-link hv-roi">See what denials cost you. Calculate your ROI <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a></div>
       <div class="hv-right">
-        <p class="lede">Speak the visit or type the note. Althais writes the SOAP, suggests the ICD-10 and CPT codes, checks them against real CMS edits, and hands you a claim ready for your review.</p>
+        <p class="lede">Keep the EMR you already use. Send Althais your claims and it checks the codes, bundling and missing details before they go out, then reads your payment files to show why claims are denied and drafts the appeals.</p>
         <div class="hero-cta">
           <a href="/pilot" class="btn btn-accent hv-btn">Join Althais <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
-          <a href="#how" class="hv-link">Explore <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
+          <a href="#connect" class="hv-link">See how it works with your EMR <svg class="arr" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
         </div>
       </div>
     </div>
@@ -87,11 +100,30 @@
   </div>
 </div>
 
+<!-- WORKS WITH YOUR EMR: honest about what connects today (an export upload) and what is still coming -->
+<section class="ec" id="connect">
+  <div class="sx-head">
+    <div class="eyebrow">Keep your EMR</div>
+    <h2>Add claim checks. Change nothing else.</h2>
+    <p>Your team keeps working in the EMR it knows. Althais sits next to it.</p>
+  </div>
+  <div class="ec-grid">
+    <div class="ec-card"><span class="ec-n">1</span><h3>Send your claims</h3><p>Upload a charges or claims export from your EMR as a CSV or Excel file. No new system to learn, and no migration.</p></div>
+    <div class="ec-card"><span class="ec-n">2</span><h3>Fix them before they go out</h3><p>Every claim is checked for missing diagnoses and payers, bad codes, NCCI bundling conflicts and filing deadlines, with what to fix beside each one.</p></div>
+    <div class="ec-card"><span class="ec-n">3</span><h3>Learn from every payment</h3><p>Upload the payer's payment file. Claims update to paid or denied, denials are grouped by reason and payer, and appeals get a draft your team finishes.</p></div>
+  </div>
+  <div class="ec-emr">
+    <span class="ec-lab">Works with exports from</span>
+    <span class="ec-chip">Experity</span><span class="ec-chip">DrChrono</span><span class="ec-chip">athenahealth</span><span class="ec-chip">AdvancedMD</span><span class="ec-chip ec-soft">and other EMRs that export a charges report</span>
+  </div>
+  <p class="ec-note">Direct connections that pull claims automatically are coming, DrChrono first, then athenahealth, AdvancedMD and Experity. Until then an upload works with any of them. Names are shown only to say which systems the exports come from, and no endorsement or partnership is implied.</p>
+</section>
+
 <!-- SOLUTIONS: three tabs, each with the problem, how Althais solves it, and a photo -->
 <section class="sx" id="how">
   <div class="sx-head">
-    <h2>One platform, start to finish.</h2>
-    <p>Built for <span class="sx-rot" data-words="physician practices|emergency departments|direct primary care clinics|revenue cycle teams">physician practices</span>.</p>
+    <h2>From the visit to the payment.</h2>
+    <p>Built for <span class="sx-rot" data-words="small ER clinics|urgent care clinics|independent practices|revenue cycle teams">small ER clinics</span>.</p>
   </div>
   <div class="sx-tabs" role="tablist"><button type="button" class="sx-tab on" role="tab" aria-selected="true" data-sx="0"><span class="sx-k">Speak it, don't type it</span><b>AI Scribe</b><span class="sx-s">Notes from the visit</span><i class="sx-bar"><em></em></i></button><button type="button" class="sx-tab" role="tab" aria-selected="false" data-sx="1"><span class="sx-k">Codes with the reasons behind them</span><b>Smart Coding</b><span class="sx-s">ICD-10 and CPT</span><i class="sx-bar"><em></em></i></button><button type="button" class="sx-tab" role="tab" aria-selected="false" data-sx="2"><span class="sx-k">Checked before it is filed</span><b>Clean Claims</b><span class="sx-s">Edits, submission and tracking</span><i class="sx-bar"><em></em></i></button></div>
   <div class="sx-panels"><div class="sx-panel on" role="tabpanel" data-sx="0">
@@ -115,7 +147,7 @@
           <div class="eyebrow">Checked before it is filed</div>
           <h3>Clean Claims</h3>
           <div class="sx-prob"><b>The problem</b><p>Bundling conflicts and missing fields are found after a denial, weeks later, when the visit is long forgotten.</p></div>
-          <div class="sx-appr"><b><svg class="rx" width="15" height="15" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="11"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="11"/></svg>How Althais solves it</b><p>Every claim is checked against CMS NCCI edits while the note is still open, then tracked from submission to payment.</p><ul><li>NCCI edits checked on every claim</li><li>Sent only after your team approves it</li><li>Denials flagged, with an appeal letter drafted</li></ul></div>
+          <div class="sx-appr"><b><svg class="rx" width="15" height="15" viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M5,74 L40,16 L75,74" stroke="currentColor" stroke-width="11"/><line x1="21" y1="49" x2="59" y2="49" stroke="currentColor" stroke-width="11"/></svg>How Althais solves it</b><p>Claims from your EMR are checked against CMS NCCI edits and common billing errors before they go out, then tracked through payment.</p><ul><li>NCCI edits, missing details and filing deadlines checked on every claim</li><li>Sent only after your team approves it</li><li>Payment files show which claims were denied and why, with an appeal drafted when one is worth sending</li></ul></div>
         </div>
         <div class="sx-media shot"><img src="/static/media/landing/app-claims.jpg" alt="The Althais claim detail: a 95% claim check, the codes picked for the visit, and Sign And Approve Claim" loading="lazy"></div>
       </div></div>
@@ -126,7 +158,7 @@
   <div class="sx-head">
     <div class="eyebrow">Purpose-built</div>
     <h2>Who we work with</h2>
-    <p>Built for <span class="sx-rot" data-words="physician practices|hospitals and emergency care|small and direct care clinics|revenue cycle teams">physician practices</span>.</p>
+    <p>Built for <span class="sx-rot" data-words="small ER clinics|urgent care clinics|independent practices|revenue cycle teams">small ER clinics</span>.</p>
   </div>
   <div class="wc-wrap">
     <button type="button" class="wc-arrow prev" aria-label="Previous"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3M7 4L3 8l4 4"/></svg></button>

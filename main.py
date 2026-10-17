@@ -92,6 +92,10 @@ import demo_api
 app.include_router(demo_api.router)
 import emr_connect   # connect-your-EMR: upload now, live connectors later (emr_connect.py)
 app.include_router(emr_connect.router)
+import drchrono      # DrChrono connection (OAuth + pull), see drchrono.py
+app.include_router(drchrono.router)
+import remittance    # payment files (835): paid/denied, denial analytics, appeal drafts (remittance.py)
+app.include_router(remittance.router)
 
 
 # ── Staff Portal lockdown ─────────────────────────────────────────────────────
@@ -871,6 +875,17 @@ def _patient_dict(p: OrgPatient) -> dict:
     return base
 
 
+def _remit_fields(c: OrgClaim) -> dict:
+    """What the latest payment file (835) said about this claim, in the keys the new EMR's sync already understands."""
+    try:
+        r = json.loads(c.remit or "{}")
+    except Exception:
+        r = {}
+    if not r:
+        return {}
+    return {"remit": r, "paid": r.get("paid", 0), "paidOn": r.get("paidOn", ""), "carc": r.get("carc", ""), "denialReason": r.get("reason", "")}
+
+
 def _claim_dict(c: OrgClaim) -> dict:
     return {
         "id": c.claim_id, "patientName": c.patient_name, "mrn": c.mrn,
@@ -880,6 +895,8 @@ def _claim_dict(c: OrgClaim) -> dict:
         "flags": json.loads(c.flags or "[]"),
         "appealLetter": c.appeal_letter,
         "createdAt": c.created_at.isoformat() if c.created_at else "",
+        "dos": c.dos or "", "provider": c.provider or "", "source": c.source or "",
+        **_remit_fields(c),
     }
 
 
@@ -1143,6 +1160,8 @@ async def api_save_claim(request: Request, user=Depends(require_biller), db: Ses
         row.score         = body.get("score", row.score)
         row.flags         = json.dumps(body.get("flags", json.loads(row.flags or "[]")))
         row.appeal_letter = body.get("appealLetter", row.appeal_letter)
+        row.dos           = body.get("dos", row.dos)
+        row.provider      = body.get("provider", row.provider)
     else:
         just_submitted = new_status == "Submitted"
         created_str = body.get("createdAt", "")
@@ -1158,6 +1177,7 @@ async def api_save_claim(request: Request, user=Depends(require_biller), db: Ses
             status=body.get("status", "Draft"), score=body.get("score"),
             flags=json.dumps(body.get("flags", [])),
             appeal_letter=body.get("appealLetter", ""), created_at=created,
+            dos=str(body.get("dos", "") or "")[:20], provider=str(body.get("provider", "") or "")[:255],
         ))
     # Track submissions on the user who actually submitted it - powers the
     # "Claims" stat on the admin Overview page, which was previously a
