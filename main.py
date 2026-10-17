@@ -94,6 +94,8 @@ import emr_connect   # connect-your-EMR: upload now, live connectors later (emr_
 app.include_router(emr_connect.router)
 import drchrono      # DrChrono connection (OAuth + pull), see drchrono.py
 app.include_router(drchrono.router)
+import athenahealth   # athenahealth connection (2-legged OAuth + pull), see athenahealth.py
+app.include_router(athenahealth.router)
 import remittance    # payment files (835): paid/denied, denial analytics, appeal drafts (remittance.py)
 app.include_router(remittance.router)
 

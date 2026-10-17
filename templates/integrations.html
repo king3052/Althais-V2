@@ -181,9 +181,15 @@
     async function act(emr, kind, days) {
       try {
         if (kind === 'sync') {
-          say('Pulling the last ' + days + ' days from DrChrono. This can take a minute…'); EMR = emr;
+          const nm = emr === 'athenahealth' ? 'athenahealth' : 'DrChrono';
+          say('Pulling the last ' + days + ' days from ' + nm + '. This can take a minute…'); EMR = emr;
           render(await api('/api/integrations/' + emr + '/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: days }) }));
-          say('Review the preview below. DrChrono field names haven\'t been tested on a real account yet, so compare a few claims with DrChrono before saving.'); loadEmrs();
+          say('Review the preview below. ' + nm + ' field names haven\'t been tested on a real account yet, so compare a few claims with ' + nm + ' before saving.'); loadEmrs();
+        } else if (kind === 'practice') {
+          const pid = (window.prompt('Enter the athenahealth practice ID (digits only):') || '').trim();
+          if (!pid) return;
+          await api('/api/integrations/athenahealth/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ practice_id: pid }) });
+          say('athenahealth connected. Pull recent claims from its card above.'); loadEmrs();
         } else if (kind === 'disconnect') {
           await api('/api/integrations/' + emr + '/disconnect', { method: 'POST' }); say('Disconnected.'); loadEmrs();
         }

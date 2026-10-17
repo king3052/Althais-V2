@@ -508,7 +508,7 @@ async def api_commit(request: Request, user=Depends(require_biller), db: Session
             made += 1
             db.add(OrgClaim(org_key=org, claim_id=cid, patient_name=c["patient_name"], mrn=c["mrn"], payer=c["payer"],
                             codes=json.dumps(codes), note=note, amount=c["amount"], status=STATUS_FOR[c["verdict"]],
-                            score=c["score"], flags=json.dumps(flags), dos=c["dos"], provider=c["provider"], source=("drchrono" if emr == "drchrono" else "import")))
+                            score=c["score"], flags=json.dumps(flags), dos=c["dos"], provider=c["provider"], source=(emr if emr in ("drchrono", "athenahealth") else "import")))
     record_activity(db, user, "codes", made + updated)
     db.commit()
     return {"ok": True, "created": made, "updated": updated, "skipped": skipped, "summary": summarize(checked)}
@@ -559,3 +559,8 @@ from drchrono import DrChrono   # noqa: E402
 
 EMRS["drchrono"]["live"] = DrChrono
 EMRS["drchrono"]["live_state"] = "Built, but not switched on until the DrChrono app credentials are set."
+
+from athenahealth import Athenahealth   # noqa: E402
+
+EMRS["athenahealth"]["live"] = Athenahealth
+EMRS["athenahealth"]["live_state"] = "Built, but not switched on until the athenahealth app credentials are set."
