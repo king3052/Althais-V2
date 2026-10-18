@@ -105,6 +105,12 @@ def test_connect_sync_disconnect(client, monkeypatch):
     assert {e["key"]: e for e in client.get("/api/integrations/emrs").json()["emrs"]}["athenahealth"]["live"] is False
 
 
+def test_error_reason_is_shown():
+    r = Resp(400, {"error": "The departmentid is required."})
+    assert "departmentid is required" in ah._why(r)
+    assert ah._why(Resp(500, ["x"])) == ""
+
+
 def test_bad_credentials_and_production_url(client, monkeypatch):
     monkeypatch.setenv("ATHENA_CLIENT_ID", "cid"); monkeypatch.setenv("ATHENA_CLIENT_SECRET", "bad")
     monkeypatch.setattr(ah.requests, "post", lambda *a, **k: Resp(401, {"error": "invalid_client"}))

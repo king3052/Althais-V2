@@ -104,6 +104,19 @@ def _save(db, org, doc):
     db.commit()
 
 
+def _why(r) -> str:
+    """athenahealth's own explanation for an error, shortened. (Error text describes the request, not patient data.)"""
+    try:
+        j = r.json()
+        msg = j.get("detailedmessage") or j.get("error") or j.get("message") or j.get("detail") if isinstance(j, dict) else ""
+    except Exception:
+        msg = ""
+    if not msg:
+        msg = getattr(r, "text", "") if isinstance(getattr(r, "text", ""), str) else ""
+    msg = " ".join(str(msg).split())[:240]
+    return f" Reason given: {msg}" if msg else ""
+
+
 class Client:
     """A small, rate-aware athenahealth API client for one practice."""
 
@@ -124,7 +137,7 @@ class Client:
             if r.status_code in (403, 404) and "/patients/" not in path:
                 raise AthenaError(f"athenahealth said no ({r.status_code}) for {path}. Check the practice ID and that the app is allowed to read claims for it.")
             if r.status_code >= 400:
-                raise AthenaError(f"athenahealth returned an error ({r.status_code}) for {path}.")
+                raise AthenaError(f"athenahealth returned an error ({r.status_code}) for {path}." + _why(r))
             return r.json()
 
 
