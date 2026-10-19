@@ -272,7 +272,7 @@ def build_837p(c: dict, payer_id: str, payer_name: str) -> str:
     seg.append(f"ST*837*0001*005010X222A1")
     seg.append(f"BHT*0019*00*{_x(c.get('claimId'), 30)}*{d8}*{t4}*CH")
     seg.append(f"NM1*41*2*{_x(b.get('legalName'), 60)}*****46*{_x(b.get('tin'), 80) or 'ALTHAIS'}")
-    seg.append(f"PER*IC*{_x((b.get('contact') or {}).get('name') or b.get('legalName'), 60)}*EM*{_x((b.get('contact') or {}).get('email') or 'billing@althais.com', 80)}")
+    seg.append(f"PER*IC*{_x((b.get('contact') or {}).get('name') or b.get('legalName'), 60)}*EM*{_x((b.get('contact') or {}).get('email') or 'contact@althais.com', 80)}")
     seg.append("NM1*40*2*CLAIMMD*****46*CLAIMMD")
     seg.append("HL*1**20*1")
     if b.get("taxonomy"):
