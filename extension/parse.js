@@ -99,11 +99,15 @@
   var amt = 0;
   var num = function (s) { return parseFloat(String(s).replace(/[^0-9.\-]/g, "")); };
   if (tableAmounts.length) tableAmounts.forEach(function (s) { var n = num(s); if (!isNaN(n)) amt += n; });
-  else raw.amount.forEach(function (s) { var n = num(s); if (!isNaN(n) && n > amt) amt = n; });
+  else for (var ai = 0; ai < raw.amount.length; ai++) { var an = num(raw.amount[ai]); if (!isNaN(an) && an > 0) { amt = an; break; } }
   amt = Math.round(amt * 100) / 100;
   fields.amount = amt || "";
   if (fields.payer.length > 120) fields.payer = fields.payer.slice(0, 120);
 
+  if (!fields.claim_id) {
+    var um = (location.search + "&" + location.hash.replace(/^#\/?/, "")).match(/[?&#;](?:claim_?id|claimnumber|claim_?no|claim)=([A-Za-z0-9\-_]{1,40})/i);
+    if (um) fields.claim_id = um[1];
+  }
   var found = {};
   ["claim_id", "dos", "payer", "cpt", "icd", "modifiers", "amount", "pos"].forEach(function (k) { found[k] = Array.isArray(fields[k]) ? fields[k].length > 0 : !!fields[k]; });
 
@@ -117,5 +121,34 @@
     while ((mm = re.exec(body)) && gc.length < 8) if (gc.indexOf(mm[1].toUpperCase()) < 0) gc.push(mm[1].toUpperCase());
     if (gc.length) { fields.cpt = gc; guessed.push("cpt"); found.cpt = true; }
   }
-  return { fields: fields, found: found, guessed: guessed, title: (document.title || "").slice(0, 80), host: location.hostname };
+  var diag = null;
+  if (globalThis.__althaisDiag) {
+    var shape = function (v) { return String(v || "").replace(/[A-Z]/g, "A").replace(/[a-z]/g, "a").replace(/[0-9]/g, "9").slice(0, 14); };
+    var labels = [], seenL = {};
+    document.querySelectorAll("label, th, dt, span, div, td, strong, b").forEach(function (el) {
+      if (labels.length >= 120 || el.children.length > 1) return;
+      var t = txt(el);
+      if (!t || t.length > 40) return;
+      var colon = /:$/.test(t) || el.tagName === "TH" || el.tagName === "LABEL" || el.tagName === "DT";
+      if (!colon) return;
+      var nx = el.nextElementSibling, key = t;
+      if (seenL[key]) return; seenL[key] = 1;
+      labels.push({ label: t.replace(/:$/, ""), tag: el.tagName.toLowerCase(), kind: kindOf(t.replace(/:$/, "")), next: nx ? shape(txt(nx)) : "" });
+    });
+    var inputs = [];
+    controls.forEach(function (el) {
+      if (inputs.length >= 60 || /^(hidden|password)$/i.test(el.type || "")) return;
+      inputs.push({ tag: el.tagName.toLowerCase(), type: el.type || "", name: el.name || "", id: el.id || "", aria: el.getAttribute("aria-label") || "", ph: el.getAttribute("placeholder") || "", val: shape(el.value) });
+    });
+    var heads = [];
+    document.querySelectorAll("table").forEach(function (tb) {
+      var h = tb.querySelector("thead tr") || tb.querySelector("tr");
+      if (h && heads.length < 20) heads.push(Array.prototype.map.call(h.children, function (c) { return txt(c).slice(0, 30); }));
+    });
+    var shadow = 0; document.querySelectorAll("*").forEach(function (e) { if (e.shadowRoot) shadow++; });
+    var qnames = []; try { new URLSearchParams(location.search).forEach(function (v, k) { qnames.push(k); }); } catch (e) {}
+    diag = { top: window === window.top, path: location.origin + location.pathname, query: qnames, labels: labels, inputs: inputs, tableHeaders: heads,
+      counts: { tables: document.querySelectorAll("table").length, iframes: document.querySelectorAll("iframe, frame").length, inputs: controls.length, shadowRoots: shadow, textLength: (document.body && document.body.innerText || "").length } };
+  }
+  return { fields: fields, found: found, guessed: guessed, diag: diag, title: (document.title || "").slice(0, 80), host: location.hostname };
 })()

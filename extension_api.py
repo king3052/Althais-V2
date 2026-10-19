@@ -153,3 +153,45 @@ async def check(request: Request, authorization: str = Header(default=""), db: S
     c = ec.run_checks([claim])[0]
     return JSONResponse({"verdict": c["verdict"], "score": c["score"], "flags": [{"severity": f["severity"], "code": f["code"], "message": f["message"]} for f in c["flags"] if f["code"] != "no_patient"],
                          "echo": {k: c[k] for k in ("cpt", "icd", "modifiers", "payer", "dos", "amount")}}, headers=NO_STORE)
+
+
+def _result(c):
+    return {"verdict": c["verdict"], "score": c["score"], "flags": [{"severity": f["severity"], "code": f["code"], "message": f["message"]} for f in c["flags"] if f["code"] != "no_patient"]}
+
+
+@router.post("/api/extension/lookup")
+async def lookup(request: Request, authorization: str = Header(default=""), db: Session = Depends(get_db)):
+    """The page only needs to supply a claim number. If the clinic's athenahealth is connected, Althais reads the claim itself and checks it.
+    The patient is never returned: only codes, payer, date and charge come back."""
+    who = _auth(db, authorization)
+    if not who:
+        return JSONResponse({"error": "That token isn't valid. Create a new one in Althais under Revenue > Connect EMR."}, status_code=401, headers=NO_STORE)
+    if _limited(who[1]):
+        return JSONResponse({"error": "Too many checks in a minute. Wait a moment and try again."}, status_code=429, headers=NO_STORE)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = re.sub(r"^(AH-)", "", str((body or {}).get("claim_id") or "").strip(), flags=re.I)
+    if not re.fullmatch(r"\d{1,12}", cid):
+        return JSONResponse({"error": "That doesn't look like an athenahealth claim number (digits only)."}, status_code=400, headers=NO_STORE)
+    import athenahealth as ah
+    _, doc = ah._load(db, who[0])
+    if not doc.get("practice_id") or not ah.configured():
+        return JSONResponse({"error": "athenahealth isn't connected in Althais yet. Connect it under Revenue > Connect EMR, or type the codes in."}, status_code=409, headers=NO_STORE)
+    try:
+        cl = ah.Client(doc["practice_id"])
+        raw = cl.get(f"/claims/{cid}")
+        raw = raw[0] if isinstance(raw, list) and raw else raw
+        if not isinstance(raw, dict) or not raw:
+            return JSONResponse({"error": "athenahealth has no claim with that number for this practice."}, status_code=404, headers=NO_STORE)
+        claim = ah.to_canonical(raw, None, ah.patient_insurers(cl, raw.get("patientid")) if raw.get("patientid") else {})
+    except ah.AthenaError as e:
+        return JSONResponse({"error": str(e)}, status_code=400, headers=NO_STORE)
+    except Exception:
+        return JSONResponse({"error": "Couldn't reach athenahealth. Try again in a minute."}, status_code=502, headers=NO_STORE)
+    claim["patient_name"] = "On screen (not sent)"
+    c = ec.run_checks([claim])[0]
+    fields = {k: c[k] for k in ("cpt", "icd", "modifiers", "payer", "dos", "amount")}
+    fields["claim_id"] = cid
+    return JSONResponse({**_result(c), "fields": fields}, headers=NO_STORE)

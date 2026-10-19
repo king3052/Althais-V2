@@ -50,3 +50,33 @@ def test_token_cap_and_rate_limit(client):
     body = {"claim": {"cpt": ["99213"], "icd": ["J02.9"], "payer": "Aetna", "dos": "10/10/2026", "amount": 100}}
     codes = [client.post("/api/extension/check", json=body, headers=_hdr(toks[-1])).status_code for _ in range(62)]
     assert codes[0] == 200 and codes[-1] == 429
+
+
+def test_lookup_by_claim_id(client, monkeypatch):
+    import athenahealth as ah
+    tok = client.post("/api/extension/token").json()["token"]
+    body = {"claim_id": "28368"}
+    assert client.post("/api/extension/lookup", json=body).status_code == 401
+    assert client.post("/api/extension/lookup", json={"claim_id": "x; drop"}, headers=_hdr(tok)).status_code == 400
+    monkeypatch.delenv("ATHENA_CLIENT_ID", raising=False)
+    assert client.post("/api/extension/lookup", json=body, headers=_hdr(tok)).status_code == 409          # athenahealth not connected
+    monkeypatch.setenv("ATHENA_CLIENT_ID", "cid"); monkeypatch.setenv("ATHENA_CLIENT_SECRET", "sec")
+    monkeypatch.setattr(ah, "_load", lambda db, org: (None, {"practice_id": "195900"}))
+
+    class R:
+        status_code = 200
+        def __init__(s, b): s._b = b
+        def json(s): return s._b
+    def fake_get(url, params=None, headers=None, **kw):
+        if url.endswith("/claims/28368"):
+            return R({"claimid": "28368", "patientid": 134, "billedservicedate": "10/12/2026", "procedures": [{"procedurecode": "99214", "chargeamount": "60"}],
+                      "diagnoses": [{"diagnosisrawcode": "Z00.00"}], "primaryinsurancepayer": {"primarypatientinsuranceid": "9"}})
+        if "/insurances" in url:
+            return R([{"insuranceid": "9", "insuranceplanname": "Aetna PPO"}])
+        return type("X", (), {"status_code": 404, "json": lambda s: {}})()
+    monkeypatch.setattr(ah.requests, "get", fake_get)
+    monkeypatch.setattr(ah, "get_token", lambda force=False: "AT")
+    j = client.post("/api/extension/lookup", json={"claim_id": "AH-28368"}, headers=_hdr(tok)).json()
+    assert j["fields"]["cpt"] == ["99214"] and j["fields"]["payer"] == "Aetna PPO" and j["verdict"] == "clean"
+    assert "patient" not in str(j).lower() and "134" not in str(j["fields"])
+    assert client.post("/api/extension/lookup", json={"claim_id": "999"}, headers=_hdr(tok)).status_code == 400   # fake 404 -> AthenaError

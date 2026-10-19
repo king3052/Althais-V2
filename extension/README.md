@@ -11,6 +11,11 @@ A side panel for Chrome or Edge. On an EMR claim screen you press **Read this pa
 ## Use
 Open a claim in your EMR, press **Read this page**. The first time on a site Chrome asks to allow reading it. Check the fields, press **Check claim**.
 
+## Two extra tools (v0.2)
+- **Frames:** EMRs like athenaOne put claim screens inside frames. Read this page now looks inside all of them and merges the results. Chrome asks once per site.
+- **Fetch by claim ID:** if athenahealth is connected in Althais, press *Fetch codes from athenahealth by claim ID*. Althais reads the claim through the API, so layout guessing isn't needed. Only codes, payer, date and charge come back.
+- **Page report:** under *Trouble reading a page?* builds a layout report with every value masked (letters become a, digits become 9). Send it to Althais so the reader can be tuned to that screen.
+
 ## What it does and doesn't do
 - Reads the page only when you press the button. Nothing runs in the background.
 - Looks for claim ID, date of service, payer, CPT/HCPCS, ICD-10, modifiers, charge. It does not look for or send patient name or date of birth.

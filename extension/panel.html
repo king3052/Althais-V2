@@ -19,6 +19,7 @@
   <form id="form" autocomplete="off" hidden>
     <p class="note">Check these against the screen and fix anything that is wrong.</p>
     <label>Claim ID<input name="claim_id"></label>
+    <button id="fetch" type="button" class="wide">Fetch codes from athenahealth by claim ID</button>
     <label>Date of service<input name="dos" placeholder="MM/DD/YYYY"></label>
     <label>Payer<input name="payer"></label>
     <label>CPT / HCPCS <span class="hint">comma separated</span><input name="cpt"></label>
@@ -28,6 +29,12 @@
     <button id="check" class="pri wide" type="submit">Check claim</button>
   </form>
   <div id="result" aria-live="polite"></div>
+  <details id="diag"><summary>Trouble reading a page?</summary>
+    <p class="note">Builds a report of the page's layout (labels, column names, field names). Values are masked, so no patient data is included. Copy it and send it to Althais so the reader can be tuned to this screen.</p>
+    <button id="mkdiag" type="button">Create page report</button>
+    <textarea id="diagout" readonly rows="8" hidden></textarea>
+    <button id="copydiag" type="button" hidden>Copy report</button>
+  </details>
 </main>
 <footer>Only the codes, payer, date and charge are sent. The patient's name and date of birth are never read. Nothing is saved.</footer>
 <script src="panel.js"></script>
