@@ -42,6 +42,19 @@ def test_reader_tolerates_field_names():
     assert ec.verdict_for(ec.claim_check(c, today=TODAY)) == "clean"
 
 
+def test_reader_matches_real_sandbox_shape():
+    claim = {"claimid": "28368", "patientid": 134, "billedservicedate": "10/12/2026", "billedproviderid": 23, "status": "CLOSED",
+             "transactiondetails": {"39404": "60"},
+             "procedures": [{"procedurecode": "99214", "chargeamount": "60", "proceduredescription": "OFFICE OUTPATIENT VISIT 25 MINUTES", "transactionid": "39404"}],
+             "diagnoses": [{"deletediagnosis": "false", "diagnosisid": "32616", "diagnosiscodeset": "ICD10", "diagnosisrawcode": "Z00.00"}],
+             "primaryinsurancepayer": {"status": "HOLD", "primaryinsurancepackageid": "74", "primarypatientinsuranceid": "28986", "balance": "60"}}
+    pat = [{"firstname": "Wbpatienttest9640", "lastname": "Smith", "dob": "10/23/1992"}]
+    c = ah.to_canonical(claim, pat[0])
+    assert c["icd"] == ["Z00.00"] and c["cpt"] == ["99214"] and c["amount"] == 60 and c["dos"] == "2026-10-12" and c["payer"] == "Insurance package 74"
+    assert ah.to_canonical(claim, pat[0], {"28986": "Aetna PPO"})["payer"] == "Aetna PPO"      # a real name wins when the insurance list can be read
+    assert ec.verdict_for(ec.claim_check(c, today=TODAY)) == "clean"
+
+
 def test_reader_survives_missing_and_dict_shaped_fields():
     c = ah.to_canonical({"claimid": "7", "patientid": 3, "diagnoses": {"1": {"diagnosiscode": "J02.9"}}, "procedures": {"1": {"procedurecode": "99213"}}})
     assert c["icd"] == ["J02.9"] and c["cpt"] == ["99213"] and c["patient_name"] == "Patient 3" and c["payer"] == "" and c["dos"] == ""

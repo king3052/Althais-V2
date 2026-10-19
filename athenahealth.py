@@ -12,9 +12,9 @@ What is verified and what is not (read before relying on this):
       supervisingprovidername, ...).
   Learned from the sandbox: the claim list rejects a call with only dates ("Additional fields are required"), so the connector reads
   each department in turn (GET /departments, whose field names are NOT verified either).
-  NOT verified: the fields INSIDE `diagnoses`, `procedures` and `primaryinsurancepayer` (the docs page collapses them), the
-  exact fields the list call returns per claim, and the patient lookup (GET /v1/{practiceid}/patients/{patientid}, used for the
-  name and date of birth). The reader tolerates several likely names, but it has never run against athenahealth's sandbox.
+  Seen in real sandbox records: diagnoses[].diagnosisrawcode (ICD-10), procedures[].procedurecode and .chargeamount,
+  primaryinsurancepayer has only IDs (no name), GET /patients/{id} returns a one-item list with firstname, lastname, dob.
+  NOT verified: the payer-name lookup (GET /patients/{id}/insurances; falls back to "Insurance package <id>"). Other field names are read tolerantly.
   So a sync only ever produces a *preview* for a person to review: nothing is saved until they press Save, and anything it
   couldn't read shows up as a missing diagnosis, payer or date in the claim check.
   First real test: connect the Preview app with its test practice, pull a range, and compare the preview with athenaOne.
@@ -164,7 +164,7 @@ def _first(d: dict, keys):
 def _dx(v):
     out = []
     for d in _items(v):
-        c = _first(d, ("diagnosiscode", "icd10code", "icd10", "icdcode", "code"))
+        c = _first(d, ("diagnosisrawcode", "diagnosiscode", "icd10code", "icd10", "icdcode", "code"))
         if isinstance(c, dict):
             c = _first(c, ("code", "diagnosiscode"))
         for x in ec._split_codes(c):
@@ -173,17 +173,25 @@ def _dx(v):
     return out
 
 
-def _payer(claim: dict) -> str:
+def _payer(claim: dict, insurers: dict = None) -> str:
+    """The payer's name. Seen in the sandbox: primaryinsurancepayer carries only package/insurance IDs, so the name comes from the
+    patient's insurance list when that can be read; otherwise a labeled package ID, so the claim isn't reported as having no payer."""
     p = claim.get("primaryinsurancepayer")
     if isinstance(p, dict):
         v = _first(p, ("payername", "payer", "name", "insurancepackagename", "insurancename", "insurance"))
         if isinstance(v, dict):
             v = _first(v, ("name", "payername"))
-        return str(v) if v else ""
+        if v:
+            return str(v)
+        named = (insurers or {}).get(str(p.get("primarypatientinsuranceid") or ""))
+        if named:
+            return named
+        pkg = p.get("primaryinsurancepackageid")
+        return f"Insurance package {pkg}" if pkg else ""
     return str(p) if p else ""
 
 
-def to_canonical(claim: dict, patient: dict = None) -> dict:
+def to_canonical(claim: dict, patient: dict = None, insurers: dict = None) -> dict:
     patient = patient or {}
     cpt, mods, icd, amount = [], [], _dx(claim.get("diagnoses")), 0.0
     for pr in _items(claim.get("procedures")):
@@ -200,16 +208,21 @@ def to_canonical(claim: dict, patient: dict = None) -> dict:
             for x in ec._split_codes(pr.get(k) or ""):
                 if x not in icd:
                     icd.append(x)
-    try:
-        amount = float(str(claim.get("chargeamount") or 0).replace(",", "").replace("$", ""))
-    except ValueError:
-        amount = 0.0
+    def _num(x):
+        try:
+            return float(str(x).replace(",", "").replace("$", ""))
+        except ValueError:
+            return 0.0
+    # charges sit on each procedure line (chargeamount); fall back to a claim-level total, then to the transaction amounts
+    amount = sum(_num(pr.get("chargeamount")) for pr in _items(claim.get("procedures"))) or _num(claim.get("chargeamount"))
+    if not amount and isinstance(claim.get("transactiondetails"), dict):
+        amount = sum(_num(v) for v in claim["transactiondetails"].values())
     when = str(claim.get("billedservicedate") or claim.get("servicedate") or "")
     first, last = str(patient.get("firstname") or patient.get("first_name") or ""), str(patient.get("lastname") or patient.get("last_name") or "")
     name = f"{first} {last}".strip() or (f"Patient {claim.get('patientid')}" if claim.get("patientid") else "")
     prov = str(claim.get("supervisingprovidername") or (f"Provider {claim.get('billedproviderid')}" if claim.get("billedproviderid") else ""))
     return {"claim_id": f"AH-{claim.get('claimid')}", "patient_name": name, "mrn": str(claim.get("localpatientid") or claim.get("patientid") or ""),
-            "dob": ec._date(patient.get("dob") or patient.get("dateofbirth")), "dos": ec._date(when), "dos_raw": when, "payer": _payer(claim),
+            "dob": ec._date(patient.get("dob") or patient.get("dateofbirth")), "dos": ec._date(when), "dos_raw": when, "payer": _payer(claim, insurers),
             "cpt": cpt, "icd": icd, "modifiers": list(dict.fromkeys(mods)), "amount": round(amount, 2), "provider": prov, "pos": "", "rows": []}
 
 
@@ -225,6 +238,24 @@ def departments(client: Client, cap=10):
     if not ids:
         raise AthenaError("athenahealth returned no departments for this practice, and its claim list needs one.")
     return ids[:cap]
+
+
+def patient_insurers(client: Client, pid) -> dict:
+    """{insurance id: plan name} for one patient, best effort (GET /patients/{id}/insurances; field names not verified)."""
+    try:
+        data = client.get(f"/patients/{pid}/insurances")
+    except AthenaError:
+        return {}
+    rows = data.get("insurances", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        key = str(_first(r, ("insuranceid", "patientinsuranceid", "id")))
+        name = _first(r, ("insuranceplanname", "insurancename", "insurancepackagename", "name"))
+        if key and name:
+            out[key] = str(name)
+    return out
 
 
 def fetch_claims(client: Client, days: int):
@@ -251,10 +282,10 @@ def fetch_claims(client: Client, days: int):
     if len(listed) > MAX_CLAIMS or total > MAX_CLAIMS:
         listed = listed[:MAX_CLAIMS]
         notes.append(f"Only the first {MAX_CLAIMS} claims were read, to stay inside athenahealth's rate limits. Pull a shorter range for the rest.")
-    patients, claims = {}, []
+    patients, insurers, claims = {}, {}, []
     for row in listed:
         cid = row.get("claimid")
-        complete = all(row.get(k) for k in ("procedures", "diagnoses", "chargeamount", "primaryinsurancepayer"))
+        complete = all(row.get(k) for k in ("procedures", "diagnoses"))
         detail = row if complete else (client.get(f"/claims/{cid}") if cid else row)
         detail = {**row, **(detail if isinstance(detail, dict) else {})}
         pid = detail.get("patientid")
@@ -265,7 +296,8 @@ def fetch_claims(client: Client, days: int):
                 patients[pid] = {}
             if isinstance(patients[pid], list):
                 patients[pid] = patients[pid][0] if patients[pid] else {}
-        claims.append(to_canonical(detail, patients.get(pid, {})))
+            insurers[pid] = patient_insurers(client, pid)
+        claims.append(to_canonical(detail, patients.get(pid, {}), insurers.get(pid, {})))
     notes.append(f"Read {len(listed)} claims with {client.calls} athenahealth calls ({env_name()} environment).")
     return claims, notes
 
