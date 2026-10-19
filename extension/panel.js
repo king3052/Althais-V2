@@ -25,16 +25,17 @@ async function init() {
   cfg = { server: s.server || DEFAULT_SERVER, token: s.token || "" };
   $("server").value = cfg.server; $("token").value = cfg.token;
   if (!cfg.token) $("settings").hidden = false;
+  status();
 }
 
 $("gear").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("save").onclick = async () => {
   cfg = { server: $("server").value.trim() || DEFAULT_SERVER, token: $("token").value.trim() };
-  await store.set(cfg); say("setmsg", "Saved.");
+  await store.set(cfg); say("setmsg", "Saved."); status();
 };
 $("test").onclick = async () => {
   cfg = { server: $("server").value.trim() || DEFAULT_SERVER, token: $("token").value.trim() };
-  try { await api("/api/extension/ping"); await store.set(cfg); say("setmsg", "Connected. Token works."); }
+  try { await api("/api/extension/ping"); await store.set(cfg); say("setmsg", "Connected. Token works."); status(); $("settings").hidden = true; }
   catch (e) { say("setmsg", e.message, true); }
 };
 
@@ -100,24 +101,40 @@ $("mkdiag").onclick = async () => {
 };
 $("copydiag").onclick = async () => { $("diagout").select(); try { await navigator.clipboard.writeText($("diagout").value); } catch (e) { document.execCommand("copy"); } $("copydiag").textContent = "Copied"; };
 
+const ICONS = {
+  clean: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg>',
+  review: '<svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
+  fix: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
+};
+const LABEL = { clean: "Looks clean", review: "Worth a look", fix: "Fix first" };
+const SEV = { error: "Fix", warn: "Check", info: "Note" };
 function showResult(j) {
-  const box = $("result");
-    const label = { clean: "Looks clean", review: "Worth a look", fix: "Fix first" }[j.verdict] || j.verdict;
-    let h = '<span class="badge ' + j.verdict + '">' + label + "</span> <span class=\"sub\">score " + j.score + "</span>";
-    if (!j.flags.length) h += '<p class="note">No problems found. This is a pre-submission check, not a guarantee of payment.</p>';
-    j.flags.forEach((x) => { h += '<div class="flag"><span class="ic ' + (x.severity === "error" ? "fix" : "review") + '">' + (x.severity === "error" ? "✕" : "!") + "</span><span></span></div>"; });
-    box.innerHTML = h;
-    box.querySelectorAll(".flag span:last-child").forEach((el, i) => { el.textContent = j.flags[i].message; });
+  const box = $("result"), v = LABEL[j.verdict] ? j.verdict : "review";
+  let h = '<section class="verdict ' + v + '"><div class="vhead">' + ICONS[v] + "<b>" + LABEL[v] + '</b><span class="score">' + Number(j.score) + "/100</span></div>" +
+    '<div class="meter"><i style="width:' + Math.max(0, Math.min(100, Number(j.score))) + '%"></i></div>';
+  if (!j.flags.length) h += '<p class="vnote">No problems found. This is a pre-submission check, not a guarantee of payment.</p>';
+  else h += '<div class="flags">' + j.flags.map((x) => '<div class="flag"><span class="chip ' + (SEV[x.severity] ? x.severity : "info") + '">' + (SEV[x.severity] || "Note") + "</span><span class=\"fm\"></span></div>").join("") + "</div>";
+  box.innerHTML = h + "</section>";
+  box.querySelectorAll(".fm").forEach((el, i) => { el.textContent = j.flags[i].message; });
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function busy(text) { $("result").innerHTML = '<div class="busy"><span class="spin"></span><span></span></div>'; $("result").querySelector(".busy span:last-child").textContent = text; }
+function fail(e) { const box = $("result"); box.innerHTML = ""; const p = document.createElement("p"); p.className = "msg err"; p.textContent = e.message; box.appendChild(p); }
+async function status() {
+  const dot = $("dot"), t = $("conn");
+  if (!cfg.token) { dot.className = "dot"; t.textContent = "Not connected. Open settings to pair."; return; }
+  try { await api("/api/extension/ping"); dot.className = "dot ok"; t.textContent = "Connected to " + new URL(base()).hostname; }
+  catch (e) { dot.className = "dot bad"; t.textContent = e.message; }
 }
 
 $("fetch").onclick = async () => {
   const f = $("form"), box = $("result");
   if (!cfg.token) { $("settings").hidden = false; say("setmsg", "Paste your pairing token first.", true); return; }
-  box.textContent = "Fetching...";
+  busy("Fetching from athenahealth…");
   try {
     const j = await api("/api/extension/lookup", { method: "POST", body: JSON.stringify({ claim_id: f.claim_id.value }) });
     fill(j.fields); showResult(j); say("readmsg", "Codes came from your athenahealth connection, not the screen.");
-  } catch (e) { box.innerHTML = ""; const p = document.createElement("p"); p.className = "msg err"; p.textContent = e.message; box.appendChild(p); }
+  } catch (e) { fail(e); }
 };
 
 const list = (s) => s.split(/[,\s;]+/).map((x) => x.trim()).filter(Boolean);
@@ -125,12 +142,12 @@ $("form").onsubmit = async (ev) => {
   ev.preventDefault();
   const f = $("form"), box = $("result");
   if (!cfg.token) { $("settings").hidden = false; say("setmsg", "Paste your pairing token first.", true); return; }
-  box.textContent = "Checking...";
+  busy("Checking claim…");
   try {
     const j = await api("/api/extension/check", { method: "POST", body: JSON.stringify({ claim: {
       claim_id: f.claim_id.value, dos: f.dos.value, payer: f.payer.value, cpt: list(f.cpt.value), icd: list(f.icd.value),
       modifiers: list(f.modifiers.value), amount: f.amount.value } }) });
     showResult(j);
-  } catch (e) { box.innerHTML = ""; const p = document.createElement("p"); p.className = "msg err"; p.textContent = e.message; box.appendChild(p); }
+  } catch (e) { fail(e); }
 };
 init();
