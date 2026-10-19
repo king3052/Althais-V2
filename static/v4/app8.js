@@ -124,6 +124,7 @@
       var w = U.modal('Browser Extension (prototype)',
         '<p class="t2" style="margin:0 0 8px">The extension adds a side panel to Chrome or Edge. On an EMR claim screen, press Read this page, check what it found, then press Check claim. Only codes, payer, date and charge are sent. The patient name and date of birth are never read, and nothing is stored.</p>' +
         '<p class="t2" style="margin:0 0 8px">Create a pairing token and paste it into the extension settings. It is shown once. Making a new one keeps your last five working, and Revoke All stops them all. Use test data only until your practice has the right agreements in place.</p>' +
+        '<p class="t2" style="margin:0 0 8px">To try it with fake patients, open the <a href="/static/mock-emr/index.html" target="_blank" rel="noopener">test claim screens</a>. Each one has a known problem to catch.</p>' +
         '<div id="ext-out"></div>',
         [['Revoke All', '', function () { api('POST', '/api/extension/revoke').then(function () { U.toast('All extension tokens revoked.', 'ok'); }, function (e) { U.toast(e.message, 'warn'); }); return false; }],
          ['Create Token', 'pri', function () {

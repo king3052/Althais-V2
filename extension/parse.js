@@ -40,7 +40,7 @@
     if (!label && el.id) { var l = document.querySelector('label[for="' + el.id.replace(/"/g, "") + '"]'); if (l) label = txt(l); }
     if (!label) { var w = el.closest("label"); if (w) label = txt(w).replace(txt({ innerText: el.value }), ""); }
     var k = kindOf(label) || kindOf(el.getAttribute("placeholder")) || kindOf(el.getAttribute("name")) || kindOf(el.id);
-    var v = el.tagName === "SELECT" ? txt(el.options[el.selectedIndex]) : el.value;
+    var v = el.tagName === "SELECT" ? (el.value ? txt(el.options[el.selectedIndex]) : "") : el.value;
     if (k && v) add(k, v);
   });
 
@@ -91,9 +91,24 @@
     list.forEach(function (s) { (String(s).toUpperCase().match(re) || []).forEach(function (c) { if (out.indexOf(c) < 0) out.push(c); }); });
     return out;
   }
-  var fields = { claim_id: raw.claim_id[0] || "", dos: raw.dos[0] || "", payer: raw.payer[0] || "", pos: raw.pos[0] || "" };
-  fields.cpt = splitCodes(raw.cpt, CPT);
-  fields.icd = splitCodes(raw.icd, ICD);
+  // Placeholders like "(no insurance on file)" or "Select..." mean the field is empty.
+  var EMPTY = /^[\(\[\-\s]*(none|no |not |n\/a|na$|select|choose|unknown|tbd|--)/i;
+  var pick = function (list) { for (var i = 0; i < list.length; i++) if (!EMPTY.test(list[i])) return list[i]; return ""; };
+  var fields = { claim_id: pick(raw.claim_id), dos: pick(raw.dos), payer: pick(raw.payer), pos: pick(raw.pos) };
+  // Labelled fields keep code-like tokens even when they are malformed (e.g. an ICD-9 "7865"), so Althais can flag them
+  // instead of the reader silently dropping them.
+  function labelled(list, re, shape) {
+    var out = splitCodes(list, re);
+    list.forEach(function (s) {
+      String(s).toUpperCase().split(/[\s,;\/|]+/).forEach(function (t) {
+        t = t.replace(/^[^A-Z0-9]+|[^A-Z0-9.]+$/g, "");
+        if (shape.test(t) && /\d/.test(t) && out.indexOf(t) < 0 && !out.some(function (o) { return t.indexOf(o) === 0; })) out.push(t);
+      });
+    });
+    return out.slice(0, 20);
+  }
+  fields.cpt = labelled(raw.cpt, CPT, /^[A-Z0-9]{4,6}$/);
+  fields.icd = labelled(raw.icd, ICD, /^[A-Z0-9][A-Z0-9.]{2,7}$/);
   fields.modifiers = [];
   raw.modifiers.forEach(function (s) { String(s).toUpperCase().split(/[\s,;\/]+/).forEach(function (m) { if (/^[A-Z0-9]{2}$/.test(m) && fields.modifiers.indexOf(m) < 0) fields.modifiers.push(m); }); });
   var amt = 0;
