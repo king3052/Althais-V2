@@ -282,11 +282,18 @@ def fetch_claims(client: Client, days: int):
     if len(listed) > MAX_CLAIMS or total > MAX_CLAIMS:
         listed = listed[:MAX_CLAIMS]
         notes.append(f"Only the first {MAX_CLAIMS} claims were read, to stay inside athenahealth's rate limits. Pull a shorter range for the rest.")
-    patients, insurers, claims = {}, {}, []
+    patients, insurers, claims, unreadable = {}, {}, [], 0
     for row in listed:
         cid = row.get("claimid")
         complete = all(row.get(k) for k in ("procedures", "diagnoses"))
-        detail = row if complete else (client.get(f"/claims/{cid}") if cid else row)
+        detail = row
+        if not complete and cid:
+            try:
+                detail = client.get(f"/claims/{cid}")
+            except AthenaError as e:
+                if "rate limit" in str(e) or "Stopped after" in str(e):
+                    raise
+                unreadable += 1            # keep the claim from the list row: missing data then shows up as findings, not as a failed pull
         detail = {**row, **(detail if isinstance(detail, dict) else {})}
         pid = detail.get("patientid")
         if pid and pid not in patients:
@@ -298,6 +305,8 @@ def fetch_claims(client: Client, days: int):
                 patients[pid] = patients[pid][0] if patients[pid] else {}
             insurers[pid] = patient_insurers(client, pid)
         claims.append(to_canonical(detail, patients.get(pid, {}), insurers.get(pid, {})))
+    if unreadable:
+        notes.append(f"Full details couldn't be read for {unreadable} claim{'s' if unreadable != 1 else ''}, so {'they were' if unreadable != 1 else 'it was'} checked from the list view only.")
     notes.append(f"Read {len(listed)} claims with {client.calls} athenahealth calls ({env_name()} environment).")
     return claims, notes
 

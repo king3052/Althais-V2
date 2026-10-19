@@ -633,7 +633,7 @@ _V4_EQUIV = {
     "/overview": "/v4/overview", "/emr": "/v4/emr/schedule", "/emr/patients": "/v4/emr/patients", "/emr/schedule": "/v4/emr/schedule",
     "/emr/encounter": "/v4/emr/encounter", "/emr/sign-off": "/v4/revenue/claims?q=ready", "/revenue/claims": "/v4/revenue/claims",
     "/revenue/denials": "/v4/revenue/denials", "/revenue/appeals": "/v4/revenue/denials", "/revenue/payer-intelligence": "/v4/revenue/payer-rules",
-    "/staff/team": "/v4/staff/team", "/settings": "/v4/settings", "/revenue/billing-activation": "/v4/revenue/billing-activation",
+    "/staff/team": "/v4/staff/team", "/settings": "/v4/settings", "/revenue/billing-activation": "/v4/revenue/billing-activation", "/revenue/connect": "/v4/revenue/connect",
 }
 
 

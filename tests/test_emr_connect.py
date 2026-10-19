@@ -147,8 +147,11 @@ def test_bad_upload_messages(client):
 
 def test_page_and_emr_list(client):
     assert client.get("/api/integrations/emrs").json()["emrs"][0]["live"] is False
-    r = client.get("/revenue/connect")
+    r = client.get("/revenue/connect", headers={"cookie": "althais_ui=classic"})      # the old layout is still there for anyone who switches back
     assert r.status_code == 200 and "Connect your EMR" in r.text
+    n = client.get("/v4/revenue/connect")                                            # the new EMR page
+    assert n.status_code == 200 and 'data-page="connect"' in n.text and "app8.js" in n.text
+    assert "/v4/revenue/connect" in open("static/v4/ui.js").read()                  # in the Revenue menu next to Billing activation
 
 
 # ---- DrChrono: OAuth plumbing and the record reader, with DrChrono itself faked ----

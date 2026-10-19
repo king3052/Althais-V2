@@ -140,3 +140,16 @@ def test_bad_credentials_and_production_url(client, monkeypatch):
     assert r.status_code == 400 and "credentials" in r.json()["error"]
     monkeypatch.setenv("ATHENA_ENV", "production")
     assert ah.base_url() == "https://api.platform.athenahealth.com"
+
+
+def test_unreadable_detail_does_not_fail_the_pull(monkeypatch):
+    def fake_get(url, params=None, headers=None, **kw):
+        if url.endswith("/departments"):
+            return Resp(200, {"departments": [{"departmentid": "1"}]})
+        if url.endswith("/claims"):
+            return Resp(200, {"claims": [{"claimid": "5", "patientid": 2, "billedservicedate": "10/10/2026", "procedures": [{"procedurecode": "99213", "chargeamount": "90"}]}], "totalcount": 1, "next": None})
+        return Resp(404, {})
+    monkeypatch.setattr(ah.requests, "get", fake_get)
+    monkeypatch.setattr(ah, "get_token", lambda force=False: "AT")
+    claims, notes = ah.fetch_claims(ah.Client("1"), 7)
+    assert claims[0]["claim_id"] == "AH-5" and claims[0]["icd"] == [] and any("couldn't be read for 1 claim" in n for n in notes)

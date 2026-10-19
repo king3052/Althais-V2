@@ -550,6 +550,9 @@ async def connect_page(request: Request, user=Depends(current_user)):
     if not getattr(user, "onboarding_complete", 1):
         return RedirectResponse(url="/onboarding", status_code=302)
     import main as _main      # reuse the app's own template setup and user payload
+    to_v4 = _main._v4_redirect(request, user)      # clinics on the new EMR get the new page
+    if to_v4:
+        return to_v4
     ctx = {"user": user, "verified": None, "user_json": _main._app_user_json(user)}
     return _main.templates.TemplateResponse(request, "integrations.html", ctx)
 
