@@ -10,6 +10,8 @@ What is verified and what is not (read before relying on this):
       offset; reply has claims, totalcount, next) and GET /v1/{practiceid}/claims/{claimid} (detail fields claimid,
       billedservicedate, chargeamount, patientid, diagnoses, procedures, primaryinsurancepayer, billedproviderid,
       supervisingprovidername, ...).
+  Learned from the sandbox: the claim list rejects a call with only dates ("Additional fields are required"), so the connector reads
+  each department in turn (GET /departments, whose field names are NOT verified either).
   NOT verified: the fields INSIDE `diagnoses`, `procedures` and `primaryinsurancepayer` (the docs page collapses them), the
   exact fields the list call returns per claim, and the patient lookup (GET /v1/{practiceid}/patients/{patientid}, used for the
   name and date of birth). The reader tolerates several likely names, but it has never run against athenahealth's sandbox.
@@ -211,20 +213,40 @@ def to_canonical(claim: dict, patient: dict = None) -> dict:
             "cpt": cpt, "icd": icd, "modifiers": list(dict.fromkeys(mods)), "amount": round(amount, 2), "provider": prov, "pos": "", "rows": []}
 
 
+def departments(client: Client, cap=10):
+    """The practice's department IDs (GET /departments; the field names are not verified, so a few spellings are accepted)."""
+    data = client.get("/departments")
+    rows = data.get("departments", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    ids = []
+    for d in rows:
+        v = str(_first(d, ("departmentid", "id")) if isinstance(d, dict) else d).strip()
+        if v and v not in ids:
+            ids.append(v)
+    if not ids:
+        raise AthenaError("athenahealth returned no departments for this practice, and its claim list needs one.")
+    return ids[:cap]
+
+
 def fetch_claims(client: Client, days: int):
     """Claims with a service date in the last `days` days, as canonical claims. Returns (claims, notes)."""
     today = dt.datetime.now(timezone.utc).date()
     start = today - dt.timedelta(days=max(1, min(int(days or 30), 90)))
     fmt = lambda d: d.strftime("%m/%d/%Y")
-    listed, offset, total = [], 0, 0
-    while len(listed) <= MAX_CLAIMS:
-        page = client.get("/claims", {"servicestartdate": fmt(start), "serviceenddate": fmt(today), "limit": PAGE, "offset": offset})
-        rows = page.get("claims", []) if isinstance(page, dict) else []
-        total = page.get("totalcount", len(rows)) if isinstance(page, dict) else len(rows)
-        listed.extend(rows)
-        if not rows or not (isinstance(page, dict) and page.get("next")):
+    # athenahealth's claim list asks for a department (its "Additional fields are required" reply), so read each department in turn.
+    depts = departments(client)
+    listed, total = [], 0
+    for dept in depts:
+        offset = 0
+        while len(listed) <= MAX_CLAIMS:
+            page = client.get("/claims", {"departmentid": dept, "servicestartdate": fmt(start), "serviceenddate": fmt(today), "limit": PAGE, "offset": offset})
+            rows = page.get("claims", []) if isinstance(page, dict) else []
+            total += (page.get("totalcount", len(rows)) if isinstance(page, dict) else len(rows))
+            listed.extend(rows)
+            if not rows or not (isinstance(page, dict) and page.get("next")):
+                break
+            offset += len(rows)
+        if len(listed) > MAX_CLAIMS:
             break
-        offset += len(rows)
     notes = []
     if len(listed) > MAX_CLAIMS or total > MAX_CLAIMS:
         listed = listed[:MAX_CLAIMS]

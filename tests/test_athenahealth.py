@@ -71,8 +71,12 @@ def test_connect_sync_disconnect(client, monkeypatch):
         seen.append(url)
         if url.endswith("/ping"):
             return Resp(200, {"ping": "pong"})
+        if url.endswith("/departments"):
+            return Resp(200, {"departments": [{"departmentid": "1"}, {"departmentid": "2"}]})
         if url.endswith("/claims"):
             assert params["servicestartdate"] and params["serviceenddate"] == today
+            if params["departmentid"] != "1":
+                return Resp(200, {"claims": [], "totalcount": 0, "next": None})
             return Resp(200, {"claims": [{"claimid": "11", "patientid": 5}], "totalcount": 1, "next": None})
         if url.endswith("/claims/11"):
             return Resp(200, {"claimid": "11", "patientid": 5, "billedservicedate": today, "chargeamount": "400", "diagnoses": [{"diagnosiscode": "R07.9"}],
