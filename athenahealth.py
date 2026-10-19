@@ -254,7 +254,8 @@ def fetch_claims(client: Client, days: int):
     patients, claims = {}, []
     for row in listed:
         cid = row.get("claimid")
-        detail = row if (row.get("procedures") and row.get("diagnoses")) else (client.get(f"/claims/{cid}") if cid else row)
+        complete = all(row.get(k) for k in ("procedures", "diagnoses", "chargeamount", "primaryinsurancepayer"))
+        detail = row if complete else (client.get(f"/claims/{cid}") if cid else row)
         detail = {**row, **(detail if isinstance(detail, dict) else {})}
         pid = detail.get("patientid")
         if pid and pid not in patients:
@@ -308,6 +309,34 @@ async def connect(request: Request, user=Depends(require_biller), db: Session = 
         return JSONResponse({"error": "Couldn't reach athenahealth. Try again in a minute."}, status_code=502)
     _save(db, _org_namespace(user), {"practice_id": pid, "connected_at": dt.datetime.now(timezone.utc).isoformat()})
     return {"ok": True}
+
+
+@router.get("/api/integrations/athenahealth/sample")
+def sample(user=Depends(require_biller), db: Session = Depends(get_db)):
+    """Preview environment only: the raw athenahealth records behind the first claim, so the field mapping can be checked against
+    what athenahealth really sends. Refuses in production, where these would be real patients' records."""
+    ec._gate(user, db)
+    if env_name() != "preview":
+        return JSONResponse({"error": "The raw sample is only available in the preview (test data) environment."}, status_code=403)
+    _, doc = _load(db, _org_namespace(user))
+    if not doc.get("practice_id") or not configured():
+        return JSONResponse({"error": "athenahealth isn't connected yet."}, status_code=400)
+    try:
+        client = Client(doc["practice_id"])
+        today = dt.datetime.now(timezone.utc).date()
+        for dept in departments(client):
+            page = client.get("/claims", {"departmentid": dept, "servicestartdate": (today - dt.timedelta(days=90)).strftime("%m/%d/%Y"),
+                                          "serviceenddate": today.strftime("%m/%d/%Y"), "limit": 1, "offset": 0})
+            rows = page.get("claims", []) if isinstance(page, dict) else []
+            if rows:
+                cid, pid = rows[0].get("claimid"), rows[0].get("patientid")
+                return {"list_row": rows[0], "detail": client.get(f"/claims/{cid}") if cid else None,
+                        "patient": client.get(f"/patients/{pid}") if pid else None}
+        return JSONResponse({"error": "No claims found in the last 90 days."}, status_code=404)
+    except AthenaError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except requests.RequestException:
+        return JSONResponse({"error": "Couldn't reach athenahealth. Try again in a minute."}, status_code=502)
 
 
 @router.post("/api/integrations/athenahealth/disconnect")

@@ -102,6 +102,11 @@ def test_connect_sync_disconnect(client, monkeypatch):
     j = s.json()
     assert j["summary"]["total"] == 1 and j["claims"][0]["claim_id"] == "AH-11" and j["claims"][0]["patient_name"] == "Jane Doe" and j["claims"][0]["verdict"] == "clean"
     assert all("/v1/195900/" in u for u in seen)
+    smp = client.get("/api/integrations/athenahealth/sample")
+    assert smp.status_code == 200 and smp.json()["list_row"]["claimid"] == "11" and smp.json()["detail"]["claimid"] == "11"
+    monkeypatch.setenv("ATHENA_ENV", "production")
+    assert client.get("/api/integrations/athenahealth/sample").status_code == 403         # never shows raw records outside the test environment
+    monkeypatch.delenv("ATHENA_ENV")
     assert all(c["id"] != "AH-11" for c in client.get("/api/integrations/worklist").json()["claims"])     # a sync only previews
     client.post("/api/integrations/import/commit", json={"emr": "athenahealth", "claims": j["claims"]})
     assert any(c["id"] == "AH-11" for c in client.get("/api/integrations/worklist").json()["claims"])
