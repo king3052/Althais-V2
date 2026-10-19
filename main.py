@@ -96,6 +96,8 @@ import drchrono      # DrChrono connection (OAuth + pull), see drchrono.py
 app.include_router(drchrono.router)
 import athenahealth   # athenahealth connection (2-legged OAuth + pull), see athenahealth.py
 app.include_router(athenahealth.router)
+import extension_api   # browser extension: pairing token + claim check, see extension_api.py
+app.include_router(extension_api.router)
 import remittance    # payment files (835): paid/denied, denial analytics, appeal drafts (remittance.py)
 app.include_router(remittance.router)
 

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Althais Claim Check</title><link rel="stylesheet" href="panel.css"></head>
+<body>
+<header><b>Althais</b> <span class="sub">Claim check</span><button id="gear" title="Settings" aria-label="Settings">&#9881;</button></header>
+
+<section id="settings" hidden>
+  <label>Althais address<input id="server" spellcheck="false" placeholder="https://web-production-8fe4.up.railway.app"></label>
+  <label>Pairing token<input id="token" type="password" spellcheck="false" placeholder="Paste from Revenue > Connect EMR"></label>
+  <div class="row"><button id="save" class="pri">Save</button><button id="test">Test connection</button></div>
+  <p id="setmsg" class="msg"></p>
+</section>
+
+<main id="main">
+  <p class="note">Open a claim in your EMR, then press the button. Nothing is read until you do.</p>
+  <button id="read" class="pri wide">Read this page</button>
+  <p id="readmsg" class="msg"></p>
+
+  <form id="form" autocomplete="off" hidden>
+    <p class="note">Check these against the screen and fix anything that is wrong.</p>
+    <label>Claim ID<input name="claim_id"></label>
+    <label>Date of service<input name="dos" placeholder="MM/DD/YYYY"></label>
+    <label>Payer<input name="payer"></label>
+    <label>CPT / HCPCS <span class="hint">comma separated</span><input name="cpt"></label>
+    <label>ICD-10 <span class="hint">comma separated</span><input name="icd"></label>
+    <label>Modifiers<input name="modifiers"></label>
+    <label>Charge ($)<input name="amount" inputmode="decimal"></label>
+    <button id="check" class="pri wide" type="submit">Check claim</button>
+  </form>
+  <div id="result" aria-live="polite"></div>
+</main>
+<footer>Only the codes, payer, date and charge are sent. The patient's name and date of birth are never read. Nothing is saved.</footer>
+<script src="panel.js"></script>
+</body></html>

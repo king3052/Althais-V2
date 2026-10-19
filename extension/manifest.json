@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Althais Claim Check",
+  "version": "0.1.0",
+  "description": "Press a button on an EMR claim screen and Althais checks the codes before you submit. Prototype.",
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
+  "host_permissions": ["https://web-production-8fe4.up.railway.app/*", "https://*.althais.com/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "panel.html" },
+  "action": { "default_title": "Althais Claim Check" },
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
+}

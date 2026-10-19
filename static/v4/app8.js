@@ -76,7 +76,7 @@
     var strip = U.strip([['EMR Connection', cur ? E(cur.label) : 'Upload only', cur ? 'live' : 'no live connection yet', cur ? 'grn' : ''], ['Saved Claims', SUM ? SUM.open : '-', 'waiting in the worklist'], ['Flagged', SUM ? SUM.flagged : '-', 'need a fix or review', SUM && SUM.flagged ? 'amb' : ''],
       ['Charges At Risk', SUM ? M(SUM.at_risk) : '-', SUM && SUM.by_payer && SUM.by_payer[0] ? 'most at ' + E(SUM.by_payer[0].payer) : ''], ['In This Preview', s ? s.total : '-', s ? s.clean + ' clean · ' + s.fix + ' fix first' : 'nothing loaded']]);
     var pullable = action(emr(SEL), 'sync');
-    var tb = U.toolbar('Connect EMR', [['Upload File', 'upload', { pri: 1, id: 'cx-upload' }], pullable ? ['Pull Last 30 Days', 'refresh', { id: 'cx-pull' }] : null, '|', ['Get Template', 'download', { id: 'cx-template' }], ['Refresh', 'refresh', { id: 'cx-refresh' }], '|', ['Claims', 'send', { href: '/v4/revenue/claims' }]].filter(Boolean),
+    var tb = U.toolbar('Connect EMR', [['Upload File', 'upload', { pri: 1, id: 'cx-upload' }], pullable ? ['Pull Last 30 Days', 'refresh', { id: 'cx-pull' }] : null, '|', ['Get Template', 'download', { id: 'cx-template' }], ['Refresh', 'refresh', { id: 'cx-refresh' }], '|', ['Browser Extension', 'send', { id: 'cx-ext' }], ['Claims', 'send', { href: '/v4/revenue/claims' }]].filter(Boolean),
       '<span class="tc s-mut" title="Claims are checked before anything is saved">Checked Before It Leaves</span>');
     var left = U.pane('Your EMR', '', '', U.queue([{ h: 'Choose Yours', items: EMRS.map(function (e) { return { key: e.key, label: e.label, n: e.live ? 'Live' : '', color: e.live ? 'grn' : null }; }) }], SEL));
     var body, footer = '';
@@ -120,6 +120,22 @@
     U.on(app, '#cx-upload, #cx-upload2', 'click', upload);
     U.on(app, '#cx-pull', 'click', function () { pull(30); });
     U.on(app, '#cx-template', 'click', function () { location.href = '/api/integrations/template.csv'; });
+    U.on(app, '#cx-ext', 'click', function () {
+      var w = U.modal('Browser Extension (prototype)',
+        '<p class="t2" style="margin:0 0 8px">The extension adds a side panel to Chrome or Edge. On an EMR claim screen, press Read this page, check what it found, then press Check claim. Only codes, payer, date and charge are sent. The patient name and date of birth are never read, and nothing is stored.</p>' +
+        '<p class="t2" style="margin:0 0 8px">Create a pairing token and paste it into the extension settings. It is shown once. Making a new one keeps your last five working, and Revoke All stops them all. Use test data only until your practice has the right agreements in place.</p>' +
+        '<div id="ext-out"></div>',
+        [['Revoke All', '', function () { api('POST', '/api/extension/revoke').then(function () { U.toast('All extension tokens revoked.', 'ok'); }, function (e) { U.toast(e.message, 'warn'); }); return false; }],
+         ['Create Token', 'pri', function () {
+           api('POST', '/api/extension/token').then(function (j) {
+             var o = document.getElementById('ext-out');
+             o.innerHTML = '<label class="ask-l" for="ext-tok">Pairing token</label><input id="ext-tok" readonly style="width:100%" value="' + U.esc(j.token) + '"><div class="t2" style="margin-top:6px;font-size:12px">Copy it now. It will not be shown again.</div>';
+             var i = document.getElementById('ext-tok'); i.focus(); i.select();
+           }, function (e) { U.toast(e.message, 'warn'); });
+           return false;
+         }],
+         ['Close', '', function () {}]], { width: 520 });
+    });
     U.on(app, '#cx-refresh', 'click', function () { load().then(function () { U.toast('Up to date.', 'ok'); }); });
     U.on(app, '#cx-save-clean', 'click', function () { save(true); });
     U.on(app, '#cx-save-all', 'click', function () {
