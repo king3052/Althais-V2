@@ -22,10 +22,13 @@ async function api(path, opts) {
 
 async function init() {
   const s = await store.get();
+  const a = await new Promise((r) => chrome.storage.local.get(["auto"], r));
+  auto.on = a.auto !== false; setAutoUi();
   cfg = { server: s.server || DEFAULT_SERVER, token: s.token || "" };
   $("server").value = cfg.server; $("token").value = cfg.token;
   if (!cfg.token) $("settings").hidden = false;
   status();
+  soon(300);
 }
 
 $("gear").onclick = () => { $("settings").hidden = !$("settings").hidden; };
@@ -48,7 +51,7 @@ function fill(fields) {
 }
 
 // Reads every frame of the tab (athenaOne and other EMRs put claim screens inside frames), then merges what each frame found.
-async function scan(diag) {
+async function scan(diag, quiet) {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab || !/^https?:/.test(tab.url || "")) throw new Error("Open your EMR claim page in this tab first.");
   let frames = [];
@@ -56,8 +59,10 @@ async function scan(diag) {
   const origins = [...new Set([tab.url, ...frames.map((f) => f.url)].filter((u) => /^(https:|http:\/\/localhost)/.test(u || "")).map((u) => new URL(u).origin + "/*"))];
   if (!origins.length) throw new Error("This page isn't on a secure (https) address, so it can't be read.");
   const has = await chrome.permissions.contains({ origins });
+  if (!has && quiet) { const e = new Error("needs-permission"); e.quiet = true; throw e; }
   if (!has && !(await chrome.permissions.request({ origins }))) throw new Error("Chrome needs your OK to read this site. Press the button again and choose Allow.");
   const target = { tabId: tab.id, allFrames: true };
+  scan.tabUrl = tab.url;
   await chrome.scripting.executeScript({ target, func: (d) => { globalThis.__althaisDiag = d; }, args: [!!diag] });
   const res = await chrome.scripting.executeScript({ target, files: ["parse.js"] });
   return (res || []).map((r) => r.result).filter(Boolean);
@@ -78,19 +83,66 @@ function merge(outs) {
   return { fields: f, found, guessed: [...guessed], host: [...hosts].filter(Boolean).join(", "), frames: outs.length };
 }
 
+function readMessage(out, auto) {
+  const got = Object.keys(out.found).filter((k) => out.found[k]).length;
+  let m = got ? (auto ? "Read automatically: " : "Read ") + got + " field" + (got > 1 ? "s" : "") + " from " + out.host + (out.frames > 1 ? " (" + out.frames + " frames)" : "") + "." : "Nothing recognised on this page. Type the codes in below, or create a page report below.";
+  if (out.guessed.length) m += " " + out.guessed.join(" and ").toUpperCase() + " were guessed from the page text, so double-check them.";
+  say("readmsg", m, !got);
+}
+
 $("read").onclick = async () => {
   say("readmsg", ""); $("result").innerHTML = "";
   try {
     const outs = await scan(false);
     if (!outs.length) throw new Error("Couldn't read this page. Type the codes in below.");
     const out = merge(outs);
-    fill(out.fields);
-    const got = Object.keys(out.found).filter((k) => out.found[k]).length;
-    let m = got ? "Read " + got + " field" + (got > 1 ? "s" : "") + " from " + out.host + (out.frames > 1 ? " (" + out.frames + " frames)" : "") + "." : "Nothing recognised on this page. Type the codes in below, or create a page report below.";
-    if (out.guessed.length) m += " " + out.guessed.join(" and ").toUpperCase() + " were guessed from the page text, so double-check them.";
-    say("readmsg", m, !got);
+    fill(out.fields); auto.fp = fingerprint(out.fields); auto.dirty = false;
+    readMessage(out, false);
+    if (auto.on && cfg.token && (out.fields.cpt.length || out.fields.icd.length)) runCheck();
   } catch (e) { say("readmsg", e.message, true); $("form").hidden = false; }
 };
+
+// ---- Automatic mode. Runs only while this panel is open, and only on sites the person has already allowed once.
+// It re-reads when the tab changes, a frame finishes loading, or the page changes in place, and checks the claim when it changes.
+const auto = { on: true, fp: "", dirty: false, busy: false, timer: 0, lastTry: 0 };
+const fingerprint = (f) => JSON.stringify([f.claim_id, f.dos, f.payer, f.cpt, f.icd, f.modifiers, f.amount]);
+function setAutoUi() {
+  $("auto").checked = auto.on;
+  $("autohint").textContent = auto.on ? "On: claims are read and checked as you open them." : "Off: press Read this page for each claim.";
+}
+function soon(ms) { clearTimeout(auto.timer); auto.timer = setTimeout(autoScan, ms || 500); }
+async function autoScan() {
+  if (!auto.on || auto.busy || document.hidden) return;
+  auto.busy = true;
+  try {
+    const outs = await scan(false, true);
+    let own = ""; try { own = new URL(base()).host; } catch (e) {}
+    const tu = scan.tabUrl ? new URL(scan.tabUrl) : null;
+    if (own && tu && tu.host === own && !tu.pathname.startsWith("/static/mock-emr/")) return;   // never auto-read Althais's own app pages (the test screens are fine)
+    if (!outs.length) return;
+    const out = merge(outs);
+    if (!out.fields.cpt.length && !out.fields.icd.length) return;                    // not a claim screen
+    const fp = fingerprint(out.fields);
+    if (fp === auto.fp) return;
+    const f = $("form");
+    if (auto.dirty && f.claim_id.value && f.claim_id.value === out.fields.claim_id) return;   // don't overwrite the person's edits on the same claim
+    fill(out.fields); auto.fp = fp; auto.dirty = false;
+    readMessage(out, true);
+    if (cfg.token) await runCheck(); else $("result").innerHTML = "";
+  } catch (e) {
+    if (e.quiet && Date.now() - auto.lastTry > 1500) say("readmsg", "Press Read this page once to allow Althais on this site. After that it reads automatically.");
+    auto.lastTry = Date.now();
+  } finally { auto.busy = false; }
+}
+async function activeTabId() { const [t] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }); return t && t.id; }
+chrome.tabs.onActivated.addListener(() => { auto.fp = ""; soon(300); });
+chrome.tabs.onUpdated.addListener(async (id, ch) => { if (ch.status === "complete" && id === await activeTabId()) soon(400); });
+for (const ev of ["onCompleted", "onHistoryStateUpdated", "onReferenceFragmentUpdated"])
+  if (chrome.webNavigation && chrome.webNavigation[ev]) chrome.webNavigation[ev].addListener(async (d) => { if (d.tabId === await activeTabId()) soon(600); });
+setInterval(() => { if (auto.on) autoScan(); }, 4000);                              // catches screens that change without navigating
+document.addEventListener("visibilitychange", () => { if (!document.hidden) soon(200); });
+$("form").addEventListener("input", () => { auto.dirty = true; });
+$("auto").onchange = async () => { auto.on = $("auto").checked; await chrome.storage.local.set({ auto: auto.on }); setAutoUi(); if (auto.on) { auto.fp = ""; soon(100); } };
 
 $("mkdiag").onclick = async () => {
   try {
@@ -138,9 +190,8 @@ $("fetch").onclick = async () => {
 };
 
 const list = (s) => s.split(/[,\s;]+/).map((x) => x.trim()).filter(Boolean);
-$("form").onsubmit = async (ev) => {
-  ev.preventDefault();
-  const f = $("form"), box = $("result");
+async function runCheck() {
+  const f = $("form");
   if (!cfg.token) { $("settings").hidden = false; say("setmsg", "Paste your pairing token first.", true); return; }
   busy("Checking claim…");
   try {
@@ -149,5 +200,6 @@ $("form").onsubmit = async (ev) => {
       modifiers: list(f.modifiers.value), amount: f.amount.value } }) });
     showResult(j);
   } catch (e) { fail(e); }
-};
+}
+$("form").onsubmit = (ev) => { ev.preventDefault(); runCheck(); };
 init();

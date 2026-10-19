@@ -21,7 +21,8 @@
 
 <main id="main">
   <section class="card hero">
-    <div class="step"><span class="n">1</span><div><b>Open a claim in your EMR</b><span>Nothing is read until you press the button.</span></div></div>
+    <div class="step"><span class="n">1</span><div><b>Open a claim in your EMR</b><span>Althais reads only sites you allow, and only while this panel is open.</span></div></div>
+    <label class="switch"><input type="checkbox" id="auto" checked><span class="track"><span class="knob"></span></span><span class="sw-text"><b>Automatic</b><span id="autohint"></span></span></label>
     <button id="read" class="btn pri wide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6M8 14h8M8 17h5"/></svg>Read this page</button>
     <p id="readmsg" class="msg"></p>
   </section>

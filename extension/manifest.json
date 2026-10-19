@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Althais Claim Check",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Press a button on an EMR claim screen and Althais checks the codes before you submit. Prototype.",
   "permissions": [
     "activeTab",
