@@ -105,6 +105,12 @@ EMRS = {
         "live_state": "Needs an AdvancedMD developer license and a certified integration (API connection request).",
         "access": "Developer license + certification",
     },
+    "tebra": {
+        "label": "Tebra", "segment": "Independent practices",
+        "live": None,
+        "live_state": "A practice's Tebra admin generates a Customer Key; the clinic connects Althais itself.",
+        "access": "Customer Key (self-service)",
+    },
     "other": {
         "label": "Other EMR", "segment": "Any system that can export a charges report",
         "live": None,
@@ -508,7 +514,7 @@ async def api_commit(request: Request, user=Depends(require_biller), db: Session
             made += 1
             db.add(OrgClaim(org_key=org, claim_id=cid, patient_name=c["patient_name"], mrn=c["mrn"], payer=c["payer"],
                             codes=json.dumps(codes), note=note, amount=c["amount"], status=STATUS_FOR[c["verdict"]],
-                            score=c["score"], flags=json.dumps(flags), dos=c["dos"], provider=c["provider"], source=(emr if emr in ("drchrono", "athenahealth") else "import")))
+                            score=c["score"], flags=json.dumps(flags), dos=c["dos"], provider=c["provider"], source=(emr if emr in ("drchrono", "athenahealth", "tebra") else "import")))
     record_activity(db, user, "codes", made + updated)
     db.commit()
     return {"ok": True, "created": made, "updated": updated, "skipped": skipped, "summary": summarize(checked)}
@@ -567,3 +573,6 @@ from athenahealth import Athenahealth   # noqa: E402
 
 EMRS["athenahealth"]["live"] = Athenahealth
 EMRS["athenahealth"]["live_state"] = "Built, but not switched on until the athenahealth app credentials are set."
+
+from tebra import Tebra   # noqa: E402
+EMRS["tebra"]["live"] = Tebra

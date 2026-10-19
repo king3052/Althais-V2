@@ -181,7 +181,7 @@
     async function act(emr, kind, days) {
       try {
         if (kind === 'sync') {
-          const nm = emr === 'athenahealth' ? 'athenahealth' : 'DrChrono';
+          const nm = { athenahealth: 'athenahealth', tebra: 'Tebra' }[emr] || 'DrChrono';
           say('Pulling the last ' + days + ' days from ' + nm + '. This can take a minute…'); EMR = emr;
           render(await api('/api/integrations/' + emr + '/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: days }) }));
           say('Review the preview below. ' + nm + ' field names haven\'t been tested on a real account yet, so compare a few claims with ' + nm + ' before saving.'); loadEmrs();
@@ -190,6 +190,13 @@
           if (!pid) return;
           await api('/api/integrations/athenahealth/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ practice_id: pid }) });
           say('athenahealth connected. Pull recent claims from its card above.'); loadEmrs();
+        } else if (kind === 'tebra') {
+          const user = (window.prompt('Tebra API username:') || '').trim(); if (!user) return;
+          const password = window.prompt('Tebra password (stored encrypted):') || ''; if (!password) return;
+          const key = (window.prompt('Tebra Customer Key (your Tebra System Administrator generates it):') || '').trim(); if (!key) return;
+          const practice = (window.prompt('Practice name, only if your account has more than one (otherwise leave blank):') || '').trim();
+          await api('/api/integrations/tebra/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user, password, customer_key: key, practice }) });
+          say('Tebra connected. Pull recent claims from its card above.'); loadEmrs();
         } else if (kind === 'disconnect') {
           await api('/api/integrations/' + emr + '/disconnect', { method: 'POST' }); say('Disconnected.'); loadEmrs();
         }

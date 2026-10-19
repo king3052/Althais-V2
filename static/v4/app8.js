@@ -53,9 +53,9 @@
       if (a.kind === 'link') return '<a class="btn pri" href="' + E(a.url) + '">' + E(a.label) + '</a>';
       return '<button type="button" class="btn' + (a.kind === 'disconnect' ? '' : ' pri') + '" data-act="' + E(a.kind) + '" data-days="' + (a.days || '') + '">' + E(a.label) + '</button>';
     }).join(' ');
-    var test = /preview|test/i.test(e.live_state || '');
+    var test = /\(preview data\)/i.test(e.live_state || '');
     return U.pane(E(e.label), E(e.segment), '', '<div class="dp-sec">' + U.kv([['Connection', e.live ? '<span class="tc s-grn">' + U.I.check + 'Connected</span>' : '<span class="tc s-mut">Upload only</span>'], ['Access route', E(e.access)]]) +
-      '<div class="t2" style="margin-top:8px;line-height:1.5">' + E(e.live_state) + '</div>' + (test ? '<div class="mut" style="margin-top:6px;font-size:12px">This is the vendor’s test data, not real patients. Real clinics need the vendor’s production approval and a signed agreement first.</div>' : '') +
+      '<div class="t2" style="margin-top:8px;line-height:1.5">' + E(e.live_state) + '</div>' + (e.key === 'tebra' ? '<div class="mut" style="margin-top:6px;font-size:12px">This connects to a real Tebra account. Connect a live practice only after it has signed a business associate agreement with Althais.</div>' : '') + (test ? '<div class="mut" style="margin-top:6px;font-size:12px">This is the vendor’s test data, not real patients. Real clinics need the vendor’s production approval and a signed agreement first.</div>' : '') +
       (acts ? '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' + acts + '</div>' : '') + '</div>' +
       '<div class="dp-sec"><div class="dp-h">Upload works too</div><div class="t2" style="line-height:1.5">Any ' + E(e.label) + ' charges or claims export (CSV or Excel) can be checked now, with or without a live connection.</div>' +
       '<div style="margin-top:8px"><button type="button" class="btn" id="cx-upload2">Upload File</button></div></div>' + claimDetail());
@@ -150,6 +150,14 @@
       if (kind === 'practice') return U.ask('Connect ' + e.label, 'Practice ID', '', function (v) {
         api('POST', '/api/integrations/' + SEL + '/connect', { practice_id: v }).then(function () { U.toast(e.label + ' connected.', 'ok'); load(); }, function (er) { U.toast(er.message, 'warn'); });
       }, { ok: 'Connect', ph: 'Digits only. The test practice has its own ID.', html: '<p class="t2" style="margin:0 0 10px">Your practice ID is in ' + E(e.label) + '. Althais reads claims only and never changes your records.</p>' });
+      if (kind === 'tebra') return U.form('Connect Tebra', [
+          { k: 'user', label: 'Tebra API username', req: 1, span: 2, ph: 'A separate Tebra user just for Althais is best' },
+          { k: 'password', label: 'Password', type: 'password', req: 1, span: 2 },
+          { k: 'customer_key', label: 'Customer Key', req: 1, span: 2, help: 'Your Tebra System Administrator generates this in Tebra. See Tebra Help: Get Started: Tebra SOAP APIs.' },
+          { k: 'practice', label: 'Practice name (optional)', span: 2, help: 'Only if your Tebra account has more than one practice. Type it exactly as Tebra shows it.' }
+        ], {}, function (v) {
+          api('POST', '/api/integrations/tebra/connect', v).then(function () { U.toast('Tebra connected.', 'ok'); load(); }, function (er) { U.toast(er.message, 'warn'); });
+        }, { save: 'Connect', width: 560, intro: 'Althais reads charges only and never changes anything in Tebra. Your login and key are stored encrypted and never shown again.' });
       if (kind === 'disconnect') return U.confirm('Disconnect ' + e.label, '<p class="cf">Althais stops pulling claims from ' + E(e.label) + '. Claims you already saved stay in the worklist.</p>', 'Disconnect', function () {
         api('POST', '/api/integrations/' + SEL + '/disconnect').then(function () { PREVIEW = null; U.toast('Disconnected.', 'ok'); load(); }, function (er) { U.toast(er.message, 'warn'); });
       }, { danger: 1 });
