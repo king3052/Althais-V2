@@ -327,7 +327,8 @@
       .tabs button{border:0;background:none;padding:6px 10px 8px;font-weight:600;font-size:12.5px;color:var(--mut);border-bottom:2px solid transparent;margin-bottom:-1px}
       .tabs button[aria-selected="true"]{color:var(--brand);border-bottom-color:var(--brand)}
       .tabs button:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:4px}
-      .pane{overflow:auto;padding:12px 14px;display:grid;gap:10px}
+      .pane{overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+      .pane>*{flex-shrink:0}
       .lede{color:var(--fg2);font-size:12.5px;margin:0}
       .note2{color:var(--mut);font-size:11.5px;margin:0}
       .bad{color:var(--red);font-size:12.5px;margin:0}
@@ -357,6 +358,25 @@
       .bl.e{border-color:var(--red)}
       .bl b{display:block}
       .warnbox{background:var(--amb-bg);color:var(--amb);border-radius:8px;padding:8px 10px;font-size:12px}
+      .info{background:var(--soft);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--fg2);margin:0}
+      .pv{border:1px solid var(--line);border-radius:10px}
+      .pvh{border-radius:10px 10px 0 0}.svc tfoot td:first-child{border-bottom-left-radius:10px}.svc tfoot td:last-child{border-bottom-right-radius:10px}
+      .pvh{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--soft);padding:8px 11px;border-bottom:1px solid var(--line)}
+      .pvh span{font:700 10.5px system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+      .pvg{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:10px 11px}
+      .kv{display:grid;gap:1px;min-width:0}.kv span{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--mut)}
+      .kv b{font-weight:600;overflow-wrap:anywhere}
+      .wrap .pane .miss{color:var(--red);font-weight:600}
+      .pvs{font:700 10.5px system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);padding:8px 11px 4px;border-top:1px solid var(--line)}
+      .dxl{list-style:none;margin:0;padding:0 11px 8px;display:grid;gap:3px}
+      .dxl .ltr{display:inline-block;width:18px;color:var(--mut);font-weight:700}
+      .svc{width:100%;border-collapse:collapse;font-size:12.5px}
+      .svc th{font-size:10.5px;color:var(--mut);text-align:left;font-weight:600;padding:3px 11px}
+      .svc td{padding:5px 11px;border-top:1px solid var(--line);vertical-align:top}
+      .svc td small{display:block;color:var(--mut);font-size:11px}
+      .svc .r{text-align:right}
+      .svc tfoot td{font-weight:700;background:var(--soft)}
+      .pane > p.miss{margin:0 11px}
       .spin2{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--brand);animation:spin .8s linear infinite;display:inline-block;vertical-align:-2px;margin-right:6px}
       @media (prefers-reduced-motion:reduce){.card,.wrap.checking .m svg,.wrap.shake .pill,.spin2{animation:none}}
     </style>
@@ -368,8 +388,8 @@
     const w = $("w"), pill = $("pill"), card = $("card");
     let state = "idle", stateText = "", last = null, open = false, warnN = 0, hidden = false, offHost = false, panelOpen = false;
     let mode = "check";                                                   // check | code | claim
-    const cs = { busy: false, err: "", res: null, picked: {}, done: "" };          // Code note
-    const ks = { busy: false, err: "", form: null, out: null, confirm: false, done: "" };   // Create claim
+    const cs = { busy: false, err: "", res: null, picked: {}, done: "", info: "", bound: "", label: "" };          // Code note
+    const ks = { busy: false, err: "", form: null, out: null, preview: null, done: "", info: "", dirty: false, auto: false, key: "" };   // Create claim
     const call = (msg) => new Promise((res) => { try { chrome.runtime.sendMessage(msg, (r) => { void chrome.runtime.lastError; res(r || { ok: false, error: "The extension didn't answer. Reload the page." }); }); } catch (e) { res({ ok: false, error: "The extension was updated. Reload the page." }); } });
     const hostKey = "pos:" + location.host;
 
@@ -489,7 +509,13 @@
       return '<div class="tabs" role="tablist">' + [["check", "Check"], ["code", "Code note"], ["claim", "Create claim"]].map(([k, l]) =>
         '<button type="button" role="tab" data-mode="' + k + '" aria-selected="' + (mode === k) + '">' + l + "</button>").join("") + "</div>";
     }
-    function wireTabs() { card.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { mode = b.dataset.mode; render(true); })); }
+    function wireTabs() {
+      card.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => {
+        mode = b.dataset.mode;
+        if (mode === "claim" && ks.auto && !ks.form && !ks.busy) { const i = ks.pendingInfo; ks.pendingInfo = ""; startClaim(i); return; }   // pick up the claim now on screen
+        render(true);
+      }));
+    }
     function frame(title, meta, body, kind) {
       card.innerHTML = head(kind || "idle", title, meta) + TABS() + '<div class="pane">' + body + "</div>";
       root.getElementById("close").onclick = () => { setOpen(false); pill.focus(); };
@@ -501,7 +527,8 @@
       let b = "";
       if (cs.busy) b = '<p class="lede"><span class="spin2"></span>Reading the note and suggesting codes…</p>';
       else if (!cs.res) {
-        b = '<p class="lede">Open the visit note (or select its text) and Althais suggests CPT and ICD-10 codes, each with the line from the note that supports it.</p>' +
+        b = (cs.info ? '<p class="info" role="status">' + esc(cs.info) + "</p>" : "") +
+          '<p class="lede">Open the visit note (or select its text) and Althais suggests CPT and ICD-10 codes, each with the line from the note that supports it.</p>' +
           (cs.err ? '<p class="bad" role="alert">' + esc(cs.err) + "</p>" : "") +
           '<div class="row"><button class="btn pri" id="cn" type="button">Code this note</button></div>' +
           '<p class="note2">This sends the note text to Althais. Use synthetic notes until your practice has a signed agreement with Althais. A person must review every code.</p>';
@@ -521,13 +548,13 @@
           '<p class="note2">Fill into EMR types the picked codes into empty code fields on the claim screen. Check them and save in your EMR as usual.</p>';
         }
       }
-      frame("Code this note", "Suggestions from the visit note", b);
+      frame("Code this note", cs.res && cs.label ? "For claim " + cs.label : "Suggestions from the visit note", b);
       const go = root.getElementById("cn");
       if (go) go.onclick = async () => {
         cs.busy = true; cs.err = ""; cs.done = ""; render(true);
         const r = await call({ t: "codeNote" });
         cs.busy = false;
-        if (r.ok) { cs.res = r.v; cs.picked = {}; (r.v.codes || []).forEach((c, i) => { if (c.confidence != null && c.confidence < 60) cs.picked[i] = false; }); } else cs.err = r.error;
+        if (r.ok) { cs.res = r.v; cs.picked = {}; cs.info = ""; cs.bound = claimOnScreen && last ? claimKey(last.fields) : ""; cs.label = cs.bound && last.fields ? last.fields.claim_id || "" : ""; (r.v.codes || []).forEach((c, i) => { if (c.confidence != null && c.confidence < 60) cs.picked[i] = false; }); } else cs.err = r.error;
         render(true);
       };
       card.querySelectorAll("[data-pick]").forEach((x) => (x.onchange = () => { cs.picked[x.dataset.pick] = x.checked; }));
@@ -555,27 +582,31 @@
         render(true);
       };
       const u = root.getElementById("cu");
-      if (u) u.onclick = () => { const p = split(); ks.form = null; ks.seed = p; mode = "claim"; render(true); startClaim(); };
+      if (u) u.onclick = () => { const p = split(); ks.form = null; ks.seed = p; mode = "claim"; startClaim(); };
     }
 
     // ---------- Phase 2: create a claim in Althais ----------
-    async function startClaim() {
-      ks.busy = true; ks.err = ""; ks.out = null; ks.confirm = false; ks.done = ""; render(true);
+    const POS = { "11": "Office", "19": "Off-campus outpatient hospital", "20": "Urgent care facility", "21": "Inpatient hospital", "22": "On-campus outpatient hospital", "23": "Emergency room, hospital", "02": "Telehealth", "10": "Telehealth at home" };
+    const blankLine = () => ({ code: "", mod: "", units: 1, charge: "" });
+    async function startClaim(info) {
+      Object.assign(ks, { busy: true, err: "", out: null, preview: null, done: "", dirty: false, info: info || "", auto: true });
+      render(true);
       const r = await call({ t: "claimPrefill" });
       ks.busy = false;
       if (!r.ok) { ks.err = r.error; render(true); return; }
       const p = r.v.party || {}, f = r.v.fields || {}, seed = ks.seed || {};
       let lines = (f.lines && f.lines.length ? f.lines : (f.cpt || []).map((c) => ({ code: c, mod: "", units: 1, charge: "" })));
       (seed.cpt || []).forEach((c) => { if (!lines.some((l) => l.code === c)) lines.push({ code: c, mod: "", units: 1, charge: "" }); });
-      if (!lines.length) lines = [{ code: "", mod: "", units: 1, charge: "" }];
+      if (!lines.length) lines = [blankLine()];
       const icd = [...new Set([...(f.icd || []), ...(seed.icd || [])])];
       ks.form = { patient: p.patient || "", dob: p.dob || "", sex: p.sex || "", insuredId: p.insuredId || "", mrn: p.mrn || "", payer: f.payer || "", provider: p.provider || "",
         svcDate: f.dos || "", pos: f.pos || "", claimId: f.claim_id || "", icd: icd.join(", "), lines };
+      ks.key = claimKey(f) || ks.key;
       ks.seed = null;
       render(true);
     }
     function readForm() {
-      if (!ks.form) return;
+      if (!ks.form || ks.preview) return;
       const v = (id) => { const el = root.getElementById(id); return el ? el.value.trim() : ""; };
       ["patient", "dob", "sex", "insuredId", "payer", "provider", "svcDate", "pos", "claimId", "icd"].forEach((k) => { ks.form[k] = v("k_" + k); });
       ks.form.lines = [...card.querySelectorAll(".ln[data-i]")].map((row) => ({ code: row.querySelector('[data-f="code"]').value.trim().toUpperCase(),
@@ -585,6 +616,35 @@
       payer: ks.form.payer, provider: ks.form.provider, svcDate: ks.form.svcDate, pos: ks.form.pos,
       cpts: ks.form.lines.filter((l) => l.code).map((l) => ({ code: l.code, modifier: l.mod, units: l.units || 1, charge: l.charge })),
       icds: ks.form.icd.split(/[\s,;]+/).filter(Boolean) });
+    const usDate = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || ""); return m ? m[2] + "/" + m[3] + "/" + m[1] : d; };
+    const money = (n) => "$" + (Number(n) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    // CPT descriptions are licensed, so the preview only names procedures the coder described on this visit.
+    const cptName = (code) => { const c = cs.res && cs.res.codes.find((x) => x.code === code && x.type === "CPT"); return c ? c.description : ""; };
+
+    // What the claim will say, laid out like the paper claim form, before anything is saved or approved.
+    function previewHtml() {
+      const P = ks.preview, c = P.out.claim || {}, o = P.out, F = ks.form, ok = !(o.problems || []).length;
+      const kv = (k, v, miss) => '<div class="kv"><span>' + k + "</span><b" + (v ? "" : ' class="miss"') + ">" + esc(v || miss || "Missing") + "</b></div>";
+      let b = '<div class="pv" aria-label="Claim preview"><div class="pvh"><span>' + (P.action === "queue" ? "Claim to approve" : "Draft claim") + '</span><b class="mono">' + esc(F.claimId || "New claim number") + "</b></div>" +
+        '<div class="pvg">' + kv("Patient", c.patient) + kv("Date of birth", usDate(c.dob)) + kv("Sex", c.sex, "Not given") + kv("Payer", c.payer) + kv("Member ID", c.insuredId) +
+        kv("Rendering provider", c.provider) + kv("Date of service", usDate(c.svcDate)) + kv("Place of service", c.pos ? c.pos + (POS[c.pos] ? " · " + POS[c.pos] : "") : "") + "</div>" +
+        '<div class="pvs">Diagnoses</div>' + ((c.icds || []).length ? '<ol class="dxl">' + c.icds.map((d, i) => '<li><span class="ltr">' + "ABCDEFGHIJKL"[i] + '</span><b class="mono">' + esc(d.code) + "</b> " + esc(d.description || "") + "</li>").join("") + "</ol>" : '<p class="miss">No diagnoses</p>') +
+        '<div class="pvs">Services</div><table class="svc"><thead><tr><th>CPT</th><th>Mod</th><th>Units</th><th class="r">Charge</th></tr></thead><tbody>' +
+        ((c.cpts || []).length ? c.cpts.map((x) => '<tr><td><b class="mono">' + esc(x.code) + "</b>" + (cptName(x.code) ? '<small>' + esc(cptName(x.code)) + "</small>" : "") + '</td><td class="mono">' + esc(x.modifier || "") + "</td><td>" + esc(x.units) + '</td><td class="r">' + money(x.charge * 1) + "</td></tr>").join("")
+          : '<tr><td colspan="4" class="miss">No services</td></tr>') +
+        '</tbody><tfoot><tr><td colspan="3">Total charge</td><td class="r">' + money(c.totalAmt) + "</td></tr></tfoot></table></div>";
+      if ((o.problems || []).length) b += '<div class="sec">Fix before ' + (P.action === "queue" ? "approving" : "sending") + "</div>" + o.problems.map((p) => '<div class="bl e">' + esc(p) + "</div>").join("");
+      if ((o.blockers || []).length) b += '<div class="sec">Althais will hold it until</div>' + o.blockers.map((x) => '<div class="bl"><b>' + esc(x.title) + "</b>" + esc(x.reason) + (x.next ? " · " + esc(x.next) : "") + "</div>").join("");
+      if (ks.done) b += '<p class="ok2" role="status">' + esc(ks.done) + "</p>";
+      if (ks.err) b += '<p class="bad" role="alert">' + esc(ks.err) + "</p>";
+      if (ks.done) b += '<div class="row"><button class="btn" id="kedit" type="button">Back to the claim</button></div>';
+      else if (P.action === "queue") {
+        b += ok ? '<div class="warnbox">Approving sends this claim with Althais\'s end-of-day batch, after Althais checks it again.' + ((o.blockers || []).length ? " Until the items above are done, it waits in Althais." : "") + "</div>" +
+            '<div class="row"><button class="btn pri" id="kgo" type="button">Approve for sending</button><button class="btn" id="kedit" type="button">Edit</button></div>'
+          : '<div class="row"><button class="btn pri" id="kedit" type="button">Edit the claim</button></div>';
+      } else b += '<div class="row"><button class="btn pri" id="kgo" type="button">Save draft</button><button class="btn" id="kedit" type="button">Edit</button></div><p class="note2">A draft is saved to Claims in Althais. Nothing is sent.</p>';
+      return b;
+    }
     function renderClaim() {
       let b = "";
       if (ks.busy) b = '<p class="lede"><span class="spin2"></span>Working…</p>';
@@ -593,54 +653,74 @@
           '<div class="warnbox">Only for clinics where Althais sends the claims. If your EMR sends claims itself (athenaOne, Tebra), submit there, or the payer gets the claim twice.</div>' +
           (ks.err ? '<p class="bad" role="alert">' + esc(ks.err) + "</p>" : "") +
           '<div class="row"><button class="btn pri" id="ks" type="button">Start claim from this screen</button></div>' +
-          '<p class="note2">This reads the patient\'s name, date of birth and insurance ID from the page, because a claim can\'t be sent without them. Use test patients until your practice has a signed agreement with Althais.</p>';
-      } else {
+          '<p class="note2">This reads the patient\'s name, date of birth and insurance ID from the page, because a claim can\'t be sent without them. After you start one, the form follows you as you open other claims. Use test patients until your practice has a signed agreement with Althais.</p>';
+      } else if (ks.preview) b = previewHtml();
+      else {
         const F = ks.form, inp = (k, label, cls, ph) => '<label class="' + (cls || "") + '">' + label + '<input id="k_' + k + '" value="' + esc(F[k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : "") + "></label>";
-        b = '<div class="sec">Patient and insurance</div><div class="fg">' + inp("patient", "Patient", "w") + inp("dob", "Date of birth", "", "MM/DD/YYYY") + inp("sex", "Sex", "", "F or M") +
+        b = (ks.info ? '<p class="info" role="status">' + esc(ks.info) + "</p>" : "") +
+          '<div class="sec">Patient and insurance</div><div class="fg">' + inp("patient", "Patient", "w") + inp("dob", "Date of birth", "", "MM/DD/YYYY") + inp("sex", "Sex", "", "F or M") +
           inp("payer", "Payer", "w") + inp("insuredId", "Member ID", "", "") + inp("claimId", "Claim number", "", "Althais makes one") + "</div>" +
           '<div class="sec">Visit</div><div class="fg">' + inp("provider", "Rendering provider", "w") + inp("svcDate", "Date of service", "", "MM/DD/YYYY") + inp("pos", "Place of service", "", "e.g. 20") + "</div>" +
           '<div class="sec">Charges</div>' + F.lines.map((l, i) => '<div class="ln" data-i="' + i + '"><label>' + (i ? "" : "CPT") + '<input class="mono" data-f="code" value="' + esc(l.code) + '"></label><label>' + (i ? "" : "Mod") +
             '<input class="mono" data-f="mod" value="' + esc(l.mod) + '"></label><label>' + (i ? "" : "Units") + '<input data-f="units" inputmode="numeric" value="' + esc(l.units) + '"></label><label>' + (i ? "" : "Charge $") +
             '<input data-f="charge" inputmode="decimal" value="' + esc(l.charge) + '"></label><button class="x2" type="button" data-del="' + i + '" aria-label="Remove line">✕</button></div>').join("") +
           '<div class="row"><button class="hide" id="kadd" type="button">+ Add a line</button></div>' +
-          '<div class="fg">' + inp("icd", "Diagnoses (ICD-10, in order)", "w", "e.g. J02.9, R50.9") + "</div>";
-        if (ks.out) {
-          const o = ks.out;
-          if (o.problems && o.problems.length) b += '<div class="sec">Fix before sending</div>' + o.problems.map((p) => '<div class="bl e">' + esc(p) + "</div>").join("");
-          if (o.blockers && o.blockers.length) b += '<div class="sec">Althais will hold it until</div>' + o.blockers.map((x) => '<div class="bl"><b>' + esc(x.title) + "</b>" + esc(x.reason) + (x.next ? " · " + esc(x.next) : "") + "</div>").join("");
-          if (!(o.problems || []).length && !(o.blockers || []).length && !ks.done) b += '<p class="ok2">Ready. Nothing would stop this claim.</p>';
-        }
-        if (ks.done) b += '<p class="ok2" role="status">' + esc(ks.done) + "</p>";
-        if (ks.err) b += '<p class="bad" role="alert">' + esc(ks.err) + "</p>";
-        b += ks.confirm
-          ? '<div class="warnbox">Approve this claim? Althais sends approved claims to the clearinghouse with the end-of-day batch, after checking everything again.</div><div class="row"><button class="btn pri" id="kyes" type="button">Yes, approve</button><button class="btn" id="kno" type="button">Not yet</button></div>'
-          : '<div class="row"><button class="btn" id="kchk" type="button">Check</button><button class="btn" id="kdraft" type="button">Save draft</button><button class="btn pri" id="kq" type="button">Approve for sending</button></div>';
-        b += '<p class="note2">Nothing is sent from here. Approved claims go out with Althais\'s end-of-day batch, and you can follow them in Claim Tracker.</p>';
+          '<div class="fg">' + inp("icd", "Diagnoses (ICD-10, in order)", "w", "e.g. J02.9, R50.9") + "</div>" +
+          (ks.err ? '<p class="bad" role="alert">' + esc(ks.err) + "</p>" : "") +
+          '<div class="row"><button class="btn" id="kdraft" type="button">Preview and save draft</button><button class="btn pri" id="kq" type="button">Preview and approve</button><span class="sp"></span><button class="hide" id="kre" type="button">Reload from screen</button></div>' +
+          '<p class="note2">You\'ll see the whole claim before anything is saved or approved. Approved claims go out with Althais\'s end-of-day batch, and you can follow them in Claim Tracker.</p>';
       }
-      frame("Create claim", ks.form && ks.form.claimId ? "Claim " + ks.form.claimId : "For clinics Althais bills for", b);
-      const st = root.getElementById("ks");
-      if (st) st.onclick = startClaim;
-      card.querySelectorAll("[data-del]").forEach((x) => (x.onclick = () => { readForm(); ks.form.lines.splice(+x.dataset.del, 1); if (!ks.form.lines.length) ks.form.lines.push({ code: "", mod: "", units: 1, charge: "" }); render(true); }));
-      const add = root.getElementById("kadd");
-      if (add) add.onclick = () => { readForm(); ks.form.lines.push({ code: "", mod: "", units: 1, charge: "" }); render(true); };
-      const act = async (action) => {
-        readForm(); ks.busy = true; ks.err = ""; ks.done = ""; ks.confirm = false; render(true);
+      const title = ks.preview ? (ks.done ? (ks.preview.action === "queue" ? "Claim approved" : "Draft saved") : "Review the claim") : "Create claim";
+      frame(title, ks.form && ks.form.claimId ? "Claim " + ks.form.claimId : "For clinics Althais bills for", b);
+      const pane = card.querySelector(".pane");
+      if (pane && ks.form && !ks.preview) pane.addEventListener("input", () => { ks.dirty = true; });
+      const on = (id, fn) => { const el = root.getElementById(id); if (el) el.onclick = fn; };
+      on("ks", () => startClaim());
+      on("kre", () => startClaim());
+      card.querySelectorAll("[data-del]").forEach((x) => (x.onclick = () => { readForm(); ks.form.lines.splice(+x.dataset.del, 1); if (!ks.form.lines.length) ks.form.lines.push(blankLine()); ks.dirty = true; render(true); }));
+      on("kadd", () => { readForm(); ks.form.lines.push(blankLine()); render(true); });
+      const preview = async (action) => {
+        readForm(); ks.busy = true; ks.err = ""; ks.done = ""; ks.info = ""; render(true);
+        const r = await call({ t: "claimAction", action: "check", claim: toClaim() });
+        ks.busy = false;
+        if (r.ok) ks.preview = { action, out: r.v }; else ks.err = r.error;
+        render(true);
+      };
+      const commit = async () => {
+        const action = ks.preview.action;
+        ks.busy = true; ks.err = ""; render(true);
         const r = await call({ t: "claimAction", action, claim: toClaim() });
         ks.busy = false;
         if (r.ok) {
-          ks.out = r.v; if (r.v.claim && r.v.claim.claimId) ks.form.claimId = r.v.claim.claimId;
-          if (action === "draft") ks.done = r.v.message || "Saved to Althais.";
-          if (action === "queue") ks.done = (r.v.status === "already_sent" ? "This claim was already sent." : r.v.message || "Approved.");
-        } else { ks.err = r.error; if (r.data && (r.data.problems || r.data.blockers)) ks.out = r.data; }
+          ks.preview.out = r.v; ks.dirty = false;
+          if (r.v.claim && r.v.claim.claimId) ks.form.claimId = r.v.claim.claimId;
+          ks.done = action === "draft" ? r.v.message || "Saved to Althais." : r.v.status === "already_sent" ? "This claim was already sent." : r.v.message || "Approved.";
+        } else { ks.err = r.error; if (r.data && (r.data.problems || r.data.blockers)) ks.preview.out = Object.assign({}, ks.preview.out, r.data); }
         render(true);
-        const pane = card.querySelector(".pane"); if (pane) pane.scrollTop = pane.scrollHeight;     // results sit under the form
+        const pn = card.querySelector(".pane"); if (pn) pn.scrollTop = pn.scrollHeight;
       };
-      const on = (id, fn) => { const el = root.getElementById(id); if (el) el.onclick = fn; };
-      on("kchk", () => act("check"));
-      on("kdraft", () => act("draft"));
-      on("kq", () => { readForm(); ks.confirm = true; render(true); });
-      on("kno", () => { ks.confirm = false; render(true); });
-      on("kyes", () => act("queue"));
+      on("kdraft", () => preview("draft"));
+      on("kq", () => preview("queue"));
+      on("kgo", commit);
+      on("kedit", () => { ks.preview = null; ks.done = ""; ks.err = ""; render(true); });
+    }
+
+    // A claim is "the same claim" while its number (or, without one, its date and payer) stays the same.
+    const claimKey = (f) => (f ? f.claim_id || (f.dos ? f.dos + "|" + (f.payer || "") : "") : "");
+    let seenKey = "", claimOnScreen = false;
+    function claimChanged(k, f) {
+      // Code suggestions belong to one visit: drop them once the biller moves to a different claim.
+      if (cs.res) {
+        if (cs.bound && cs.bound !== k) Object.assign(cs, { res: null, picked: {}, done: "", err: "", bound: "", label: "", info: "Cleared the codes from the last claim's note." });
+      }
+      // The claim form follows the screen once the biller has started one.
+      if (ks.auto && ks.key !== k && !ks.busy) {
+        const was = ks.form && ks.form.claimId, lost = ks.dirty && !ks.done;
+        const info = "Now showing claim " + (f.claim_id || "on this screen") + "." + (lost && was ? " Changes you hadn't saved on claim " + was + " were dropped." : "");
+        if (mode === "claim" && open) { ks.key = k; startClaim(info); }
+        else Object.assign(ks, { form: null, preview: null, out: null, done: "", err: "", dirty: false, key: "", pendingInfo: info });
+      }
+      if (mode !== "check" && open) render(true);
     }
     function head(kind, title, meta, score, tally) {
       return '<div class="hd"><span class="ic">' + (ICON[kind] || ICON.idle) + '</span><div class="ttl"><b>' + esc(title) + "</b><span>" + esc(meta) + "</span></div>" +
@@ -663,7 +743,11 @@
     return {
       render,
       result(m) {
-        if (!m.verdict) { last = null; state = "idle"; warnN = 0; render(); return; }
+        if (!m.verdict) { last = null; state = "idle"; warnN = 0; claimOnScreen = false; render(); return; }
+        claimOnScreen = true;
+        const k = claimKey(m.fields);
+        if (k && k !== seenKey) { const first = !seenKey; seenKey = k; if (!first) claimChanged(k, m.fields || {}); }
+        if (k && cs.res && !cs.bound) { cs.bound = k; cs.label = (m.fields || {}).claim_id || ""; if (mode === "code" && open) render(true); }   // codes made on a note screen belong to the next claim opened
         const changedClaim = !last || JSON.stringify(last.fields) !== JSON.stringify(m.fields);
         last = m; state = "result";
         if (changedClaim) warnN = 0;

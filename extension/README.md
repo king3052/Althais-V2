@@ -4,7 +4,7 @@ A small Althais badge that sits on top of the clinic's EMR. Its card has three t
 
 - **Check**: checks each claim as the biller opens it. Shows **Ready to submit**, **Worth a look** or **Fix first**, outlines the fields to fix, and warns if someone presses the EMR's Submit button while the claim still has problems.
 - **Code note**: reads the visit note on screen (or the text you select) and suggests CPT and ICD-10 codes, each with the line from the note that supports it. **Fill into EMR** types the picked codes into empty code fields on the claim screen; **Use in claim** carries them to the next tab.
-- **Create claim**: builds a claim from the screen (codes, charges, patient, insurance), lets the biller fix any field, then **Check**, **Save draft** or **Approve for sending**. Approved claims go out with Althais's end-of-day batch to the clearinghouse, and Althais holds them, with the reason, if the clinic isn't ready to send yet.
+- **Create claim**: builds a claim from the screen (codes, charges, patient, insurance) and lets the biller fix any field. **Preview and save draft** or **Preview and approve** first shows the whole claim laid out like the claim form (patient, insurance, provider, diagnoses A–L, services and total) with anything that would stop it; nothing is saved or approved until the biller confirms on that preview. Once started, the form follows the screen: open another claim and it refills for that claim. Approved claims go out with Althais's end-of-day batch to the clearinghouse, and Althais holds them, with the reason, if the clinic isn't ready to send yet.
 
 A side panel holds the full check breakdown, manual editing and settings.
 
