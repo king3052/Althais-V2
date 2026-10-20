@@ -36,12 +36,13 @@
 
   // Frames with labelled fields beat frames that only guessed from page text.
   function merge(outs) {
-    const f = { claim_id: "", dos: "", payer: "", pos: "", cpt: [], icd: [], modifiers: [], amount: "" };
+    const f = { claim_id: "", dos: "", payer: "", pos: "", cpt: [], icd: [], modifiers: [], amount: "", lines: [] };
     const found = {}, guessed = new Set(), hosts = new Set();
     outs.slice().sort((a, b) => a.guessed.length - b.guessed.length).forEach((o) => {
       hosts.add(o.host);
       for (const k of ["claim_id", "dos", "payer", "pos", "amount"]) if (!f[k] && o.fields[k]) f[k] = o.fields[k];
       for (const k of ["cpt", "icd", "modifiers"]) if (!f[k].length || !o.guessed.includes(k)) o.fields[k].forEach((x) => { if (!f[k].includes(x)) f[k].push(x); });
+      if (!f.lines.length && o.fields.lines && o.fields.lines.length) f.lines = o.fields.lines;
       o.guessed.forEach((k) => guessed.add(k));
       Object.keys(o.found).forEach((k) => { if (o.found[k]) found[k] = true; });
     });

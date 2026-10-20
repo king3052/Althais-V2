@@ -141,6 +141,71 @@
     }
   }, true);
 
+  // ---------------- chart note, patient details, and filling codes (only when the biller asks) ----------------
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const textOf = (el) => (el.value != null && /^(TEXTAREA|INPUT)$/.test(el.tagName) ? el.value : el.innerText || "").trim();
+  const NOTE_HINT = /\b(note|progress note|visit note|chart note|soap|assessment|plan|hpi|history of present illness|chief complaint|subjective|objective|exam|impression|medical decision)\b/i;
+
+  // The visit note: the person's selection if there is one, else the largest note-like block on the screen.
+  function readNote() {
+    const sel = String(getSelection ? getSelection() : "").trim();
+    if (sel.length >= 40) return { text: sel.slice(0, 20000), how: "selection", score: 1e9 };
+    let best = null, bestScore = 0;
+    document.querySelectorAll("textarea, [contenteditable=''], [contenteditable='true'], article, section, main, div, pre").forEach((el) => {
+      if (el.closest("#althais-overlay, #althais-marks") || !vis(el)) return;
+      const t = textOf(el);
+      if (t.length < 80 || t.length > 40000) return;
+      const head = (el.getAttribute("aria-label") || el.id || el.className || "") + " " + t.slice(0, 200);
+      // prefer a block that looks like a note and isn't the whole page: note words count, size counts, the outermost wrappers don't
+      const kids = el.querySelectorAll("div, section, article").length, links = el.querySelectorAll("a, button, li").length;
+      const score = Math.min(t.length, 6000) * (NOTE_HINT.test(head) ? 3 : 1) * (el.tagName === "TEXTAREA" ? 2 : 1) / (1 + kids / 40) / (1 + links / 8);
+      if (score > bestScore) { bestScore = score; best = t; }
+    });
+    return best ? { text: best.slice(0, 20000), how: "page", score: bestScore } : null;
+  }
+
+  // Patient and insurance details for a claim. Read only when the biller presses Create Claim.
+  function readParty() {
+    const out = {};
+    const body = (document.body && document.body.innerText) || "";
+    const ctlBy = (re) => {
+      for (const el of document.querySelectorAll("input, select")) {
+        let lab = el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.name || el.id || "";
+        if (el.id) { const l = document.querySelector('label[for="' + el.id.replace(/"/g, "") + '"]'); if (l) lab = l.innerText + " " + lab; }
+        if (re.test(lab)) { const v = el.tagName === "SELECT" ? (el.value ? el.options[el.selectedIndex].text : "") : el.value; if (v && !/^\(|^select|^none/i.test(v)) return v.trim(); }
+      }
+      return "";
+    };
+    const rx = (re) => { const m = body.match(re); return m ? m[m.length - 1].trim() : ""; };
+    out.patient = ctlBy(/patient\s*name|^\s*patient\b/i);
+    if (!out.patient) {
+      const box = document.querySelector('[id*="banner" i], [class*="banner" i], [id*="patient" i], [class*="patient" i], [class*="demograph" i]');
+      const b = box && box.querySelector("b, strong, h1, h2, h3");
+      if (b && b.innerText.trim().length <= 60) out.patient = b.innerText.trim();
+    }
+    out.dob = ctlBy(/date of birth|\bdob\b|birth ?date/i) || rx(/\b(?:DOB|Date of birth)[:\s]+(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i);
+    out.sex = ctlBy(/\b(sex|gender)\b/i) || rx(/\b(?:Sex|Gender)[:\s]+(Male|Female|M|F|Other|Unknown)\b/i);
+    out.insuredId = ctlBy(/member|subscriber|policy|insured id|insurance id/i) || rx(/\b(?:Member|Subscriber|Policy|Insured)\s*(?:ID|#|No\.?|Number)[:#\s]+([A-Z0-9-]{4,20})/i);
+    out.provider = ctlBy(/rendering|provider|physician|attending/i);
+    out.mrn = rx(/\b(?:MRN|Patient ID|Account(?: #| No\.?)?)[:#\s]+([A-Z0-9-]{3,20})/i);
+    return out;
+  }
+
+  // Put codes into the EMR's empty code fields, as if typed, so the EMR saves them like any other edit.
+  function fill(kind, codes) {
+    const R = globalThis.__althaisRefs;
+    const slots = ((R && R.empties[kind]) || []).filter((el) => el.isConnected && !el.value);
+    const setter = (el, v) => {
+      const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);       // works with React and other frameworks too
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    let n = 0;
+    codes.forEach((c, i) => { if (slots[i]) { setter(slots[i], c); n++; } });
+    return { n, more: Math.max(0, codes.length - slots.length) };
+  }
+
   // ---------------- messages ----------------
   chrome.runtime.onMessage.addListener((m, _s, reply) => {
     if (m.t === "scan") {
@@ -154,6 +219,17 @@
       return;
     }
     if (m.t === "focus") { focusFlag(m.i, m.code, m.codes); return; }
+    if (m.t === "note") { reply(readNote()); return; }
+    if (m.t === "party") { reply(readParty()); return; }
+    if (m.t === "fill") {
+      try { globalThis.__althaisParse({ keep: true }); } catch (e) {}
+      const present = (k) => { const R = globalThis.__althaisRefs; return ((R && R.refs[k]) || []).map((el) => String(el.value || el.innerText || "").toUpperCase()).join(" "); };
+      const icd = (m.icd || []).filter((c) => !present("icd").includes(c.toUpperCase()));
+      const cpt = (m.cpt || []).filter((c) => !present("cpt").includes(c.toUpperCase()));
+      const a = fill("icd", icd), b = fill("cpt", cpt);
+      reply({ icd: a.n, cpt: b.n, skipped: (m.icd || []).length - icd.length + (m.cpt || []).length - cpt.length, noRoom: a.more + b.more });
+      return;
+    }
     if (!TOP) return;
     if (m.t === "state") ui.state(m.state, m.text);
     if (m.t === "submitWarn") ui.submitWarn(m.n);
@@ -210,7 +286,7 @@
       @keyframes spin{to{transform:rotate(1turn)}}
       @keyframes shake{0%,100%{transform:none}20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
       .card[hidden]{display:none}
-      .card{position:absolute;right:0;bottom:48px;width:352px;max-width:calc(100vw - 24px);max-height:min(70vh,560px);display:flex;flex-direction:column;
+      .card{position:absolute;right:0;bottom:48px;width:384px;max-width:calc(100vw - 24px);max-height:min(70vh,560px);display:flex;flex-direction:column;
         background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 16px 40px rgba(16,24,40,.22),0 2px 6px rgba(16,24,40,.08);overflow:hidden;
         transform-origin:bottom right;animation:in .14s ease-out}
       .wrap.down .card{bottom:auto;top:48px;transform-origin:top right}
@@ -245,7 +321,44 @@
       .sp{flex:1}
       .kbd{font:11px ui-monospace,Menlo,Consolas,monospace;color:var(--mut)}
       .hide{border:0;background:none;color:var(--mut);font-size:12px;padding:0}.hide:hover{color:var(--fg);text-decoration:underline}
-      @media (prefers-reduced-motion:reduce){.card,.wrap.checking .m svg,.wrap.shake .pill{animation:none}}
+      .wrap .card[data-view=code] .hd b,.wrap .card[data-view=claim] .hd b,.wrap .pane b{color:var(--fg)}
+      .wrap .card[data-view=code] .hd .ic,.wrap .card[data-view=claim] .hd .ic{background:var(--soft);color:var(--brand)}
+      .tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--line)}
+      .tabs button{border:0;background:none;padding:6px 10px 8px;font-weight:600;font-size:12.5px;color:var(--mut);border-bottom:2px solid transparent;margin-bottom:-1px}
+      .tabs button[aria-selected="true"]{color:var(--brand);border-bottom-color:var(--brand)}
+      .tabs button:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:4px}
+      .pane{overflow:auto;padding:12px 14px;display:grid;gap:10px}
+      .lede{color:var(--fg2);font-size:12.5px;margin:0}
+      .note2{color:var(--mut);font-size:11.5px;margin:0}
+      .bad{color:var(--red);font-size:12.5px;margin:0}
+      .ok2{color:var(--grn);font-size:12.5px;margin:0;font-weight:600}
+      .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+      .btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}.btn.pri:hover{color:#fff;filter:brightness(1.08)}
+      .btn:disabled{opacity:.55;cursor:default}
+      .cd{display:grid;grid-template-columns:auto 1fr auto;gap:2px 9px;padding:9px 0;border-top:1px solid var(--line)}
+      .cd:first-child{border-top:0}
+      .cd input{margin:3px 0 0;accent-color:var(--brand)}
+      .cd .cc{font:700 13px ui-monospace,Menlo,Consolas,monospace}
+      .cd .ty{font:700 9.5px/16px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin-left:6px}
+      .cd .pc{font:600 11.5px ui-monospace,Menlo,monospace;color:var(--mut)}
+      .cd .ds{grid-column:2/4;color:var(--fg)}
+      .cd .why{grid-column:2/4;color:var(--fg2);font-size:12px}
+      .cd .gap{grid-column:2/4;color:var(--amb);font-size:12px}
+      .fg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .fg label,.ln label{display:grid;gap:3px;font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+      .fg label.w{grid-column:1/3}
+      .fg input,.ln input,.fg select{font:13px system-ui,sans-serif;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;text-transform:none;letter-spacing:0}
+      .fg input:focus,.ln input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+      .ln{display:grid;grid-template-columns:1.3fr .7fr .6fr 1fr auto;gap:6px;align-items:end}
+      .ln .x2{border:0;background:none;color:var(--mut);padding:6px 4px}
+      .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+      .sec{font-weight:700;font-size:12px;color:var(--fg2);margin:4px 0 -2px}
+      .bl{border-left:3px solid var(--amb);padding:4px 0 4px 9px;font-size:12.5px}
+      .bl.e{border-color:var(--red)}
+      .bl b{display:block}
+      .warnbox{background:var(--amb-bg);color:var(--amb);border-radius:8px;padding:8px 10px;font-size:12px}
+      .spin2{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--brand);animation:spin .8s linear infinite;display:inline-block;vertical-align:-2px;margin-right:6px}
+      @media (prefers-reduced-motion:reduce){.card,.wrap.checking .m svg,.wrap.shake .pill,.spin2{animation:none}}
     </style>
     <div class="wrap idle" id="w">
       <div class="card" id="card" role="dialog" aria-label="Althais claim check" hidden></div>
@@ -254,6 +367,10 @@
     const $ = (id) => root.getElementById(id);
     const w = $("w"), pill = $("pill"), card = $("card");
     let state = "idle", stateText = "", last = null, open = false, warnN = 0, hidden = false, offHost = false, panelOpen = false;
+    let mode = "check";                                                   // check | code | claim
+    const cs = { busy: false, err: "", res: null, picked: {}, done: "" };          // Code note
+    const ks = { busy: false, err: "", form: null, out: null, confirm: false, done: "" };   // Create claim
+    const call = (msg) => new Promise((res) => { try { chrome.runtime.sendMessage(msg, (r) => { void chrome.runtime.lastError; res(r || { ok: false, error: "The extension didn't answer. Reload the page." }); }); } catch (e) { res({ ok: false, error: "The extension was updated. Reload the page." }); } });
     const hostKey = "pos:" + location.host;
 
     // position (draggable, remembered per site)
@@ -295,7 +412,7 @@
     root.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) { setOpen(false); pill.focus(); } });
     addEventListener("resize", orient);
 
-    function setOpen(v) { open = v; if (!v) warnN = 0; pill.setAttribute("aria-expanded", String(v)); render(); }
+    function setOpen(v) { open = v; if (!v) warnN = 0; pill.setAttribute("aria-expanded", String(v)); render(true); }
 
     const ICON = {
       clean: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -306,7 +423,7 @@
     const TITLE = { clean: "Ready to submit", review: "Worth a look", fix: "Fix before submitting" };
     const CLOSE = '<button class="x" id="close" type="button" aria-label="Minimize"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>';
 
-    function render() {
+    function render(force) {
       if (offHost || hidden) { host.style.display = "none"; return; }
       host.style.display = "";
       const v = last && last.verdict;
@@ -320,6 +437,10 @@
       pill.setAttribute("aria-label", "Althais: " + $("lbl").textContent + (issues && v !== "clean" ? ", " + issues + " issues" : ""));
       card.hidden = !open;
       if (!open) return;
+      if (mode !== "check" && !force && card.dataset.view === mode) return;     // never wipe what the biller is typing
+      card.dataset.view = mode;
+      if (mode === "code" && state !== "unpaired") return renderCode();
+      if (mode === "claim" && state !== "unpaired") return renderClaim();
       let h = "";
       if (state === "unpaired") {
         h = head("idle", "Connect this browser", "Althais isn't connected yet") +
@@ -327,13 +448,13 @@
       } else if (state === "error" && !v) {
         h = head("review", "Couldn't check this claim", stateText || "Try again in a moment") + '<div class="empty">' + esc(stateText) + "</div>";
       } else if (!v) {
-        h = head("idle", "No claim on this screen", location.host) +
+        h = head("idle", "No claim on this screen", location.host) + TABS() +
           '<div class="empty"><b>Open a claim</b>Althais reads the codes, payer, date and charge on claim screens and checks them automatically.</div>';
       } else {
         const f = last.fields || {};
         const meta = [f.claim_id && "Claim " + f.claim_id, f.payer, f.dos].filter(Boolean).join(" · ") || location.host;
         const errs = last.flags.filter((x) => x.severity === "error").length, warns = last.flags.filter((x) => x.severity === "warn").length;
-        h = head(v, TITLE[v], meta, v === "clean" ? last.score : null, errs ? errs + " to fix" : warns ? warns + " to check" : "");
+        h = head(v, TITLE[v], meta, v === "clean" ? last.score : null, errs ? errs + " to fix" : warns ? warns + " to check" : "") + TABS();
         if (warnN) h += '<div class="warn" role="alert">This claim still has ' + warnN + " problem" + (warnN === 1 ? "" : "s") + " to fix before it goes out.</div>";
         if (!last.flags.length) h += '<div class="empty"><b>No problems found</b>This is a pre-submission check, not a guarantee of payment.</div>';
         else {
@@ -360,6 +481,166 @@
         });
       };
       card.querySelectorAll("[data-focus]").forEach((b) => (b.onclick = () => send({ t: "focus", i: +b.dataset.focus })));
+      wireTabs();
+    }
+
+    // ---------- tabs ----------
+    function TABS() {
+      return '<div class="tabs" role="tablist">' + [["check", "Check"], ["code", "Code note"], ["claim", "Create claim"]].map(([k, l]) =>
+        '<button type="button" role="tab" data-mode="' + k + '" aria-selected="' + (mode === k) + '">' + l + "</button>").join("") + "</div>";
+    }
+    function wireTabs() { card.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { mode = b.dataset.mode; render(true); })); }
+    function frame(title, meta, body, kind) {
+      card.innerHTML = head(kind || "idle", title, meta) + TABS() + '<div class="pane">' + body + "</div>";
+      root.getElementById("close").onclick = () => { setOpen(false); pill.focus(); };
+      wireTabs();
+    }
+
+    // ---------- Phase 1: code the visit note ----------
+    function renderCode() {
+      let b = "";
+      if (cs.busy) b = '<p class="lede"><span class="spin2"></span>Reading the note and suggesting codes…</p>';
+      else if (!cs.res) {
+        b = '<p class="lede">Open the visit note (or select its text) and Althais suggests CPT and ICD-10 codes, each with the line from the note that supports it.</p>' +
+          (cs.err ? '<p class="bad" role="alert">' + esc(cs.err) + "</p>" : "") +
+          '<div class="row"><button class="btn pri" id="cn" type="button">Code this note</button></div>' +
+          '<p class="note2">This sends the note text to Althais. Use synthetic notes until your practice has a signed agreement with Althais. A person must review every code.</p>';
+      } else {
+        const codes = cs.res.codes;
+        if (!codes.length) b = '<p class="lede">No codes came back for this note. Check that the whole note is on screen, or select it and try again.</p><div class="row"><button class="btn" id="cn" type="button">Try again</button></div>';
+        else {
+          b = '<p class="note2">From the ' + (cs.res.how === "selection" ? "text you selected" : "note on screen") + ". Untick anything you don't want.</p><div>" + codes.map((c, i) => {
+            const on = cs.picked[i] !== false;
+            return '<label class="cd"><input type="checkbox" data-pick="' + i + '"' + (on ? " checked" : "") + '><span><span class="cc">' + esc(c.code) + "</span>" + (c.modifier ? '<span class="cc">-' + esc(c.modifier) + "</span>" : "") +
+              '<span class="ty">' + esc(c.type === "CPT" ? "CPT" : "ICD-10") + '</span></span><span class="pc">' + (c.confidence != null ? Math.round(c.confidence) + "%" : "") + "</span>" +
+              '<span class="ds">' + esc(c.description || "") + "</span>" + (c.justification ? '<span class="why">Because: ' + esc(c.justification) + "</span>" : "") +
+              (c.documentation_gap ? '<span class="gap">Missing: ' + esc(c.documentation_gap) + "</span>" : "") + "</label>";
+          }).join("") + "</div>" +
+          (cs.done ? '<p class="ok2" role="status">' + esc(cs.done) + "</p>" : "") + (cs.err ? '<p class="bad" role="alert">' + esc(cs.err) + "</p>" : "") +
+          '<div class="row"><button class="btn pri" id="cf" type="button">Fill into EMR</button><button class="btn" id="cu" type="button">Use in claim</button><button class="btn" id="cc" type="button">Copy</button><span class="sp"></span><button class="hide" id="cn" type="button">Code again</button></div>' +
+          '<p class="note2">Fill into EMR types the picked codes into empty code fields on the claim screen. Check them and save in your EMR as usual.</p>';
+        }
+      }
+      frame("Code this note", "Suggestions from the visit note", b);
+      const go = root.getElementById("cn");
+      if (go) go.onclick = async () => {
+        cs.busy = true; cs.err = ""; cs.done = ""; render(true);
+        const r = await call({ t: "codeNote" });
+        cs.busy = false;
+        if (r.ok) { cs.res = r.v; cs.picked = {}; (r.v.codes || []).forEach((c, i) => { if (c.confidence != null && c.confidence < 60) cs.picked[i] = false; }); } else cs.err = r.error;
+        render(true);
+      };
+      card.querySelectorAll("[data-pick]").forEach((x) => (x.onchange = () => { cs.picked[x.dataset.pick] = x.checked; }));
+      const picked = () => (cs.res ? cs.res.codes.filter((c, i) => cs.picked[i] !== false) : []);
+      const split = () => ({ cpt: picked().filter((c) => c.type === "CPT").map((c) => c.code), icd: picked().filter((c) => c.type !== "CPT").map((c) => c.code) });
+      const f = root.getElementById("cf");
+      if (f) f.onclick = async () => {
+        const p = split(); f.disabled = true;
+        const r = await call({ t: "fill", cpt: p.cpt, icd: p.icd });
+        if (!r.ok) cs.err = r.error;
+        else {
+          const v = r.v, parts = [];
+          if (v.icd) parts.push(v.icd + " diagnosis" + (v.icd === 1 ? "" : "es"));
+          if (v.cpt) parts.push(v.cpt + " procedure" + (v.cpt === 1 ? "" : "s"));
+          cs.err = ""; cs.done = parts.length ? "Filled " + parts.join(" and ") + ". Check them, then save in your EMR." + (v.skipped ? " " + (v.skipped === 1 ? "1 code was" : v.skipped + " codes were") + " already on the claim." : "")
+            : v.skipped ? "Those codes are already on the claim." : "";
+          if (!parts.length && !v.skipped) cs.err = "Couldn't find empty code fields on this screen. Open the claim's charge screen, or use Copy.";
+        }
+        render(true);
+      };
+      const cp = root.getElementById("cc");
+      if (cp) cp.onclick = async () => {
+        const p = split(), t = "CPT: " + (p.cpt.join(", ") || "none") + "\nICD-10: " + (p.icd.join(", ") || "none");
+        try { await navigator.clipboard.writeText(t); cs.done = "Copied."; } catch (e) { cs.err = "Couldn't copy. Select the codes and copy them instead."; }
+        render(true);
+      };
+      const u = root.getElementById("cu");
+      if (u) u.onclick = () => { const p = split(); ks.form = null; ks.seed = p; mode = "claim"; render(true); startClaim(); };
+    }
+
+    // ---------- Phase 2: create a claim in Althais ----------
+    async function startClaim() {
+      ks.busy = true; ks.err = ""; ks.out = null; ks.confirm = false; ks.done = ""; render(true);
+      const r = await call({ t: "claimPrefill" });
+      ks.busy = false;
+      if (!r.ok) { ks.err = r.error; render(true); return; }
+      const p = r.v.party || {}, f = r.v.fields || {}, seed = ks.seed || {};
+      let lines = (f.lines && f.lines.length ? f.lines : (f.cpt || []).map((c) => ({ code: c, mod: "", units: 1, charge: "" })));
+      (seed.cpt || []).forEach((c) => { if (!lines.some((l) => l.code === c)) lines.push({ code: c, mod: "", units: 1, charge: "" }); });
+      if (!lines.length) lines = [{ code: "", mod: "", units: 1, charge: "" }];
+      const icd = [...new Set([...(f.icd || []), ...(seed.icd || [])])];
+      ks.form = { patient: p.patient || "", dob: p.dob || "", sex: p.sex || "", insuredId: p.insuredId || "", mrn: p.mrn || "", payer: f.payer || "", provider: p.provider || "",
+        svcDate: f.dos || "", pos: f.pos || "", claimId: f.claim_id || "", icd: icd.join(", "), lines };
+      ks.seed = null;
+      render(true);
+    }
+    function readForm() {
+      if (!ks.form) return;
+      const v = (id) => { const el = root.getElementById(id); return el ? el.value.trim() : ""; };
+      ["patient", "dob", "sex", "insuredId", "payer", "provider", "svcDate", "pos", "claimId", "icd"].forEach((k) => { ks.form[k] = v("k_" + k); });
+      ks.form.lines = [...card.querySelectorAll(".ln[data-i]")].map((row) => ({ code: row.querySelector('[data-f="code"]').value.trim().toUpperCase(),
+        mod: row.querySelector('[data-f="mod"]').value.trim().toUpperCase(), units: row.querySelector('[data-f="units"]').value.trim(), charge: row.querySelector('[data-f="charge"]').value.trim() }));
+    }
+    const toClaim = () => ({ claimId: ks.form.claimId, patient: ks.form.patient, dob: ks.form.dob, sex: ks.form.sex, insuredId: ks.form.insuredId, mrn: ks.form.mrn,
+      payer: ks.form.payer, provider: ks.form.provider, svcDate: ks.form.svcDate, pos: ks.form.pos,
+      cpts: ks.form.lines.filter((l) => l.code).map((l) => ({ code: l.code, modifier: l.mod, units: l.units || 1, charge: l.charge })),
+      icds: ks.form.icd.split(/[\s,;]+/).filter(Boolean) });
+    function renderClaim() {
+      let b = "";
+      if (ks.busy) b = '<p class="lede"><span class="spin2"></span>Working…</p>';
+      else if (!ks.form) {
+        b = '<p class="lede">Builds a claim from this visit: codes and charges from the claim screen, patient and insurance details from the page. You review every field, then save it to Althais or approve it for Althais to send.</p>' +
+          '<div class="warnbox">Only for clinics where Althais sends the claims. If your EMR sends claims itself (athenaOne, Tebra), submit there, or the payer gets the claim twice.</div>' +
+          (ks.err ? '<p class="bad" role="alert">' + esc(ks.err) + "</p>" : "") +
+          '<div class="row"><button class="btn pri" id="ks" type="button">Start claim from this screen</button></div>' +
+          '<p class="note2">This reads the patient\'s name, date of birth and insurance ID from the page, because a claim can\'t be sent without them. Use test patients until your practice has a signed agreement with Althais.</p>';
+      } else {
+        const F = ks.form, inp = (k, label, cls, ph) => '<label class="' + (cls || "") + '">' + label + '<input id="k_' + k + '" value="' + esc(F[k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : "") + "></label>";
+        b = '<div class="sec">Patient and insurance</div><div class="fg">' + inp("patient", "Patient", "w") + inp("dob", "Date of birth", "", "MM/DD/YYYY") + inp("sex", "Sex", "", "F or M") +
+          inp("payer", "Payer", "w") + inp("insuredId", "Member ID", "", "") + inp("claimId", "Claim number", "", "Althais makes one") + "</div>" +
+          '<div class="sec">Visit</div><div class="fg">' + inp("provider", "Rendering provider", "w") + inp("svcDate", "Date of service", "", "MM/DD/YYYY") + inp("pos", "Place of service", "", "e.g. 20") + "</div>" +
+          '<div class="sec">Charges</div>' + F.lines.map((l, i) => '<div class="ln" data-i="' + i + '"><label>' + (i ? "" : "CPT") + '<input class="mono" data-f="code" value="' + esc(l.code) + '"></label><label>' + (i ? "" : "Mod") +
+            '<input class="mono" data-f="mod" value="' + esc(l.mod) + '"></label><label>' + (i ? "" : "Units") + '<input data-f="units" inputmode="numeric" value="' + esc(l.units) + '"></label><label>' + (i ? "" : "Charge $") +
+            '<input data-f="charge" inputmode="decimal" value="' + esc(l.charge) + '"></label><button class="x2" type="button" data-del="' + i + '" aria-label="Remove line">✕</button></div>').join("") +
+          '<div class="row"><button class="hide" id="kadd" type="button">+ Add a line</button></div>' +
+          '<div class="fg">' + inp("icd", "Diagnoses (ICD-10, in order)", "w", "e.g. J02.9, R50.9") + "</div>";
+        if (ks.out) {
+          const o = ks.out;
+          if (o.problems && o.problems.length) b += '<div class="sec">Fix before sending</div>' + o.problems.map((p) => '<div class="bl e">' + esc(p) + "</div>").join("");
+          if (o.blockers && o.blockers.length) b += '<div class="sec">Althais will hold it until</div>' + o.blockers.map((x) => '<div class="bl"><b>' + esc(x.title) + "</b>" + esc(x.reason) + (x.next ? " · " + esc(x.next) : "") + "</div>").join("");
+          if (!(o.problems || []).length && !(o.blockers || []).length && !ks.done) b += '<p class="ok2">Ready. Nothing would stop this claim.</p>';
+        }
+        if (ks.done) b += '<p class="ok2" role="status">' + esc(ks.done) + "</p>";
+        if (ks.err) b += '<p class="bad" role="alert">' + esc(ks.err) + "</p>";
+        b += ks.confirm
+          ? '<div class="warnbox">Approve this claim? Althais sends approved claims to the clearinghouse with the end-of-day batch, after checking everything again.</div><div class="row"><button class="btn pri" id="kyes" type="button">Yes, approve</button><button class="btn" id="kno" type="button">Not yet</button></div>'
+          : '<div class="row"><button class="btn" id="kchk" type="button">Check</button><button class="btn" id="kdraft" type="button">Save draft</button><button class="btn pri" id="kq" type="button">Approve for sending</button></div>';
+        b += '<p class="note2">Nothing is sent from here. Approved claims go out with Althais\'s end-of-day batch, and you can follow them in Claim Tracker.</p>';
+      }
+      frame("Create claim", ks.form && ks.form.claimId ? "Claim " + ks.form.claimId : "For clinics Althais bills for", b);
+      const st = root.getElementById("ks");
+      if (st) st.onclick = startClaim;
+      card.querySelectorAll("[data-del]").forEach((x) => (x.onclick = () => { readForm(); ks.form.lines.splice(+x.dataset.del, 1); if (!ks.form.lines.length) ks.form.lines.push({ code: "", mod: "", units: 1, charge: "" }); render(true); }));
+      const add = root.getElementById("kadd");
+      if (add) add.onclick = () => { readForm(); ks.form.lines.push({ code: "", mod: "", units: 1, charge: "" }); render(true); };
+      const act = async (action) => {
+        readForm(); ks.busy = true; ks.err = ""; ks.done = ""; ks.confirm = false; render(true);
+        const r = await call({ t: "claimAction", action, claim: toClaim() });
+        ks.busy = false;
+        if (r.ok) {
+          ks.out = r.v; if (r.v.claim && r.v.claim.claimId) ks.form.claimId = r.v.claim.claimId;
+          if (action === "draft") ks.done = r.v.message || "Saved to Althais.";
+          if (action === "queue") ks.done = (r.v.status === "already_sent" ? "This claim was already sent." : r.v.message || "Approved.");
+        } else { ks.err = r.error; if (r.data && (r.data.problems || r.data.blockers)) ks.out = r.data; }
+        render(true);
+        const pane = card.querySelector(".pane"); if (pane) pane.scrollTop = pane.scrollHeight;     // results sit under the form
+      };
+      const on = (id, fn) => { const el = root.getElementById(id); if (el) el.onclick = fn; };
+      on("kchk", () => act("check"));
+      on("kdraft", () => act("draft"));
+      on("kq", () => { readForm(); ks.confirm = true; render(true); });
+      on("kno", () => { ks.confirm = false; render(true); });
+      on("kyes", () => act("queue"));
     }
     function head(kind, title, meta, score, tally) {
       return '<div class="hd"><span class="ic">' + (ICON[kind] || ICON.idle) + '</span><div class="ttl"><b>' + esc(title) + "</b><span>" + esc(meta) + "</span></div>" +
@@ -390,7 +671,7 @@
         render();
       },
       state(s, text) { state = s; stateText = text || ""; render(); },
-      submitWarn(n) { warnN = Math.max(1, n || 1); hidden = false; setOpen(true); setTimeout(() => w.classList.remove("shake"), 1100); },
+      submitWarn(n) { warnN = Math.max(1, n || 1); hidden = false; mode = "check"; setOpen(true); setTimeout(() => w.classList.remove("shake"), 1100); },
       toggle() { hidden = !hidden; render(); },
       panel(v) { panelOpen = !!v; render(); },
       remove() { host.remove(); },

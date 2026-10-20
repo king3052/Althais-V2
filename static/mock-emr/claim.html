@@ -12,6 +12,7 @@ h2{font-size:15px;margin:16px 0 8px;border-bottom:2px solid #5a2d82;padding-bott
 table{border-collapse:collapse;width:100%;margin-top:4px}th,td{border:1px solid #d5dce3;padding:5px 7px;text-align:left}th{background:#f3f5f7;font-size:12px}
 td.n{text-align:right}.btns{margin-top:16px;display:flex;gap:8px}.btns button{padding:6px 14px;border:1px solid #9aa7b4;background:#f7f7f7;font:inherit}
 .empty{color:#a33;font-style:italic}
+td input{width:100%;border:1px solid #c3ccd5;padding:3px 5px;font:inherit}td.n input{text-align:right}
 </style></head>
 <body>
 <div class="banner" id="banner"></div>
@@ -22,6 +23,7 @@ td.n{text-align:right}.btns{margin-top:16px;display:flex;gap:8px}.btns button{pa
   <div class="f"><label for="ins">Primary Insurance</label><select id="ins"></select></div>
   <div class="f"><label for="prov">Rendering Provider</label><input id="prov"></div>
   <div class="f"><label for="pos">Place of Service</label><input id="pos"></div>
+  <div class="f"><label for="memid">Member ID</label><input id="memid"></div>
 </div>
 <h2>Diagnoses</h2>
 <table id="dx"><thead><tr><th>Seq</th><th>ICD-10</th><th>Description</th></tr></thead><tbody></tbody></table>
@@ -35,18 +37,23 @@ td.n{text-align:right}.btns{margin-top:16px;display:flex;gap:8px}.btns button{pa
   var id = new URLSearchParams(location.search).get('claimid');
   var c = MOCK_CLAIMS.filter(function (x) { return x.id === id; })[0] || MOCK_CLAIMS[0];
   var esc = function (s) { var e = document.createElement('span'); e.textContent = s == null ? '' : String(s); return e.innerHTML; };
-  document.getElementById('banner').innerHTML = '<b>' + esc(c.patient) + '</b><span>DOB ' + esc(c.dob) + '</span><span>Sex F</span><span>Patient ID 9' + esc(c.id) + '</span>';
+  document.getElementById('banner').innerHTML = '<b>' + esc(c.patient) + '</b><span>DOB ' + esc(c.dob) + '</span><span>Sex ' + esc(c.sex) + '</span><span>Patient ID 9' + esc(c.id) + '</span>';
   document.getElementById('claimno').value = c.id;
   document.getElementById('sdate').value = c.dos;
   var ins = document.getElementById('ins');
   ins.innerHTML = '<option value="">(no insurance on file)</option>' + (c.payer ? '<option selected>' + esc(c.payer) + '</option>' : '');
   document.getElementById('prov').value = c.provider;
   document.getElementById('pos').value = c.pos;
+  document.getElementById('memid').value = c.memberId || '';
+  var inp = function (v) { return '<input value="' + esc(v) + '">'; };
   var dx = document.querySelector('#dx tbody');
-  dx.innerHTML = c.dx.length ? c.dx.map(function (r, i) { return '<tr><td>' + (i + 1) + '</td><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') : '<tr><td colspan="3" class="empty">No diagnoses entered</td></tr>';
+  // editable like a real charge-entry screen, with blank rows to add codes into
+  var dxRows = c.dx.slice(); while (dxRows.length < 4) dxRows.push(['', '']);
+  dx.innerHTML = dxRows.map(function (r, i) { return '<tr><td>' + (i + 1) + '</td><td>' + inp(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');
   document.getElementById('submit').onclick = function () { document.getElementById('sent').style.display = 'block'; };
-  document.querySelector('#ch tbody').innerHTML = c.lines.map(function (l) {
-    return '<tr><td>' + esc(l[0]) + '</td><td>' + esc(l[1]) + '</td><td>' + esc(l[2]) + '</td><td>' + esc(l[3]) + '</td><td class="n">' + esc(l[4]) + '</td><td class="n">$' + Number(l[5]).toFixed(2) + '</td></tr>';
+  var chRows = c.lines.slice(); chRows.push(['', '', '', '', '', '']);
+  document.querySelector('#ch tbody').innerHTML = chRows.map(function (l) {
+    return '<tr><td>' + inp(l[0]) + '</td><td>' + inp(l[1]) + '</td><td>' + inp(l[2]) + '</td><td>' + inp(l[3]) + '</td><td class="n">' + inp(l[4]) + '</td><td class="n">' + inp(l[5] === '' ? '' : Number(l[5]).toFixed(2)) + '</td></tr>';
   }).join('');
 })();
 </script>

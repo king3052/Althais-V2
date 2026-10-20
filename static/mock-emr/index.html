@@ -11,6 +11,10 @@
 .side h3{margin:0;padding:10px 12px;font-size:12px;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line)}
 .side a{display:block;padding:9px 12px;border-bottom:1px solid var(--line);color:var(--fg);text-decoration:none}.side a.on{background:#ece6f3;border-left:3px solid var(--acc)}
 .side small{display:block;color:var(--mut)}
+.main{flex:1;display:flex;flex-direction:column}
+.tabs{display:flex;gap:2px;background:var(--bg);padding:6px 10px 0;border-bottom:1px solid var(--line)}
+.tabs button{border:1px solid var(--line);border-bottom:0;background:#e6eaee;padding:6px 14px;font:inherit;cursor:pointer}
+.tabs button.on{background:var(--card);font-weight:bold}
 iframe{flex:1;border:0;background:var(--card)}
 @media (max-width:700px){.wrap{flex-direction:column;height:auto}.side{width:auto}iframe{height:900px}}
 </style></head>
@@ -19,15 +23,19 @@ iframe{flex:1;border:0;background:var(--card)}
 <div class="top"><b>MOCK EMR</b><span>Billing</span><span>Claims</span><span>Worklists</span></div>
 <div class="wrap">
   <nav class="side"><h3>Claim worklist (open)</h3><div id="list"></div></nav>
-  <iframe id="work" title="Claim screen" name="work"></iframe>
+  <div class="main"><div class="tabs"><button type="button" data-v="claim" class="on">Claim</button><button type="button" data-v="chart">Visit note</button></div>
+  <iframe id="work" title="Claim screen" name="work"></iframe></div>
 </div>
 <script src="data.js"></script>
 <script>
 (function () {
   var list = document.getElementById('list'), fr = document.getElementById('work');
-  var cur = new URLSearchParams(location.search).get('claimid') || MOCK_CLAIMS[0].id;
+  var cur = new URLSearchParams(location.search).get('claimid') || MOCK_CLAIMS[0].id, view = 'claim';
+  document.querySelectorAll('.tabs button').forEach(function (b) {
+    b.onclick = function () { view = b.dataset.v; document.querySelectorAll('.tabs button').forEach(function (x) { x.className = x === b ? 'on' : ''; }); show(cur); };
+  });
   function show(id) {
-    cur = id; fr.src = 'claim.html?claimid=' + encodeURIComponent(id);
+    cur = id; fr.src = (view === 'chart' ? 'chart.html' : 'claim.html') + '?claimid=' + encodeURIComponent(id);
     history.replaceState(null, '', '?claimid=' + encodeURIComponent(id));
     list.querySelectorAll('a').forEach(function (a) { a.className = a.dataset.id === id ? 'on' : ''; });
   }

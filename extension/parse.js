@@ -31,7 +31,7 @@ globalThis.__althaisParse = function (opts) {
   var raw = { claim_id: [], dos: [], payer: [], cpt: [], icd: [], modifiers: [], amount: [], pos: [] };
   // Where each field lives on the page: refs = elements holding a value, labels = the label, empty input or table to point at
   // when the value is missing. Only kept in memory in this tab; never sent anywhere.
-  var refs = {}, labelEls = {};
+  var refs = {}, labelEls = {}, empties = {}, lines = [];
   var note = function (map, k, el) { if (!el || !el.nodeType) return; (map[k] = map[k] || []); if (map[k].indexOf(el) < 0 && map[k].length < 40) map[k].push(el); };
   var add = function (k, v, el, lab) {
     v = String(v || "").replace(/\s+/g, " ").trim();
@@ -84,14 +84,21 @@ globalThis.__althaisParse = function (opts) {
     cols.forEach(function (k) { if (k === "cpt" || k === "icd" || k === "modifiers" || k === "amount") note(labelEls, k, tb); });
     var rows = tb.querySelectorAll("tbody tr");
     if (!rows.length) rows = Array.prototype.slice.call(tb.querySelectorAll("tr"), 1);
+    // Cells can hold plain text or an input (editable claim screens); an empty input in a code column is a place to fill.
+    var cell = function (td) { var c = td.querySelector("input, select, textarea"); return { v: c ? (c.tagName === "SELECT" ? (c.value ? txt(c.options[c.selectedIndex]) : "") : c.value) : txt(td), el: c || td, ctl: c }; };
+    var hasCpt = cols.indexOf("cpt") >= 0;
     rows.forEach(function (tr, ri) {
+      var line = {};
       Array.prototype.forEach.call(tr.children, function (td, i) {
         var k = cols[i];
-        if (!k) return;
-        if (k === "claim_id" || k === "dos" || k === "payer" || k === "pos") { if (ri === 0) add(k, txt(td), td); }
-        else if (k === "amount") { tableAmounts.push(txt(td)); note(refs, k, td); }
-        else add(k, txt(td), td);
+        if (!k) { if (hasCpt && /^units?$/i.test(txt(head.children[i] || {}))) line.units = cell(td).v; return; }
+        var c = cell(td);
+        if (c.ctl && !c.v && (k === "cpt" || k === "icd" || k === "modifiers")) { note(empties, k, c.ctl); return; }
+        if (k === "claim_id" || k === "dos" || k === "payer" || k === "pos") { if (ri === 0) add(k, c.v, c.el); }
+        else if (k === "amount") { tableAmounts.push(c.v); note(refs, k, c.el); line.charge = c.v; }
+        else { add(k, c.v, c.el); if (k === "cpt") line.code = c.v; if (k === "modifiers" && c.v) line.mod = (line.mod ? line.mod + " " : "") + c.v; }
       });
+      if (line.code && lines.length < 12) lines.push(line);
     });
   });
 
@@ -178,7 +185,11 @@ globalThis.__althaisParse = function (opts) {
     diag = { top: window === window.top, path: location.origin + location.pathname, query: qnames, labels: labels, inputs: inputs, tableHeaders: heads,
       counts: { tables: document.querySelectorAll("table").length, iframes: document.querySelectorAll("iframe, frame").length, inputs: controls.length, shadowRoots: shadow, textLength: (document.body && document.body.innerText || "").length } };
   }
-  if (opts.keep) globalThis.__althaisRefs = { refs: refs, labels: labelEls };
+  if (opts.keep) globalThis.__althaisRefs = { refs: refs, labels: labelEls, empties: empties };
+  fields.lines = lines.map(function (l) {
+    var code = (String(l.code).toUpperCase().match(CPT) || [""])[0];
+    return { code: code, mod: String(l.mod || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim().split(/\s+/)[0] || "", units: parseInt(l.units, 10) || 1, charge: l.charge ? Math.round((num(l.charge) || 0) * 100) / 100 : "" };
+  }).filter(function (l) { return l.code; });
   return { fields: fields, found: found, guessed: guessed, diag: diag, title: (document.title || "").slice(0, 80), host: location.hostname };
 };
 globalThis.__althaisParse({ diag: !!globalThis.__althaisDiag, keep: true })

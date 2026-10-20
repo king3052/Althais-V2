@@ -1,4 +1,5 @@
 """Browser extension API: pairing token, check, revoke, and that nothing patient-identifying is needed."""
+import json
 import pytest
 
 import emr_connect as ec
@@ -80,3 +81,84 @@ def test_lookup_by_claim_id(client, monkeypatch):
     assert j["fields"]["cpt"] == ["99214"] and j["fields"]["payer"] == "Aetna PPO" and j["verdict"] == "clean"
     assert "patient" not in str(j).lower() and "134" not in str(j["fields"])
     assert client.post("/api/extension/lookup", json={"claim_id": "999"}, headers=_hdr(tok)).status_code == 400   # fake 404 -> AthenaError
+
+
+# ---- code a note, and create / approve a claim, from the extension ----
+@pytest.fixture()
+def real_user(monkeypatch):
+    """A user that exists in the database, because these actions act as the person who connected the browser."""
+    from fastapi.testclient import TestClient
+    import auth
+    import main
+    with auth.SessionLocal() as db:
+        from sqlalchemy import select
+        u = db.scalar(select(auth.User).where(auth.User.email == "ext-biller@example.test"))
+        if not u:
+            u = auth.User(email="ext-biller@example.test", password_hash=auth.hash_password("x" * 12), full_name="Ext Biller",
+                          organization="Ext Claim Clinic", role="admin", claims_submitted=0, onboarding_complete=1, active=1)
+            db.add(u); db.commit(); db.refresh(u)
+        uid = u.id
+    with auth.SessionLocal() as db:
+        user = db.get(auth.User, uid)
+        db.expunge(user)
+    monkeypatch.setattr(ec, "_gate", lambda u, d: None)
+    for d in (auth.require_user, auth.require_biller, auth.current_user):
+        main.app.dependency_overrides[d] = lambda: user
+    xa._hits.clear()
+    yield TestClient(main.app), user
+    main.app.dependency_overrides.clear()
+
+
+def test_code_note_acts_as_the_token_owner(real_user, monkeypatch):
+    import main
+    from fastapi.responses import JSONResponse
+    client, user = real_user
+    seen = {}
+    def fake(payload, user=None, db=None):
+        seen.update(note=payload["note"], uid=user.id)
+        return JSONResponse({"codes": [{"code": "J02.9", "type": "ICD-10", "description": "Pharyngitis", "confidence": 90, "justification": "sore throat", "extra": "x"},
+                                       {"code": "99213", "type": "CPT", "confidence": 85}]})
+    monkeypatch.setattr(main, "code_note", fake)
+    tok = client.post("/api/extension/token").json()["token"]
+    assert client.post("/api/extension/code-note", json={"note": "too short"}, headers=_hdr(tok)).status_code == 400
+    note = "S: 3 days of sore throat, no cough. O: tonsillar exudate, tender anterior nodes. A: acute pharyngitis. P: supportive care."
+    j = client.post("/api/extension/code-note", json={"note": note}, headers=_hdr(tok)).json()
+    assert seen == {"note": note, "uid": user.id} and [c["code"] for c in j["codes"]] == ["J02.9", "99213"] and "extra" not in j["codes"][0]
+
+
+def test_old_tokens_cant_act_as_a_person(real_user):
+    client, user = real_user
+    import auth
+    tok = client.post("/api/extension/token").json()["token"]
+    rid = int(tok.split(".")[0])
+    with auth.SessionLocal() as db:                       # a token made before tokens remembered their owner
+        row = db.get(auth.OrgSettings, rid); d = json.loads(row.data); d["tokens"][-1].pop("uid", None); row.data = json.dumps(d); db.commit()
+    r = client.post("/api/extension/claim", json={"action": "check", "claim": {}}, headers=_hdr(tok))
+    assert r.status_code == 409 and "Connect it again" in r.json()["error"]
+    assert client.get("/api/extension/ping", headers=_hdr(tok)).status_code == 200     # checking claims still works
+
+
+def test_claim_check_draft_and_queue(real_user):
+    client, user = real_user
+    import auth
+    import billing_activation as ba
+    tok = client.post("/api/extension/token").json()["token"]
+    claim = {"patient": "Testpatient, Bravo", "dob": "06/02/1975", "sex": "F", "payer": "Cigna", "insuredId": "CIG123456",
+             "provider": "Test Provider MD", "svcDate": "10/14/2026", "pos": "20",
+             "cpts": [{"code": "99213", "units": 1, "charge": "$120.00"}], "icds": []}
+    j = client.post("/api/extension/claim", json={"action": "check", "claim": claim}, headers=_hdr(tok)).json()
+    assert any("diagnosis" in p for p in j["problems"]) and j["claim"]["totalAmt"] == 120 and j["claim"]["svcDate"] == "2026-10-14"
+    r = client.post("/api/extension/claim", json={"action": "queue", "claim": claim}, headers=_hdr(tok))
+    assert r.status_code == 400                                                     # can't approve a claim with problems
+    claim["icds"] = ["J02.9"]
+    d = client.post("/api/extension/claim", json={"action": "draft", "claim": claim}, headers=_hdr(tok)).json()
+    assert d["status"] == "draft" and d["claim"]["claimId"].startswith("EXT-")
+    claim["claimId"] = d["claim"]["claimId"]
+    q = client.post("/api/extension/claim", json={"action": "queue", "claim": claim}, headers=_hdr(tok)).json()
+    assert q["status"] == "queued" and q["submitAt"]
+    with auth.SessionLocal() as db:
+        from sqlalchemy import select
+        oc = db.scalar(select(auth.OrgClaim).where(auth.OrgClaim.claim_id == claim["claimId"]))
+        tx = db.scalar(select(ba.ClaimTransmission).where(ba.ClaimTransmission.claim_id == claim["claimId"]))
+        assert oc.status == "Queued" and oc.source == "extension" and oc.payer == "Cigna"
+        assert tx.delivery == "QUEUED" and json.loads(tx.snapshot)["insuredId"] == "CIG123456"

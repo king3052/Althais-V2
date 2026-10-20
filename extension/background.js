@@ -159,6 +159,46 @@ async function run(tabId) {
   }
 }
 
+// ---------- code a note, create a claim, fill codes (each only when the biller presses the button) ----------
+async function ask(tabId, msg) {
+  let frames = [];
+  try { frames = (await chrome.webNavigation.getAllFrames({ tabId })) || []; } catch (e) {}
+  if (!frames.length) frames = [{ frameId: 0 }];
+  return (await Promise.all(frames.map((f) => chrome.tabs.sendMessage(tabId, msg, { frameId: f.frameId }).catch(() => null)))).filter(Boolean);
+}
+async function post(path, body) {
+  const cfg = await get(["server", "token"]);
+  if (!cfg.token) throw new Error("Connect this browser to Althais first (Revenue › Connect EMR › Browser Extension).");
+  const base = (cfg.server || S.DEFAULT_SERVER).replace(/\/+$/, "");
+  let r;
+  try { r = await fetch(base + path, { method: "POST", headers: { Authorization: "Bearer " + cfg.token, "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { throw new Error("Couldn't reach Althais. Check your connection."); }
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok) { const err = new Error(j.error || j.detail || "Althais returned an error (" + r.status + ")."); err.data = j; throw err; }
+  return j;
+}
+async function codeNote(tabId) {
+  const notes = await ask(tabId, { t: "note" });
+  const pick = notes.filter((n) => n && n.text).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+  if (!pick) throw new Error("Couldn't find a visit note on this screen. Open the chart note, or select the note text, and try again.");
+  const j = await post("/api/extension/code-note", { note: pick.text });
+  return { codes: j.codes || [], how: pick.how, chars: pick.text.length };
+}
+async function claimPrefill(tabId) {
+  const parties = await ask(tabId, { t: "party" });
+  const party = {};
+  parties.forEach((p) => Object.keys(p).forEach((k) => { if (!party[k] && p[k]) party[k] = p[k]; }));
+  const outs = await scanAll(tabId);
+  const f = outs.length ? S.merge(outs).fields : {};
+  return { party, fields: f };
+}
+async function fillAll(tabId, cpt, icd) {
+  const rs = await ask(tabId, { t: "fill", cpt, icd });
+  return rs.reduce((a, r) => ({ icd: a.icd + (r.icd || 0), cpt: a.cpt + (r.cpt || 0), skipped: Math.max(a.skipped, r.skipped || 0), noRoom: Math.min(a.noRoom, r.noRoom == null ? 99 : r.noRoom) }), { icd: 0, cpt: 0, skipped: 0, noRoom: 99 });
+}
+const respond = (p, reply) => { p.then((v) => reply({ ok: true, v }), (e) => reply({ ok: false, error: e.message, data: e.data })); return true; };
+
 // ---------- messages ----------
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   const tabId = sender.tab && sender.tab.id;
@@ -171,6 +211,10 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     reply(Object.assign({ panelOpen: panels > 0 }, st && st.res ? { result: st.res, out: st.out } : {}));
     return;
   }
+  if (m.t === "codeNote" && tabId != null) return respond(codeNote(tabId), reply);
+  if (m.t === "claimPrefill" && tabId != null) return respond(claimPrefill(tabId), reply);
+  if (m.t === "claimAction" && tabId != null) return respond(post("/api/extension/claim", { action: m.action, claim: m.claim }), reply);
+  if (m.t === "fill" && tabId != null) return respond(fillAll(tabId, m.cpt || [], m.icd || []), reply);
   if (m.t === "pair") {
     (async () => {
       const server = String(m.server || "").replace(/\/+$/, "");

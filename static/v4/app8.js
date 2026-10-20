@@ -148,7 +148,7 @@
         return false;
       }];
       U.modal('Browser Extension (prototype)',
-        '<p class="t2" style="margin:0 0 8px">The extension checks each claim as you open it in your EMR. A small Althais badge on the claim screen shows Ready to submit, Worth a look or Fix first, and outlines the fields to fix. Only codes, payer, date and charge are sent. The patient name and date of birth are never read, and nothing is stored.</p>' +
+        '<p class="t2" style="margin:0 0 8px">The extension checks each claim as you open it in your EMR. A small Althais badge on the claim screen shows Ready to submit, Worth a look or Fix first, and outlines the fields to fix. Checks send only codes, payer, date and charge, and nothing is stored. From the same badge, a biller can also code a visit note, fill the codes into the EMR, and create a claim for Althais to send after they approve it.</p>' +
         (has ? '<p class="t2" style="margin:0 0 8px"><b>The extension is installed in this browser.</b> Press Connect This Browser to link it to your Althais account. No copying needed.</p>'
              : '<p class="t2" style="margin:0 0 8px">Install the extension in Chrome or Edge, then reload this page to connect it in one click. Or create a pairing token and paste it into the extension settings. A token is shown once; your last five stay active, and Revoke All stops them all.</p>') +
         '<p class="t2" style="margin:0 0 8px">Use test data only until your practice has the right agreements in place. To try it with fake patients, open the <a href="/static/mock-emr/index.html" target="_blank" rel="noopener">test claim screens</a>. Each one has a known problem to catch.</p>' +
