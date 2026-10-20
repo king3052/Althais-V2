@@ -27,6 +27,7 @@ from sqlalchemy import select as sa_select
 from sqlalchemy.orm import Session
 
 import emr_connect as ec
+import icd10
 from auth import OrgSettings, _org_namespace, get_db, require_biller
 
 router = APIRouter()
@@ -151,12 +152,50 @@ async def check(request: Request, authorization: str = Header(default=""), db: S
     if err:
         return JSONResponse({"error": err}, status_code=400, headers=NO_STORE)
     c = ec.run_checks([claim])[0]
-    return JSONResponse({"verdict": c["verdict"], "score": c["score"], "flags": [{"severity": f["severity"], "code": f["code"], "message": f["message"]} for f in c["flags"] if f["code"] != "no_patient"],
-                         "echo": {k: c[k] for k in ("cpt", "icd", "modifiers", "payer", "dos", "amount")}}, headers=NO_STORE)
+    return JSONResponse({**_result(c), "echo": {k: c[k] for k in ("cpt", "icd", "modifiers", "payer", "dos", "amount")}}, headers=NO_STORE)
+
+
+EM_OFFICE = re.compile(r"^992(0[2-5]|1[1-5])$")   # office / outpatient E/M visits
+
+
+def _extra_flags(c):
+    """Checks the panel adds on top of the shared upload checks: diagnosis codes that don't exist or aren't billable
+    (the 2026 ICD-10-CM table), and more than one office visit on the same claim."""
+    out = []
+    if icd10.LOADED:
+        for code in c["icd"]:
+            exists, billable, _ = icd10.lookup(code)
+            if not exists:
+                out.append({"severity": "error", "code": "icd_unknown", "message": f"{code} isn't in the 2026 ICD-10-CM code set. Check for a typo."})
+            elif not billable:
+                kids = ", ".join(k for k, _ in icd10.billable_children(code, 4))
+                out.append({"severity": "error", "code": "icd_header", "message": f"{code} is a category, not a billable code. Use a more specific code" + (f", such as {kids}." if kids else ".")})
+    em = [x for x in c["cpt"] if EM_OFFICE.match(x)]
+    if len(em) > 1:
+        out.append({"severity": "warn", "code": "multi_em", "message": f"{' and '.join(em)} are both office visits. Payers usually pay one E/M visit per day, so keep the one the note supports."})
+    return out
+
+
+def _codes(c, flags):
+    """One row per CPT and ICD-10 code: description (ICD-10 only; CPT text is AMA-licensed) and the worst flag that names it."""
+    rank = {"error": 3, "warn": 2, "info": 1}
+    rows = []
+    for typ, codes in (("CPT", c["cpt"]), ("ICD-10", c["icd"])):
+        for code in codes:
+            desc = icd10.lookup(code)[2] if typ == "ICD-10" else ""
+            hits = [f for f in flags if code in f["codes"]]
+            worst = max((f["severity"] for f in hits), key=lambda s: rank.get(s, 0), default="ok")
+            rows.append({"code": code, "type": typ, "description": desc, "status": worst, "issues": len(hits)})
+    return rows
 
 
 def _result(c):
-    return {"verdict": c["verdict"], "score": c["score"], "flags": [{"severity": f["severity"], "code": f["code"], "message": f["message"]} for f in c["flags"] if f["code"] != "no_patient"]}
+    flags = [{"severity": f["severity"], "code": f["code"], "message": f["message"]} for f in c["flags"] if f["code"] != "no_patient"]
+    flags += _extra_flags(c)
+    every = c["cpt"] + c["icd"]
+    for f in flags:
+        f["codes"] = [x for x in every if re.search(r"(?<![A-Z0-9.])" + re.escape(x) + r"(?![A-Z0-9])", f["message"].upper())]
+    return {"verdict": ec.verdict_for(flags), "score": ec.score_for(flags), "flags": flags, "codes": _codes(c, flags)}
 
 
 @router.post("/api/extension/lookup")

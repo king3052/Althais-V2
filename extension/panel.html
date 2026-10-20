@@ -20,32 +20,49 @@
 </section>
 
 <main id="main">
-  <section class="card hero">
-    <div class="step"><span class="n">1</span><div><b>Open a claim in your EMR</b><span>Althais reads only sites you allow, and only while this panel is open.</span></div></div>
+  <section id="verify" class="card verify idle">
+    <div class="vtop">
+      <div class="ring" aria-hidden="true"><svg viewBox="0 0 64 64"><circle class="rt" cx="32" cy="32" r="27"/><circle id="rbar" class="rb" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="0 100"/></svg><span class="spin"></span><div class="pct"><b id="pct">&ndash;</b><small id="pctsign"></small></div></div>
+      <div class="vinfo">
+        <span class="eyebrow">Claim verification</span>
+        <span id="vlabel" class="vlabel">No claim checked yet</span>
+        <span id="vmeta" class="vmeta">Open a claim in your EMR to start.</span>
+      </div>
+    </div>
+    <div class="stats">
+      <button type="button" class="stat error" data-jump="error"><b id="n-error">0</b><span>Errors</span></button>
+      <button type="button" class="stat warn" data-jump="warn"><b id="n-warn">0</b><span>Warnings</span></button>
+      <button type="button" class="stat info" data-jump="info"><b id="n-info">0</b><span>Info</span></button>
+    </div>
+    <div class="actions">
+      <button id="read" type="button" class="btn pri"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6M8 14h8M8 17h5"/></svg>Read page</button>
+      <button id="recheck" type="button" class="btn" disabled title="Check the claim again"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>Re-check</button>
+      <button id="copy" type="button" class="btn sq" disabled title="Copy results" aria-label="Copy results"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
+    </div>
     <label class="switch"><input type="checkbox" id="auto" checked><span class="track"><span class="knob"></span></span><span class="sw-text"><b>Automatic</b><span id="autohint"></span></span></label>
-    <button id="read" class="btn pri wide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6M8 14h8M8 17h5"/></svg>Read this page</button>
     <p id="readmsg" class="msg"></p>
   </section>
 
-  <form id="form" class="card" autocomplete="off" hidden>
-    <div class="step"><span class="n">2</span><div><b>Review what was found</b><span>Fix anything that doesn't match the screen.</span></div></div>
-    <div class="two">
-      <label>Claim ID<input name="claim_id" class="mono"></label>
-      <label>Date of service<input name="dos" placeholder="MM/DD/YYYY" class="mono"></label>
-    </div>
-    <button id="fetch" type="button" class="btn ghost wide">Fetch codes from athenahealth by claim ID</button>
-    <label>Payer<input name="payer"></label>
-    <label>CPT / HCPCS <i>comma separated</i><input name="cpt" class="mono"></label>
-    <label>ICD-10 <i>comma separated</i><input name="icd" class="mono"></label>
-    <div class="two">
-      <label>Modifiers<input name="modifiers" class="mono"></label>
-      <label>Charge ($)<input name="amount" inputmode="decimal" class="mono"></label>
-    </div>
-    <div class="step s3"><span class="n">3</span><div><b>Check before you submit</b></div></div>
-    <button id="check" class="btn pri wide" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>Check claim</button>
-  </form>
-
   <div id="result" aria-live="polite"></div>
+
+  <details id="edit" class="card">
+    <summary><b>Claim details</b><span>Edit and re-check</span></summary>
+    <form id="form" autocomplete="off">
+      <div class="two">
+        <label>Claim ID<input name="claim_id" class="mono"></label>
+        <label>Date of service<input name="dos" placeholder="MM/DD/YYYY" class="mono"></label>
+      </div>
+      <button id="fetch" type="button" class="link">Fetch codes from athenahealth by claim ID</button>
+      <label>Payer<input name="payer"></label>
+      <label>CPT / HCPCS <i>comma separated</i><input name="cpt" class="mono"></label>
+      <label>ICD-10 <i>comma separated</i><input name="icd" class="mono"></label>
+      <div class="two">
+        <label>Modifiers<input name="modifiers" class="mono"></label>
+        <label>Charge ($)<input name="amount" inputmode="decimal" class="mono"></label>
+      </div>
+      <button id="check" class="btn pri wide" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>Check claim</button>
+    </form>
+  </details>
 
   <details id="diag" class="card"><summary>Trouble reading a page?</summary>
     <p class="note">Builds a report of the page's layout: labels, column names and field names. Every value is masked, so no patient data is included. Send it to Althais so the reader can be tuned to this screen.</p>

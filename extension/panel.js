@@ -44,7 +44,6 @@ $("test").onclick = async () => {
 
 function fill(fields) {
   const f = $("form");
-  f.hidden = false;
   f.claim_id.value = fields.claim_id || ""; f.dos.value = fields.dos || ""; f.payer.value = fields.payer || "";
   f.cpt.value = (fields.cpt || []).join(", "); f.icd.value = (fields.icd || []).join(", "); f.modifiers.value = (fields.modifiers || []).join(", ");
   f.amount.value = fields.amount || "";
@@ -91,7 +90,7 @@ function readMessage(out, auto) {
 }
 
 $("read").onclick = async () => {
-  say("readmsg", ""); $("result").innerHTML = "";
+  say("readmsg", "");
   try {
     const outs = await scan(false);
     if (!outs.length) throw new Error("Couldn't read this page. Type the codes in below.");
@@ -99,7 +98,7 @@ $("read").onclick = async () => {
     fill(out.fields); auto.fp = fingerprint(out.fields); auto.dirty = false;
     readMessage(out, false);
     if (auto.on && cfg.token && (out.fields.cpt.length || out.fields.icd.length)) runCheck();
-  } catch (e) { say("readmsg", e.message, true); $("form").hidden = false; }
+  } catch (e) { say("readmsg", e.message, true); $("edit").open = true; }
 };
 
 // ---- Automatic mode. Runs only while this panel is open, and only on sites the person has already allowed once.
@@ -108,7 +107,7 @@ const auto = { on: true, fp: "", dirty: false, busy: false, timer: 0, lastTry: 0
 const fingerprint = (f) => JSON.stringify([f.claim_id, f.dos, f.payer, f.cpt, f.icd, f.modifiers, f.amount]);
 function setAutoUi() {
   $("auto").checked = auto.on;
-  $("autohint").textContent = auto.on ? "On: claims are read and checked as you open them." : "Off: press Read this page for each claim.";
+  $("autohint").textContent = auto.on ? "checks each claim as you open it" : "off, press Read this page";
 }
 function soon(ms) { clearTimeout(auto.timer); auto.timer = setTimeout(autoScan, ms || 500); }
 async function autoScan() {
@@ -128,7 +127,7 @@ async function autoScan() {
     if (auto.dirty && f.claim_id.value && f.claim_id.value === out.fields.claim_id) return;   // don't overwrite the person's edits on the same claim
     fill(out.fields); auto.fp = fp; auto.dirty = false;
     readMessage(out, true);
-    if (cfg.token) await runCheck(); else $("result").innerHTML = "";
+    if (cfg.token) await runCheck(); else reset();
   } catch (e) {
     if (e.quiet && Date.now() - auto.lastTry > 1500) say("readmsg", "Press Read this page once to allow Althais on this site. After that it reads automatically.");
     auto.lastTry = Date.now();
@@ -153,27 +152,132 @@ $("mkdiag").onclick = async () => {
 };
 $("copydiag").onclick = async () => { $("diagout").select(); try { await navigator.clipboard.writeText($("diagout").value); } catch (e) { document.execCommand("copy"); } $("copydiag").textContent = "Copied"; };
 
-const ICONS = {
-  clean: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg>',
-  review: '<svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
-  fix: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
-};
-const LABEL = { clean: "Looks clean", review: "Worth a look", fix: "Fix first" };
-const SEV = { error: "Fix", warn: "Check", info: "Note" };
-function showResult(j) {
-  const box = $("result"), v = LABEL[j.verdict] ? j.verdict : "review";
-  let h = '<section class="verdict ' + v + '"><div class="vhead">' + ICONS[v] + "<b>" + LABEL[v] + '</b><span class="score">' + Number(j.score) + "/100</span></div>" +
-    '<div class="meter"><i style="width:' + Math.max(0, Math.min(100, Number(j.score))) + '%"></i></div>';
-  if (!j.flags.length) h += '<p class="vnote">No problems found. This is a pre-submission check, not a guarantee of payment.</p>';
-  else h += '<div class="flags">' + j.flags.map((x) => '<div class="flag"><span class="chip ' + (SEV[x.severity] ? x.severity : "info") + '">' + (SEV[x.severity] || "Note") + "</span><span class=\"fm\"></span></div>").join("") + "</div>";
-  box.innerHTML = h + "</section>";
-  box.querySelectorAll(".fm").forEach((el, i) => { el.textContent = j.flags[i].message; });
-  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+// ---- Results: verification score up top, then the codes, then errors / warnings / info.
+const LABEL = { clean: "Ready to submit", review: "Worth a look", fix: "Fix before submitting" };
+const SEVS = [["error", "Errors"], ["warn", "Warnings"], ["info", "Info"]];
+const sevOf = (x) => (x === "error" || x === "warn" ? x : "info");
+const esc = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
+let last = null, pick = "";
+
+function setVerify(state, pct, label, meta) {
+  const v = $("verify");
+  v.className = "card verify " + state;
+  $("pct").textContent = pct == null ? "–" : pct;
+  $("pctsign").textContent = pct == null ? "" : "%";
+  $("vlabel").textContent = label;
+  $("vmeta").textContent = meta;
+  $("rbar").setAttribute("stroke-dasharray", (pct || 0) + " 100");
 }
-function busy(text) { $("result").innerHTML = '<div class="busy"><span class="spin"></span><span></span></div>'; $("result").querySelector(".busy span:last-child").textContent = text; }
-function fail(e) { const box = $("result"); box.innerHTML = ""; const p = document.createElement("p"); p.className = "msg err"; p.textContent = e.message; box.appendChild(p); }
+function setCounts(flags) {
+  for (const [s] of SEVS) {
+    const n = flags ? flags.filter((x) => sevOf(x.severity) === s).length : 0, el = document.querySelector('.stat[data-jump="' + s + '"]');
+    $("n-" + s).textContent = n; el.classList.toggle("on", n > 0); el.disabled = !n;
+  }
+}
+function claimMeta() {
+  const f = $("form");
+  return [f.claim_id.value && "Claim " + f.claim_id.value, f.payer.value, f.dos.value].filter(Boolean).join(" · ") || "Claim from this page";
+}
+function reset() {
+  last = null; pick = ""; $("result").innerHTML = ""; setCounts(null);
+  $("recheck").disabled = true; $("copy").disabled = true;
+  setVerify("idle", null, "No claim checked yet", cfg.token ? "Open a claim in your EMR to start." : "Connect in settings to check claims.");
+}
+
+// Older Althais servers don't send per-code rows, so build them from the form and the flag text.
+function codeRows(j) {
+  if (Array.isArray(j.codes)) return j.codes;
+  const f = $("form"), rank = { error: 3, warn: 2, info: 1 }, rows = [];
+  [["CPT", list(f.cpt.value)], ["ICD-10", list(f.icd.value)]].forEach(([type, codes]) => codes.forEach((code) => {
+    const hits = j.flags.filter((x) => (x.codes || []).includes(code) || x.message.toUpperCase().includes(code.toUpperCase()));
+    const status = hits.reduce((w, x) => (rank[sevOf(x.severity)] > (rank[w] || 0) ? sevOf(x.severity) : w), "ok");
+    rows.push({ code, type, description: "", status, issues: hits.length });
+  }));
+  return rows;
+}
+const mentions = (x, code) => (x.codes || []).includes(code) || (!x.codes && x.message.toUpperCase().includes(code.toUpperCase()));
+
+function showResult(j) {
+  const v = LABEL[j.verdict] ? j.verdict : "review", score = Math.max(0, Math.min(100, Math.round(Number(j.score) || 0)));
+  j.flags = j.flags || []; j.rows = codeRows(j); last = j;
+  if (pick && !j.rows.some((r) => r.code === pick)) pick = "";
+  setVerify(v, score, LABEL[v], claimMeta());
+  if ($("readmsg").classList.contains("err")) say("readmsg", "");
+  setCounts(j.flags);
+  $("recheck").disabled = false; $("copy").disabled = false; $("copy").title = "Copy results";
+  render();
+}
+
+function render() {
+  const j = last, f = $("form");
+  if (!j) return;
+  let h = "";
+  if (j.rows.length) {
+    h += '<section class="card codes"><h3>Codes<span class="count">' + j.rows.length + "</span></h3>";
+    for (const type of ["CPT", "ICD-10"]) {
+      const rows = j.rows.filter((r) => r.type === type);
+      if (!rows.length) continue;
+      h += '<div class="grp"><div class="grp-h">' + (type === "CPT" ? "Procedures (CPT / HCPCS)" : "Diagnoses (ICD-10)") + "</div>";
+      h += rows.map((r) => {
+        const st = r.status === "ok" ? "ok" : sevOf(r.status);
+        const word = st === "ok" ? "OK" : r.issues + (r.issues === 1 ? " issue" : " issues");
+        return '<button type="button" class="code ' + st + (pick === r.code ? " sel" : "") + '" data-code="' + esc(r.code) + '" title="Show issues for ' + esc(r.code) + '">' +
+          '<span class="sd"></span><span class="cv">' + esc(r.code) + '</span><span class="cd">' + esc(r.description || "") + '</span><span class="cs">' + word + "</span></button>";
+      }).join("") + "</div>";
+    }
+    const mods = list(f.modifiers.value);
+    if (mods.length) h += '<div class="mods">Modifiers ' + mods.map((m) => '<span class="tag">' + esc(m) + "</span>").join("") + "</div>";
+    h += "</section>";
+  }
+  const shown = pick ? j.flags.filter((x) => mentions(x, pick)) : j.flags;
+  if (pick) h += '<div class="filter">Showing issues for <b class="mono">' + esc(pick) + '</b><button type="button" id="clearpick">Show all</button></div>';
+  if (!j.flags.length) {
+    h += '<section class="card allclear"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg><div>No errors or warnings<span>This is a pre-submission check, not a guarantee of payment.</span></div></section>';
+  } else if (pick && !shown.length) {
+    h += '<section class="card allclear"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg><div>No issues name ' + esc(pick) + "</div></section>";
+  }
+  for (const [s, title] of SEVS) {
+    const items = shown.filter((x) => sevOf(x.severity) === s);
+    if (!items.length) continue;
+    h += '<section class="card issues ' + s + '" id="g-' + s + '"><h3><span class="sd"></span>' + title + '<span class="count">' + items.length + "</span></h3>" +
+      items.map((x) => '<div class="issue">' + esc(x.message) + ((x.codes || []).length ? '<div class="tags">' + x.codes.map((c) => '<span class="tag">' + esc(c) + "</span>").join("") + "</div>" : "") + "</div>").join("") + "</section>";
+  }
+  $("result").innerHTML = h;
+}
+
+$("result").addEventListener("click", (ev) => {
+  const c = ev.target.closest(".code");
+  if (c) { pick = pick === c.dataset.code ? "" : c.dataset.code; render(); return; }
+  if (ev.target.id === "clearpick") { pick = ""; render(); }
+});
+document.querySelectorAll(".stat").forEach((b) => (b.onclick = () => {
+  if (pick) { pick = ""; render(); }
+  const g = $("g-" + b.dataset.jump); if (g) g.scrollIntoView({ behavior: "smooth", block: "start" });
+}));
+$("recheck").onclick = () => runCheck();
+$("copy").onclick = async () => {
+  if (!last) return;
+  const f = $("form"), lines = ["Althais claim check: " + $("pct").textContent + "% – " + $("vlabel").textContent, claimMeta(),
+    "CPT: " + (list(f.cpt.value).join(", ") || "none") + (f.modifiers.value.trim() ? "  Modifiers: " + list(f.modifiers.value).join(", ") : ""), "ICD-10: " + (list(f.icd.value).join(", ") || "none")];
+  for (const [s, title] of SEVS) {
+    const items = last.flags.filter((x) => sevOf(x.severity) === s);
+    if (items.length) lines.push("", title + ":", ...items.map((x) => "- " + x.message));
+  }
+  try { await navigator.clipboard.writeText(lines.join("\n")); $("copy").title = "Copied"; } catch (e) { say("readmsg", "Couldn't copy. Select the text and copy it instead.", true); }
+};
+
+function busy(text) {
+  $("verify").classList.add("busy");
+  if (!last) setVerify("idle busy", null, text, claimMeta());
+}
+function fail(e) {
+  $("verify").classList.remove("busy");
+  if (!last) setVerify("idle", null, "Couldn't check this claim", claimMeta());
+  say("readmsg", e.message, true);
+}
 async function status() {
   const dot = $("dot"), t = $("conn");
+  if (!last) reset();
   if (!cfg.token) { dot.className = "dot"; t.textContent = "Not connected. Open settings to pair."; return; }
   try { await api("/api/extension/ping"); dot.className = "dot ok"; t.textContent = "Connected to " + new URL(base()).hostname; }
   catch (e) { dot.className = "dot bad"; t.textContent = e.message; }
