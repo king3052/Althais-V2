@@ -121,21 +121,41 @@
     U.on(app, '#cx-pull', 'click', function () { pull(30); });
     U.on(app, '#cx-template', 'click', function () { location.href = '/api/integrations/template.csv'; });
     U.on(app, '#cx-ext', 'click', function () {
-      var w = U.modal('Browser Extension (prototype)',
-        '<p class="t2" style="margin:0 0 8px">The extension adds a side panel to Chrome or Edge. On an EMR claim screen, press Read this page, check what it found, then press Check claim. Only codes, payer, date and charge are sent. The patient name and date of birth are never read, and nothing is stored.</p>' +
-        '<p class="t2" style="margin:0 0 8px">Create a pairing token and paste it into the extension settings. It is shown once. Making a new one keeps your last five working, and Revoke All stops them all. Use test data only until your practice has the right agreements in place.</p>' +
-        '<p class="t2" style="margin:0 0 8px">To try it with fake patients, open the <a href="/static/mock-emr/index.html" target="_blank" rel="noopener">test claim screens</a>. Each one has a known problem to catch.</p>' +
+      var has = document.documentElement.getAttribute('data-althais-extension');
+      var tokenBtn = ['Create Token', has ? '' : 'pri', function () {
+        api('POST', '/api/extension/token').then(function (j) {
+          var o = document.getElementById('ext-out');
+          o.innerHTML = '<label class="ask-l" for="ext-tok">Pairing token</label><input id="ext-tok" readonly style="width:100%" value="' + U.esc(j.token) + '"><div class="t2" style="margin-top:6px;font-size:12px">Copy it now. It will not be shown again.</div>';
+          var i = document.getElementById('ext-tok'); i.focus(); i.select();
+        }, function (e) { U.toast(e.message, 'warn'); });
+        return false;
+      }];
+      var connectBtn = ['Connect This Browser', 'pri', function (close) {
+        var o = document.getElementById('ext-out');
+        o.innerHTML = '<div class="t2">Connecting…</div>';
+        api('POST', '/api/extension/token').then(function (j) {
+          var done = false;
+          var on = function (ev) {
+            if (ev.source !== window || ev.origin !== location.origin || !ev.data || ev.data.type !== 'althais:paired') return;
+            done = true; window.removeEventListener('message', on);
+            if (ev.data.ok) { U.toast('This browser is connected. Open a claim in your EMR to try it.', 'ok'); close(); }
+            else o.innerHTML = '<div class="s-red">' + U.esc(ev.data.error || 'The extension could not connect.') + '</div>';
+          };
+          window.addEventListener('message', on);
+          window.postMessage({ type: 'althais:pair', token: j.token }, location.origin);
+          setTimeout(function () { if (!done) { window.removeEventListener('message', on); o.innerHTML = '<div class="s-red">The extension didn\'t answer. Reload this page and try again, or use Create Token.</div>'; } }, 8000);
+        }, function (e) { o.innerHTML = '<div class="s-red">' + U.esc(e.message) + '</div>'; });
+        return false;
+      }];
+      U.modal('Browser Extension (prototype)',
+        '<p class="t2" style="margin:0 0 8px">The extension checks each claim as you open it in your EMR. A small Althais badge on the claim screen shows Ready to submit, Worth a look or Fix first, and outlines the fields to fix. Only codes, payer, date and charge are sent. The patient name and date of birth are never read, and nothing is stored.</p>' +
+        (has ? '<p class="t2" style="margin:0 0 8px"><b>The extension is installed in this browser.</b> Press Connect This Browser to link it to your Althais account. No copying needed.</p>'
+             : '<p class="t2" style="margin:0 0 8px">Install the extension in Chrome or Edge, then reload this page to connect it in one click. Or create a pairing token and paste it into the extension settings. A token is shown once; your last five stay active, and Revoke All stops them all.</p>') +
+        '<p class="t2" style="margin:0 0 8px">Use test data only until your practice has the right agreements in place. To try it with fake patients, open the <a href="/static/mock-emr/index.html" target="_blank" rel="noopener">test claim screens</a>. Each one has a known problem to catch.</p>' +
         '<div id="ext-out"></div>',
-        [['Revoke All', '', function () { api('POST', '/api/extension/revoke').then(function () { U.toast('All extension tokens revoked.', 'ok'); }, function (e) { U.toast(e.message, 'warn'); }); return false; }],
-         ['Create Token', 'pri', function () {
-           api('POST', '/api/extension/token').then(function (j) {
-             var o = document.getElementById('ext-out');
-             o.innerHTML = '<label class="ask-l" for="ext-tok">Pairing token</label><input id="ext-tok" readonly style="width:100%" value="' + U.esc(j.token) + '"><div class="t2" style="margin-top:6px;font-size:12px">Copy it now. It will not be shown again.</div>';
-             var i = document.getElementById('ext-tok'); i.focus(); i.select();
-           }, function (e) { U.toast(e.message, 'warn'); });
-           return false;
-         }],
-         ['Close', '', function () {}]], { width: 520 });
+        [['Revoke All', '', function () { api('POST', '/api/extension/revoke').then(function () { U.toast('All extension tokens revoked.', 'ok'); }, function (e) { U.toast(e.message, 'warn'); }); return false; }]]
+          .concat(has ? [tokenBtn, connectBtn] : [tokenBtn])
+          .concat([['Close', '', function () {}]]), { width: 540 });
     });
     U.on(app, '#cx-refresh', 'click', function () { load().then(function () { U.toast('Up to date.', 'ok'); }); });
     U.on(app, '#cx-save-clean', 'click', function () { save(true); });

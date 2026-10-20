@@ -16,6 +16,8 @@ Live app: [app.althais.com](https://app.althais.com)
 | Patient intake | Scan To Autofill for new-patient registration | `patient_intake.py`, `eligibility.py`, [docs](docs/PATIENT_INTAKE.md) |
 | Staff portal | Onboarding, credentials, training, document review, offboarding | `staff_*.py`, `althais_training.py`, `training_content.py`, `practice_pages.py` |
 | Althea | Voice and chat assistant across the app | `staff_assistant.py`, `policy_knowledge.py`, `static/` |
+| Connect EMR | Pulls or uploads claims from athenahealth, Tebra, DrChrono or any export and checks them before saving | `emr_connect.py`, `athenahealth.py`, `tebra.py`, `drchrono.py`, `static/v4/app8.js` |
+| Browser extension | On-page claim check over a clinic's own EMR | `extension/`, `extension_api.py`, `static/mock-emr/` (synthetic test screens), [docs](extension/README.md) |
 | Accounts | Sign-in, roles, teams, admin console | `auth.py`, `templates/admin_*.html` |
 
 ## Tech stack
@@ -31,8 +33,8 @@ Live app: [app.althais.com](https://app.althais.com)
 Requires Python 3.12 or newer (the tests run on 3.13).
 
 ```bash
-git clone https://github.com/king3052/Merged_Althais.git
-cd Merged_Althais
+git clone https://github.com/king3052/Althais-V2.git
+cd Althais-V2
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements-dev.txt
@@ -66,6 +68,7 @@ public/                 Marketing videos
 data/                   ICD-10-CM code list
 prompts/                AI prompts
 docs/                   Feature documentation
+extension/              Chrome/Edge extension (load unpacked)
 tests/                  Pytest tests
 ```
 

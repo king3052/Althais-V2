@@ -1,6 +1,9 @@
-// Reads claim fields from the page in front of the person. Injected only when they press "Read this page".
-// Returns { fields, found, guessed }. It never looks for a patient name or date of birth.
-(function () {
+// Reads claim fields from the page in front of the person. It never looks for a patient name or date of birth.
+// Runs two ways: injected by the side panel ("Read page"), and as part of the on-page overlay (content.js), which calls
+// __althaisParse({keep: true}) so it can remember which elements held each field and outline them when there's a problem.
+// Returns { fields, found, guessed, diag, title, host }.
+globalThis.__althaisParse = function (opts) {
+  opts = opts || {};
   var MAXTXT = 80;
   var txt = function (el) { return (el && (el.innerText || el.textContent) || "").replace(/\s+/g, " ").trim(); };
   var norm = function (s) { return String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); };
@@ -26,9 +29,15 @@
   }
 
   var raw = { claim_id: [], dos: [], payer: [], cpt: [], icd: [], modifiers: [], amount: [], pos: [] };
-  var add = function (k, v) {
+  // Where each field lives on the page: refs = elements holding a value, labels = the label, empty input or table to point at
+  // when the value is missing. Only kept in memory in this tab; never sent anywhere.
+  var refs = {}, labelEls = {};
+  var note = function (map, k, el) { if (!el || !el.nodeType) return; (map[k] = map[k] || []); if (map[k].indexOf(el) < 0 && map[k].length < 40) map[k].push(el); };
+  var add = function (k, v, el, lab) {
     v = String(v || "").replace(/\s+/g, " ").trim();
-    if (v && v.length <= 400 && raw[k].indexOf(v) < 0) raw[k].push(v);
+    if (lab) note(labelEls, k, lab);
+    if (v && v.length <= 400) { if (raw[k].indexOf(v) < 0) raw[k].push(v); note(refs, k, el); }
+    else if (el) note(labelEls, k, el);
   };
 
   // 1) form controls: label[for], wrapping label, aria-label, placeholder, name
@@ -41,27 +50,27 @@
     if (!label) { var w = el.closest("label"); if (w) label = txt(w).replace(txt({ innerText: el.value }), ""); }
     var k = kindOf(label) || kindOf(el.getAttribute("placeholder")) || kindOf(el.getAttribute("name")) || kindOf(el.id);
     var v = el.tagName === "SELECT" ? (el.value ? txt(el.options[el.selectedIndex]) : "") : el.value;
-    if (k && v) add(k, v);
+    if (k) add(k, v, el, el);
   });
 
   // 2) label/value pairs: dt/dd, th/td, two-cell rows, and "Label: value" text nodes
-  document.querySelectorAll("dt").forEach(function (dt) { var k = kindOf(txt(dt)); var dd = dt.nextElementSibling; if (k && dd && dd.tagName === "DD") add(k, txt(dd)); });
+  document.querySelectorAll("dt").forEach(function (dt) { var k = kindOf(txt(dt)); var dd = dt.nextElementSibling; if (k && dd && dd.tagName === "DD") add(k, txt(dd), dd, dt); });
   document.querySelectorAll("tr").forEach(function (tr) {
     var cells = tr.children;
-    if (cells.length === 2) { var k = kindOf(txt(cells[0])); if (k) add(k, txt(cells[1])); }
+    if (cells.length === 2) { var k = kindOf(txt(cells[0])); if (k) add(k, txt(cells[1]), cells[1], cells[0]); }
   });
   document.querySelectorAll("label, span, div, p, strong, b, th, td, dt").forEach(function (el) {
     if (el.children.length > 1) return;
     var t = txt(el);
     if (!t || t.length > MAXTXT) return;
     var m = t.match(/^([^:]{2,40}):\s*(.+)$/);
-    if (m) { var k = kindOf(m[1]); if (k) { add(k, m[2]); return; } }
+    if (m) { var k = kindOf(m[1]); if (k) { add(k, m[2], el, el); return; } }
     var k2 = kindOf(t.replace(/:$/, ""));
     if (k2 && !m && !el.closest("thead") && !(el.tagName === "TH" && el.parentElement.children.length > 2)) {
       var nx = el.nextElementSibling;
       if (nx && kindOf(txt(nx).replace(/:$/, ""))) nx = null;
-      if (nx && txt(nx) && txt(nx).length <= 200) add(k2, txt(nx));
-      else if (!nx && el.parentElement && el.parentElement.children.length === 2 && el.parentElement.children[0] === el && !kindOf(txt(el.parentElement.children[1]))) add(k2, txt(el.parentElement.children[1]));
+      if (nx && txt(nx) && txt(nx).length <= 200) add(k2, txt(nx), nx, el);
+      else if (!nx && el.parentElement && el.parentElement.children.length === 2 && el.parentElement.children[0] === el && !kindOf(txt(el.parentElement.children[1]))) add(k2, txt(el.parentElement.children[1]), el.parentElement.children[1], el);
     }
   });
 
@@ -72,15 +81,16 @@
     if (!head) return;
     var cols = Array.prototype.map.call(head.children, function (h) { return kindOf(txt(h)); });
     if (!cols.some(Boolean) || cols.filter(Boolean).length < 1) return;
+    cols.forEach(function (k) { if (k === "cpt" || k === "icd" || k === "modifiers" || k === "amount") note(labelEls, k, tb); });
     var rows = tb.querySelectorAll("tbody tr");
     if (!rows.length) rows = Array.prototype.slice.call(tb.querySelectorAll("tr"), 1);
     rows.forEach(function (tr, ri) {
       Array.prototype.forEach.call(tr.children, function (td, i) {
         var k = cols[i];
         if (!k) return;
-        if (k === "claim_id" || k === "dos" || k === "payer" || k === "pos") { if (ri === 0) add(k, txt(td)); }
-        else if (k === "amount") tableAmounts.push(txt(td));
-        else add(k, txt(td));
+        if (k === "claim_id" || k === "dos" || k === "payer" || k === "pos") { if (ri === 0) add(k, txt(td), td); }
+        else if (k === "amount") { tableAmounts.push(txt(td)); note(refs, k, td); }
+        else add(k, txt(td), td);
       });
     });
   });
@@ -128,7 +138,10 @@
 
   // 4) last resort: pattern-match the visible text. These are guesses and the panel says so.
   var guessed = [];
-  var body = (document.body && document.body.innerText || "").slice(0, 60000);
+  var body = (document.body && document.body.innerText || "");
+  var ovHost = document.getElementById("althais-overlay");                    // never read Althais's own overlay text
+  if (ovHost && ovHost.innerText) body = body.split(ovHost.innerText).join(" ");
+  body = body.slice(0, 60000);
   if (!fields.icd.length) { var gi = splitCodes([body], ICD); if (gi.length && gi.length <= 12) { fields.icd = gi; guessed.push("icd"); found.icd = true; } }
   if (!fields.cpt.length) {
     var gc = [];
@@ -137,7 +150,7 @@
     if (gc.length) { fields.cpt = gc; guessed.push("cpt"); found.cpt = true; }
   }
   var diag = null;
-  if (globalThis.__althaisDiag) {
+  if (opts.diag) {
     var shape = function (v) { return String(v || "").replace(/[A-Z]/g, "A").replace(/[a-z]/g, "a").replace(/[0-9]/g, "9").slice(0, 14); };
     var labels = [], seenL = {};
     document.querySelectorAll("label, th, dt, span, div, td, strong, b").forEach(function (el) {
@@ -165,5 +178,7 @@
     diag = { top: window === window.top, path: location.origin + location.pathname, query: qnames, labels: labels, inputs: inputs, tableHeaders: heads,
       counts: { tables: document.querySelectorAll("table").length, iframes: document.querySelectorAll("iframe, frame").length, inputs: controls.length, shadowRoots: shadow, textLength: (document.body && document.body.innerText || "").length } };
   }
+  if (opts.keep) globalThis.__althaisRefs = { refs: refs, labels: labelEls };
   return { fields: fields, found: found, guessed: guessed, diag: diag, title: (document.title || "").slice(0, 80), host: location.hostname };
-})()
+};
+globalThis.__althaisParse({ diag: !!globalThis.__althaisDiag, keep: true })

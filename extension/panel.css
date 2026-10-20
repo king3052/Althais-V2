@@ -163,3 +163,7 @@ details[open] summary{margin-bottom:8px}
 
 footer{display:flex;align-items:flex-start;gap:8px;padding:10px 14px 16px;color:var(--m);font-size:11.5px}
 footer svg{width:14px;height:14px;margin-top:1px}
+
+.set-sw{margin-top:14px}
+#offsites{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#offsites .link{display:inline;margin:0}

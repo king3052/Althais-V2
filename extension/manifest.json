@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Althais Claim Check",
-  "version": "0.4.0",
-  "description": "Press a button on an EMR claim screen and Althais checks the codes before you submit. Prototype.",
+  "version": "0.5.0",
+  "description": "Checks each claim as you open it in your EMR and shows what to fix before you submit. Prototype.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -37,5 +37,27 @@
     "32": "icon32.png",
     "48": "icon48.png",
     "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web-production-8fe4.up.railway.app/*",
+        "https://*.althais.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "pair.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Show or hide the Althais overlay"
+    }
   }
 }

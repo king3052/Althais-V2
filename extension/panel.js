@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const DEFAULT_SERVER = "https://web-production-8fe4.up.railway.app";
+const DEFAULT_SERVER = self.AlthaisShared ? AlthaisShared.DEFAULT_SERVER : "https://web-production-8fe4.up.railway.app";
 let cfg = { server: DEFAULT_SERVER, token: "" };
 
 const store = {
@@ -26,6 +26,9 @@ async function init() {
   auto.on = a.auto !== false; setAutoUi();
   cfg = { server: s.server || DEFAULT_SERVER, token: s.token || "" };
   $("server").value = cfg.server; $("token").value = cfg.token;
+  const o = await new Promise((r) => chrome.storage.local.get(["overlay", "offHosts"], r));
+  overlayOn = o.overlay !== false; $("overlay").checked = overlayOn; showOffSites(o.offHosts || []);
+  if (overlayOn) pullCurrent();
   if (!cfg.token) $("settings").hidden = false;
   status();
   soon(300);
@@ -111,7 +114,7 @@ function setAutoUi() {
 }
 function soon(ms) { clearTimeout(auto.timer); auto.timer = setTimeout(autoScan, ms || 500); }
 async function autoScan() {
-  if (!auto.on || auto.busy || document.hidden) return;
+  if (!auto.on || auto.busy || document.hidden || overlayOn) return;          // with the overlay on, the background worker does the reading
   auto.busy = true;
   try {
     const outs = await scan(false, true);
@@ -142,6 +145,49 @@ setInterval(() => { if (auto.on) autoScan(); }, 4000);                          
 document.addEventListener("visibilitychange", () => { if (!document.hidden) soon(200); });
 $("form").addEventListener("input", () => { auto.dirty = true; });
 $("auto").onchange = async () => { auto.on = $("auto").checked; await chrome.storage.local.set({ auto: auto.on }); setAutoUi(); if (auto.on) { auto.fp = ""; soon(100); } };
+
+// ---- On-page overlay: the background worker reads and checks the claim; the panel mirrors its result.
+let overlayOn = true;
+function takeResult(r) {
+  if (!r || !r.result || !auto.on) return;
+  const fields = r.out && r.out.fields;
+  if (fields) {
+    const f = $("form");
+    if (auto.dirty && f.claim_id.value && f.claim_id.value === fields.claim_id) return;   // keep the person's edits on the same claim
+    fill(fields); auto.fp = fingerprint(fields); auto.dirty = false;
+    if (r.out.found) readMessage(r.out, true);
+  }
+  showResult(Object.assign({}, r.result));
+}
+async function pullCurrent() {
+  const id = await activeTabId();
+  if (id == null) return;
+  chrome.runtime.sendMessage({ t: "current", tabId: id }, (r) => { void chrome.runtime.lastError; takeResult(r); });
+}
+chrome.runtime.onMessage.addListener(async (m) => {
+  if (m.t !== "result" || !overlayOn) return;
+  if (m.tabId === await activeTabId()) takeResult(m);
+});
+chrome.tabs.onActivated.addListener(() => { if (overlayOn) setTimeout(pullCurrent, 400); });
+$("overlay").onchange = async () => { overlayOn = $("overlay").checked; await chrome.storage.local.set({ overlay: overlayOn }); if (!overlayOn) { auto.fp = ""; soon(100); } else pullCurrent(); };
+function showOffSites(list) {
+  const box = $("offsites");
+  box.hidden = !list.length;
+  box.innerHTML = list.length ? "Hidden on: " + list.map((x) => '<span class="tag">' + esc(x) + '</span> <button type="button" class="link" data-show="' + esc(x) + '">Show again</button>').join(" ") : "";
+}
+$("offsites").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-show]"); if (!b) return;
+  chrome.storage.local.get(["offHosts"], (s) => chrome.storage.local.set({ offHosts: (s.offHosts || []).filter((x) => x !== b.dataset.show) }));
+});
+chrome.storage.onChanged.addListener((ch) => {
+  if (ch.offHosts) showOffSites(ch.offHosts.newValue || []);
+  if (ch.token || ch.server) {
+    cfg = { server: (ch.server ? ch.server.newValue : cfg.server) || DEFAULT_SERVER, token: (ch.token ? ch.token.newValue : cfg.token) || "" };
+    $("server").value = cfg.server; $("token").value = cfg.token;
+    if (cfg.token) { $("settings").hidden = true; say("setmsg", ""); }
+    status();
+  }
+});
 
 $("mkdiag").onclick = async () => {
   try {

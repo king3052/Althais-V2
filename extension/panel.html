@@ -12,11 +12,13 @@
 
 <section id="settings" class="card" hidden>
   <h2>Connect to Althais</h2>
-  <p class="note">In Althais, open Revenue › Connect EMR › Browser Extension and create a pairing token.</p>
+  <p class="note">Easiest: in Althais, open Revenue › Connect EMR › Browser Extension and press <b>Connect This Browser</b>. Or paste a pairing token here.</p>
   <label>Althais address<input id="server" spellcheck="false" placeholder="https://web-production-8fe4.up.railway.app"></label>
   <label>Pairing token<input id="token" type="password" spellcheck="false" placeholder="Paste your token"></label>
   <div class="row"><button id="save" class="btn pri">Save</button><button id="test" class="btn">Test connection</button></div>
   <p id="setmsg" class="msg"></p>
+  <label class="switch set-sw"><input type="checkbox" id="overlay" checked><span class="track"><span class="knob"></span></span><span class="sw-text"><b>On-page overlay</b><span>Shows the result on the EMR screen and outlines what to fix</span></span></label>
+  <div id="offsites" class="note" hidden></div>
 </section>
 
 <main id="main">
@@ -72,5 +74,6 @@
   </details>
 </main>
 <footer><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Only codes, payer, date and charge are sent. Patient name and date of birth are never read. Nothing is saved.</span></footer>
+<script src="shared.js"></script>
 <script src="panel.js"></script>
 </body></html>
