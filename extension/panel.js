@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const DEFAULT_SERVER = self.AlthaisShared ? AlthaisShared.DEFAULT_SERVER : "https://web-production-8fe4.up.railway.app";
+const S = self.AlthaisShared;
+const DEFAULT_SERVER = S.DEFAULT_SERVER;
 let cfg = { server: DEFAULT_SERVER, token: "" };
 
 const store = {
@@ -110,6 +111,7 @@ const auto = { on: true, fp: "", dirty: false, busy: false, timer: 0, lastTry: 0
 const fingerprint = (f) => JSON.stringify([f.claim_id, f.dos, f.payer, f.cpt, f.icd, f.modifiers, f.amount]);
 function setAutoUi() {
   $("auto").checked = auto.on;
+  $("read").classList.toggle("pri", !auto.on);           // reading happens by itself, so the button steps back
   $("autohint").textContent = auto.on ? "checks each claim as you open it" : "off, press Read this page";
 }
 function soon(ms) { clearTimeout(auto.timer); auto.timer = setTimeout(autoScan, ms || 500); }
@@ -205,11 +207,15 @@ const sevOf = (x) => (x === "error" || x === "warn" ? x : "info");
 const esc = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 let last = null, pick = "";
 
-function setVerify(state, pct, label, meta) {
+function setVerify(state, pct, label, meta, flags) {
   const v = $("verify");
   v.className = "card verify " + state;
-  $("pct").textContent = pct == null ? "–" : pct;
-  $("pctsign").textContent = pct == null ? "" : "%";
+  // A claim with errors can't go out, so lead with how many things need fixing rather than a percentage.
+  const errs = flags ? flags.filter((x) => x.severity === "error").length : 0, warns = flags ? flags.filter((x) => x.severity === "warn").length : 0;
+  const count = pct != null && (errs || warns);
+  $("pct").parentElement.classList.toggle("count", !!count);
+  $("pct").textContent = pct == null ? "–" : count ? (errs || warns) : pct;
+  $("pctsign").textContent = pct == null ? "" : count ? (errs ? "to fix" : "to check") : "%";
   $("vlabel").textContent = label;
   $("vmeta").textContent = meta;
   $("rbar").setAttribute("stroke-dasharray", (pct || 0) + " 100");
@@ -247,7 +253,7 @@ function showResult(j) {
   const v = LABEL[j.verdict] ? j.verdict : "review", score = Math.max(0, Math.min(100, Math.round(Number(j.score) || 0)));
   j.flags = j.flags || []; j.rows = codeRows(j); last = j;
   if (pick && !j.rows.some((r) => r.code === pick)) pick = "";
-  setVerify(v, score, LABEL[v], claimMeta());
+  setVerify(v, score, LABEL[v], claimMeta(), j.flags);
   if ($("readmsg").classList.contains("err")) say("readmsg", "");
   setCounts(j.flags);
   $("recheck").disabled = false; $("copy").disabled = false; $("copy").title = "Copy results";
@@ -257,9 +263,9 @@ function showResult(j) {
 function render() {
   const j = last, f = $("form");
   if (!j) return;
-  let h = "";
+  let h = "", codesHtml = "";
   if (j.rows.length) {
-    h += '<section class="card codes"><h3>Codes<span class="count">' + j.rows.length + "</span></h3>";
+    let h = '<section class="card codes"><h3>Codes<span class="count">' + j.rows.length + "</span></h3>";
     for (const type of ["CPT", "ICD-10"]) {
       const rows = j.rows.filter((r) => r.type === type);
       if (!rows.length) continue;
@@ -274,6 +280,7 @@ function render() {
     const mods = list(f.modifiers.value);
     if (mods.length) h += '<div class="mods">Modifiers ' + mods.map((m) => '<span class="tag">' + esc(m) + "</span>").join("") + "</div>";
     h += "</section>";
+    codesHtml = h;
   }
   const shown = pick ? j.flags.filter((x) => mentions(x, pick)) : j.flags;
   if (pick) h += '<div class="filter">Showing issues for <b class="mono">' + esc(pick) + '</b><button type="button" id="clearpick">Show all</button></div>';
@@ -286,15 +293,26 @@ function render() {
     const items = shown.filter((x) => sevOf(x.severity) === s);
     if (!items.length) continue;
     h += '<section class="card issues ' + s + '" id="g-' + s + '"><h3><span class="sd"></span>' + title + '<span class="count">' + items.length + "</span></h3>" +
-      items.map((x) => '<div class="issue">' + esc(x.message) + ((x.codes || []).length ? '<div class="tags">' + x.codes.map((c) => '<span class="tag">' + esc(c) + "</span>").join("") + "</div>" : "") + "</div>").join("") + "</section>";
+      items.map((x) => {
+        const fix = S.FIX[x.code], kind = S.KIND_OF[x.code];
+        return '<div class="issue">' + esc(x.message) + (fix ? '<div class="fixhint">' + esc(fix) + "</div>" : "") +
+          ((x.codes || []).length ? '<div class="tags">' + x.codes.map((c) => '<span class="tag">' + esc(c) + "</span>").join("") + "</div>" : "") +
+          (kind && overlayOn ? '<button type="button" class="link showon" data-flag="' + j.flags.indexOf(x) + '">Show on page</button>' : "") + "</div>";
+      }).join("") + "</section>";
   }
+  h += codesHtml;                                   // the problems first, the code list after
   $("result").innerHTML = h;
 }
 
 $("result").addEventListener("click", (ev) => {
   const c = ev.target.closest(".code");
   if (c) { pick = pick === c.dataset.code ? "" : c.dataset.code; render(); return; }
-  if (ev.target.id === "clearpick") { pick = ""; render(); }
+  if (ev.target.id === "clearpick") { pick = ""; render(); return; }
+  const so = ev.target.closest(".showon");
+  if (so && last) {
+    const x = last.flags[+so.dataset.flag];
+    activeTabId().then((id) => { if (id != null && x) chrome.runtime.sendMessage({ t: "focus", tabId: id, code: x.code, codes: x.codes || [] }).catch(() => {}); });
+  }
 });
 document.querySelectorAll(".stat").forEach((b) => (b.onclick = () => {
   if (pick) { pick = ""; render(); }
@@ -352,4 +370,5 @@ async function runCheck() {
   } catch (e) { fail(e); }
 }
 $("form").onsubmit = (ev) => { ev.preventDefault(); runCheck(); };
+chrome.runtime.connect({ name: "panel" });                // lets the on-page badge shrink while the panel is open
 init();

@@ -167,3 +167,9 @@ footer svg{width:14px;height:14px;margin-top:1px}
 .set-sw{margin-top:14px}
 #offsites{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 #offsites .link{display:inline;margin:0}
+
+.pct.count{flex-direction:column;gap:1px}
+.pct.count b{font-size:24px}
+.pct.count small{margin:0;font:700 9px/1 var(--sans,system-ui);letter-spacing:.02em;text-transform:uppercase}
+.fixhint{margin-top:4px;color:var(--t2);font-size:12px}
+.showon{display:inline-block;margin:5px 0 0;padding:0}

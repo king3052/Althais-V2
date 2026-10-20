@@ -34,7 +34,19 @@ async function syncScripts() {
 async function injectInto(tabId) {
   try { await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["shared.js", "parse.js", "content.js"] }); } catch (e) {}
 }
-chrome.runtime.onInstalled.addListener(syncScripts);
+// On install or update, put the overlay into tabs that are already open, so nobody has to reload their EMR.
+async function injectOpenTabs() {
+  const { overlay = true } = await get(["overlay"]);
+  if (!overlay) return;
+  const perms = await chrome.permissions.getAll();
+  const allowed = new Set((perms.origins || []).filter((o) => !BUILT_IN.has(o)));
+  const tabsNow = await chrome.tabs.query({});
+  for (const t of tabsNow) {
+    let u; try { u = new URL(t.url); } catch (e) { continue; }
+    if (allowed.has(u.origin + "/*") || u.pathname.startsWith("/static/mock-emr/")) injectInto(t.id);
+  }
+}
+chrome.runtime.onInstalled.addListener(async () => { await syncScripts(); injectOpenTabs(); });
 chrome.runtime.onStartup.addListener(syncScripts);
 chrome.permissions.onAdded.addListener(async (p) => {
   await syncScripts();
@@ -153,10 +165,10 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
   if (m.t === "changed" && tabId != null) { schedule(tabId, 450); return; }
   if (m.t === "recheck" && tabId != null) { schedule(tabId, 0, true); return; }
   if (m.t === "submitWarn" && tabId != null) { toTop(tabId, { t: "submitWarn", n: m.n }); return; }
-  if (m.t === "focus" && tabId != null) { toAll(tabId, { t: "focus", i: m.i }); return; }
+  if (m.t === "focus") { const id = m.tabId != null ? m.tabId : tabId; if (id != null) toAll(id, { t: "focus", i: m.i, code: m.code, codes: m.codes }); return; }
   if (m.t === "current") {          // the panel or a freshly loaded overlay asks for the latest result
     const id = m.tabId != null ? m.tabId : tabId, st = tabs.get(id);
-    reply(st && st.res ? { result: st.res, out: st.out } : null);
+    reply(Object.assign({ panelOpen: panels > 0 }, st && st.res ? { result: st.res, out: st.out } : {}));
     return;
   }
   if (m.t === "pair") {
@@ -173,6 +185,18 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     })();
     return true;
   }
+});
+
+// While the side panel is open, the on-page badge shrinks to a dot so the two don't compete.
+let panels = 0;
+async function tellPanel() {
+  const all = await chrome.tabs.query({});
+  for (const t of all) chrome.tabs.sendMessage(t.id, { t: "panel", open: panels > 0 }, { frameId: 0 }).catch(() => {});
+}
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "panel") return;
+  panels++; tellPanel();
+  port.onDisconnect.addListener(() => { panels = Math.max(0, panels - 1); tellPanel(); });
 });
 
 chrome.commands.onCommand.addListener(async (cmd) => {

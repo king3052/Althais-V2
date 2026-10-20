@@ -3,8 +3,12 @@
 //              notices a click on the EMR's own Submit button. It never changes the EMR page's own content or blocks a click.
 // Top frame:   draws the floating pill and result card in an isolated shadow root.
 (() => {
-  if (window.__althaisContent) return;
-  window.__althaisContent = true;
+  // After the extension updates, the old copy in this page stops working. It removes itself (see the end of this file), and a
+  // fresh copy is injected; a live copy is never doubled.
+  if (window.__althaisContent && window.__althaisContent()) return;
+  if (window.__althaisTeardown) try { window.__althaisTeardown(); } catch (e) {}
+  const alive = () => { try { return !!chrome.runtime.id; } catch (e) { return false; } };
+  window.__althaisContent = alive;
   const S = globalThis.AlthaisShared;
   const TOP = window === window.top;
   const send = (m) => { try { chrome.runtime.sendMessage(m).catch(() => {}); } catch (e) {} };   // the extension may have been reloaded
@@ -63,6 +67,9 @@
     }
     const missing = /^no_/.test(flag.code);
     if (!els.length || missing) { const lab = live(R.labels[kind]); if (lab.length) els = missing ? lab : els.concat(lab).slice(0, 1); }
+    // Point at the box the biller types in, not its label, whenever the field is a form control.
+    const ctl = els.filter((el) => /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+    if (ctl.length) els = ctl;
     return els.slice(0, 6);
   }
 
@@ -110,7 +117,12 @@
   addEventListener("resize", queuePlace);
   setInterval(queuePlace, 800);
 
-  function focusFlag(i) {
+  function focusFlag(i, code, codes) {
+    if (code && verdict) {                     // the side panel names the problem by its check, not its position
+      const k = JSON.stringify(codes || []);
+      i = verdict.flags.findIndex((f) => f.code === code && JSON.stringify(f.codes || []) === k);
+      if (i < 0) i = verdict.flags.findIndex((f) => f.code === code);
+    }
     const b = boxes.find((x) => x.flags.includes(i));
     if (!b) return;
     b.el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -141,11 +153,12 @@
       if (TOP) ui.result(m);
       return;
     }
-    if (m.t === "focus") { focusFlag(m.i); return; }
+    if (m.t === "focus") { focusFlag(m.i, m.code, m.codes); return; }
     if (!TOP) return;
     if (m.t === "state") ui.state(m.state, m.text);
     if (m.t === "submitWarn") ui.submitWarn(m.n);
     if (m.t === "toggle") ui.toggle();
+    if (m.t === "panel") ui.panel(m.open);
   });
   chrome.storage.onChanged.addListener((ch) => {
     if (ch.outlines) { outlines = ch.outlines.newValue !== false; drawMarks(); if (TOP) ui.render(); }
@@ -153,6 +166,15 @@
 
   // ---------------- top frame: pill + card ----------------
   const ui = TOP ? makeUi() : null;
+
+  window.__althaisTeardown = () => {
+    try { mo.disconnect(); } catch (e) {}
+    const m = document.getElementById("althais-marks"); if (m) m.remove();
+    if (ui) ui.remove();
+    verdict = null; boxes = [];
+    window.__althaisContent = null; window.__althaisTeardown = null;
+  };
+  if (!TOP) { const wd = setInterval(() => { if (!alive()) { clearInterval(wd); window.__althaisTeardown && window.__althaisTeardown(); } }, 1500); }
 
   function makeUi() {
     const host = document.createElement("div");
@@ -176,8 +198,9 @@
       .m svg{width:15px;height:15px;fill:#fff}
       .pill b{font-weight:650;white-space:nowrap}
       .n{min-width:20px;height:20px;padding:0 6px;border-radius:10px;font:700 11.5px/20px system-ui,sans-serif;text-align:center;color:#fff}
-      .wrap.idle .pill,.wrap.off .pill{padding:0 6px;width:38px;justify-content:center}
-      .wrap.idle .pill b,.wrap.idle .n,.wrap.off .pill b{display:none}
+      .wrap.idle .pill,.wrap.off .pill,.wrap.dot .pill{padding:0 6px;width:38px;justify-content:center}
+      .wrap.idle .pill b,.wrap.idle .n,.wrap.off .pill b,.wrap.dot .pill b{display:none}
+      .wrap.dot .n{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;line-height:18px;font-size:10.5px;padding:0 5px;box-shadow:0 0 0 2px var(--bg)}
       .wrap.idle .m{background:#8090a3}
       .wrap.clean .m{background:var(--grn)} .wrap.clean b{color:var(--grn)}
       .wrap.review .m{background:var(--amb)} .wrap.review b{color:var(--amb)} .wrap.review .n{background:var(--amb)}
@@ -199,6 +222,8 @@
       .wrap.clean .hd .ic{background:var(--grn-bg);color:var(--grn)} .wrap.review .hd .ic{background:var(--amb-bg);color:var(--amb)} .wrap.fix .hd .ic{background:var(--red-bg);color:var(--red)}
       .ttl{flex:1;min-width:0}.ttl b{display:block;font-size:14.5px}.ttl span{display:block;font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .score{font:700 15px/1 ui-monospace,Menlo,Consolas,monospace;color:var(--fg2)}.score small{font-size:10px;color:var(--mut)}
+      .tally{font-weight:700;font-size:12px;white-space:nowrap;padding:2px 8px;border-radius:10px;background:var(--soft);color:var(--fg2)}
+      .wrap.fix .tally{background:var(--red-bg);color:var(--red)} .wrap.review .tally{background:var(--amb-bg);color:var(--amb)}
       .x{border:0;background:none;width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--mut)}.x:hover{background:var(--soft)}
       .x svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
       .warn{margin:10px 12px 0;padding:9px 11px;border-radius:8px;background:var(--red-bg);color:var(--red);font-weight:600;font-size:12.5px}
@@ -228,7 +253,7 @@
     </div>`;
     const $ = (id) => root.getElementById(id);
     const w = $("w"), pill = $("pill"), card = $("card");
-    let state = "idle", stateText = "", last = null, open = false, warnN = 0, hidden = false, offHost = false;
+    let state = "idle", stateText = "", last = null, open = false, warnN = 0, hidden = false, offHost = false, panelOpen = false;
     const hostKey = "pos:" + location.host;
 
     // position (draggable, remembered per site)
@@ -286,7 +311,7 @@
       host.style.display = "";
       const v = last && last.verdict;
       const cls = state === "result" && v ? v : state === "checking" ? (v || "idle") + " checking" : state === "unpaired" || state === "error" ? "review" : "idle";
-      w.className = "wrap " + cls + (w.classList.contains("down") ? " down" : "") + (w.classList.contains("left") ? " left" : "") + (warnN ? " shake" : "");
+      w.className = "wrap " + cls + (w.classList.contains("down") ? " down" : "") + (w.classList.contains("left") ? " left" : "") + (warnN ? " shake" : "") + (panelOpen && !open ? " dot" : "");
       const issues = last ? last.flags.filter((x) => x.severity === "error" || x.severity === "warn").length : 0;
       $("lbl").textContent = state === "unpaired" ? "Connect Althais" : state === "error" ? "Althais can't check" : v === "clean" ? "Ready to submit" : v === "review" ? "Worth a look" : v === "fix" ? "Fix first" : "Althais";
       $("n").hidden = !(v && v !== "clean" && issues && state !== "unpaired");
@@ -307,7 +332,8 @@
       } else {
         const f = last.fields || {};
         const meta = [f.claim_id && "Claim " + f.claim_id, f.payer, f.dos].filter(Boolean).join(" · ") || location.host;
-        h = head(v, TITLE[v], meta, last.score);
+        const errs = last.flags.filter((x) => x.severity === "error").length, warns = last.flags.filter((x) => x.severity === "warn").length;
+        h = head(v, TITLE[v], meta, v === "clean" ? last.score : null, errs ? errs + " to fix" : warns ? warns + " to check" : "");
         if (warnN) h += '<div class="warn" role="alert">This claim still has ' + warnN + " problem" + (warnN === 1 ? "" : "s") + " to fix before it goes out.</div>";
         if (!last.flags.length) h += '<div class="empty"><b>No problems found</b>This is a pre-submission check, not a guarantee of payment.</div>';
         else {
@@ -335,9 +361,9 @@
       };
       card.querySelectorAll("[data-focus]").forEach((b) => (b.onclick = () => send({ t: "focus", i: +b.dataset.focus })));
     }
-    function head(kind, title, meta, score) {
+    function head(kind, title, meta, score, tally) {
       return '<div class="hd"><span class="ic">' + (ICON[kind] || ICON.idle) + '</span><div class="ttl"><b>' + esc(title) + "</b><span>" + esc(meta) + "</span></div>" +
-        (score != null ? '<span class="score">' + Math.round(score) + "<small>/100</small></span>" : "") + CLOSE + "</div>";
+        (tally ? '<span class="tally">' + esc(tally) + "</span>" : score != null ? '<span class="score">' + Math.round(score) + "<small>/100</small></span>" : "") + CLOSE + "</div>";
     }
 
     chrome.storage.onChanged.addListener((ch) => {
@@ -348,7 +374,10 @@
     attach();
     setInterval(attach, 2000);              // single-page EMRs sometimes replace <body>
     // pick up a result the worker already has for this tab (e.g. after the page reloads)
-    try { chrome.runtime.sendMessage({ t: "current" }, (r) => { void chrome.runtime.lastError; if (r && r.result) { last = Object.assign({ fields: r.out && r.out.fields }, r.result); state = "result"; render(); } }); } catch (e) {}
+    try { chrome.runtime.sendMessage({ t: "current" }, (r) => { void chrome.runtime.lastError; if (!r) return; panelOpen = !!r.panelOpen; if (r.result) { last = Object.assign({ fields: r.out && r.out.fields }, r.result); state = "result"; } render(); }); } catch (e) {}
+
+    // If the extension is updated or removed, this copy stops working: take its badge and outlines off the page.
+    const watchdog = setInterval(() => { if (!alive()) { clearInterval(watchdog); window.__althaisTeardown && window.__althaisTeardown(); } }, 1500);
 
     return {
       render,
@@ -363,6 +392,8 @@
       state(s, text) { state = s; stateText = text || ""; render(); },
       submitWarn(n) { warnN = Math.max(1, n || 1); hidden = false; setOpen(true); setTimeout(() => w.classList.remove("shake"), 1100); },
       toggle() { hidden = !hidden; render(); },
+      panel(v) { panelOpen = !!v; render(); },
+      remove() { host.remove(); },
     };
   }
 })();
